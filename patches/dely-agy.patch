@@ -1,0 +1,593 @@
+diff --git a/.claude-plugin/marketplace.json b/.claude-plugin/marketplace.json
+index 86de955..85da9fc 100644
+--- a/.claude-plugin/marketplace.json
++++ b/.claude-plugin/marketplace.json
+@@ -1,5 +1,5 @@
+ {
+-  "name": "dely",
++  "name": "dely-orca-agy-poc",
+   "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
+   "owner": {
+     "name": "Hieu Phung",
+diff --git a/skills/delivery/SKILL.md b/skills/delivery/SKILL.md
+index 96fc5e4..0b75561 100644
+--- a/skills/delivery/SKILL.md
++++ b/skills/delivery/SKILL.md
+@@ -25,8 +25,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
+ ## The control session
+ 
+ The current interactive session is Control. It owns the approval invariant,
+-task boundaries, exception handling, dispatch supervision, and release. It
+-does not implement or review the candidate, and does not prescribe question
++task boundaries, exception handling, dispatch supervision, review, and release.
++It does not implement the candidate, and does not prescribe question
+ count, order, format, or skill-selection precedence. Native Plan Mode and
+ active design skills govern their own surfaces under the harness's
+ precedence; neither bypasses approval. Before mutation, Control obtains
+@@ -104,10 +104,12 @@ Orchestration is a required Orca capability. `dely:delivery` starts Orca,
+ then Control loads `orca skills get orchestration` and follows its
+ supervised loop. It stops only when the CLI is missing, the runtime cannot
+ start, or a required capability is absent — there is no direct dispatch and
+-no headless fallback of any kind. The launcher is `scripts/dely` relative
+-to this skill. Control learns the helper's interface by running
+-`scripts/dely` with no arguments, which prints its identity and usage,
+-and does not read `scripts/dely.js`. Control's wake mode is that harness's
++no headless fallback of any kind. The launcher is relative to this skill:
++use `scripts/dely.cmd` on Windows and `scripts/dely` on POSIX. Invoke that
++launcher directly; on Windows do not pass the POSIX wrapper to `node` or
++PowerShell. Control learns the helper's interface by running the platform
++launcher with no arguments, which prints its identity and usage, and does
++not read `scripts/dely.js`. Control's wake mode is that harness's
+ `controlWake` in `../../harnesses.json`. The preflight step runs in setup
+ and again after a `NO_ACK`; a delivery does not preflight before its first
+ dispatch.
+@@ -122,16 +124,16 @@ is a file in the worktree; its path travels as `payload.reportPath` and the
+ message body stays short. `--spec` and `--body` are shell arguments, which
+ this skill already forbids for prompts.
+ 
+-The dispatch prompt carries the task, its scope, and the evidence required.
+-It does not define role dispositions or the conditions for reaching one —
+-those belong to this skill, and a prompt that restates them narrows or
+-contradicts them. Where the design contract states an acceptance row, the
+-prompt carries that row as written. Every dispatch goes through
+-`dely dispatch`. Control does not compose a worker launch or call
+-`worker-start` by hand. The helper reads the pins from `AGENTS.md` and
+-appends the acknowledgement instruction and a sentence that the Orca
+-preamble and the spec file are everything the worker needs and that it
+-should read no other skill. The `worker-start` receipt records
++The implementation prompt carries the task, its scope, and the evidence
++required. Where the design contract states an acceptance row, the prompt
++carries that row as written. Every AGY implementation goes through
++`dely dispatch --phase implement`. Control does not compose a worker launch
++or call `worker-start` by hand. AGY is implementation-only: review is
++performed directly by Codex Control and is never dispatched through Dely.
++The helper reads the implement pin from `AGENTS.md` and appends the
++acknowledgement instruction and a sentence that the Orca preamble and the
++spec file are everything the worker needs and that it should read no other
++skill. The `worker-start` receipt records
+ `launch.requested` and `launch.effective`; it does not establish that the
+ worker can serve the request or that it cannot. Orca applies the execution
+ plane's configured permission default and does not add a sandbox the project
+@@ -204,9 +206,9 @@ what you tried, and what the options are. Do not pick one.
+ ## Implementation
+ 
+ Control creates a separate task only when that unit has its own test cycle
+-and a reviewer could accept it while rejecting its neighbor. Same-shaped
++and Codex could review it independently from its neighbor. Same-shaped
+ mechanical changes are batched. Tightly coupled work stays one task and one
+-implementer. Each independent task gets a fresh implementer TUI.
++implementer. Each independent implementation task gets a fresh AGY TUI.
+ 
+ An implementer reads the decision record, the plan, and the baseline — not
+ the design session's transcript. It owns only its task, runs a focused
+@@ -256,53 +258,36 @@ and say so.
+ 
+ ## Review
+ 
+-Review independence is role independence: a fresh session that did not
+-implement and does not edit the candidate. It gets the decision record (or
+-Bounded design), the baseline, and the diff. The phase adds no sandbox by
+-default; `AGENTS.md` may pin one for a concrete risk. Review depth is
+-adaptive: Bounded work gets one independent whole-change review. Each
+-Architectural task gets an independent task review. After all tasks are
+-accepted, a different fresh reviewer performs one integration review of
+-task interactions, complete-contract coverage, deferred findings, candidate
+-identity, and release readiness. Only that final review is release-binding
+-for Architectural work; Bounded work has no earlier task review and no
+-duplicate integration review. No worker runs while a review of the same
+-working tree runs. The working tree and its gate surface are shared mutable
+-state, and a review reproduces gates in that tree, so a concurrent edit
+-makes another task's work look like this one's result.
+-
+-**Reproduce, do not accept.** Run the gates yourself. A claim you did not
+-reproduce is not evidence. The reviewer observes the counterexample
+-discriminate for itself — an implementation that is present, runs, returns
+-a pass, and is wrong. An instrument red only because the behaviour was
+-absent is not that observation.
+-
+-Classify findings: **Blocking** — contract failure, regression, data or
+-security risk. **Important** — missing required behaviour, test, or
+-reconciliation. **Minor** — useful, does not block. **Out of scope** —
+-recorded, not absorbed. Return exactly one role disposition: `ACCEPT`,
+-`CHANGES_REQUESTED`, or `BLOCKED`. State what the review did not verify —
+-what it did not reproduce or read. A contradiction you cannot resolve is
+-`CHANGES_REQUESTED`. Do not open remediation over wording when
+-deterministic checks already prove the contract.
++Codex Control owns review. AGY never receives a review dispatch. After an
++implementation worker has reported `worker_done`, Control settles,
++acknowledges, and releases that worker, then reviews the exact candidate
++itself before any cleanup or release step.
++
++**Reproduce, do not accept.** Codex reads the baseline-to-candidate diff and
++runs the applicable acceptance instruments and project gates itself. A
++worker claim that Codex did not reproduce is not review evidence. For a
++Bounded change, Codex performs one whole-change review. For Architectural
++work, Codex reviews each completed task as needed and performs the final
++integration review over the exact candidate HEAD.
++
++Codex classifies findings as **Blocking**, **Important**, **Minor**, or
++**Out of scope**, and records exactly one disposition:
++`ACCEPT`, `CHANGES_REQUESTED`, or `BLOCKED`. Because review is local to
++Control, no Dely `review` phase, review pin, review worker, or review
++terminal exists. No AGY worker runs while Codex is reviewing the same
++working tree.
+ 
+ ### Remediation
+ 
+ One pass is one remediation pass per finding, not per review. For an
+-in-contract `CHANGES_REQUESTED` finding, the **original implementer**
+-verifies it, fixes the root cause, reruns the affected instruments and
+-closure gates, and writes a separate remediation commit — this is the
+-single original-party remediation. Control owns the plan and the decision
+-record for the whole run, including remediating findings inside them.
+-Amending them is not implementing the candidate. The **reviewer that raised
+-the finding** checks its reproduction and the fix-only diff, and
+-scope-checks a Control amendment the same way. If that scoped re-review
+-does not accept, Control routes to `REPLAN_OR_SPLIT` — it does not start
+-another repair loop. `BLOCKED` preserves the candidate and escalates the
+-unresolved dependency or authority question to Control separately from a
+-failed worker process; it is not remediated by the original implementer. A
+-fresh replacement reviewer is used only when the original reviewer is
+-unavailable or contested, and for the Architectural integration review.
++in-contract `CHANGES_REQUESTED` finding, Codex creates a bounded remediation
++implementation spec and dispatches AGY through Dely. AGY fixes the root
++cause, reruns the affected implementation instruments, and writes a
++separate remediation commit. Codex then reproduces the finding and reviews
++the fix-only diff itself. If that re-review does not accept, Control routes
++to `REPLAN_OR_SPLIT` rather than starting another repair loop. `BLOCKED`
++preserves the candidate and escalates the unresolved dependency or authority
++question; it is not converted into an AGY retry automatically.
+ 
+ ## Release
+ 
+@@ -326,10 +311,18 @@ approved target and authority. If project policy cannot publish work in
+ progress, Dely delays the push and pull request until the applicable review
+ accepts.
+ 
++After the final worker is settled, acknowledged, and released, Control runs
++`dely cleanup --run <run>` as the only cleanup command. It deletes only
++non-directory files under `.tmp-dely` whose names begin with `<run>-`,
++removes that directory only when empty, and closes only AGY terminals that
++this Run created and recorded as owned. It never deletes another Run's
++artifacts and never closes reused terminals. Do not use raw shell deletion
++for Dely artifacts.
++
+ Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`. It
+ stays opt-in on the presence of `~/.dely/` and is never created by Dely.
+ Control closes a delivery with `dely log --run <run> --json '<object>'`,
+-after release or when it stops early, rather than assembling a line by hand.
++after cleanup or when it stops early, rather than assembling a line by hand.
+ `dely` with no arguments prints which copy is running, and its usage.
+ 
+ ## Failure and recovery
+diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
+index b1af067..a0566e2 100644
+--- a/skills/delivery/scripts/dely.js
++++ b/skills/delivery/scripts/dely.js
+@@ -14,6 +14,9 @@ const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
+ const PREFLIGHT_S = seconds(process.env.DELY_PREFLIGHT_S, 150);
+ const NOTIFY_RETRY_S = seconds(process.env.DELY_NOTIFY_RETRY_S, 30);
+ const NOTIFY_GIVEUP_S = seconds(process.env.DELY_NOTIFY_GIVEUP_S, 1800);
++const positiveInt = (v, d) => (Number.isFinite(+v) && +v > 0 ? Math.floor(+v) : d);
++const CONTROL_STEP_LIMIT = positiveInt(process.env.DELY_CONTROL_STEP_LIMIT, 12);
++const SAME_FAILURE_LIMIT = positiveInt(process.env.DELY_SAME_FAILURE_LIMIT, 2);
+ 
+ function orca(args) {
+   const bin = process.env.ORCA_CLI_COMMAND || "orca";
+@@ -92,9 +95,21 @@ function harnessById(id) {
+ }
+ 
+ function pin(repo, phase) {
+-  const md = fs.readFileSync(path.join(repo, "AGENTS.md"), "utf8");
+-  const row = md.split("\n").find((l) => new RegExp("^\\|\\s*`?" + phase + "`?\\s*\\|").test(l));
+-  if (!row) throw new Error("no " + phase + " pin in AGENTS.md");
++  const re = new RegExp("^\\|\\s*`?" + phase + "`?\\s*\\|");
++  const files = [
++    path.join(repo, "AGENTS.md"),
++    path.join(os.homedir(), ".codex", "AGENTS.md"),
++  ];
++  let row;
++  for (const file of files) {
++    try {
++      row = fs.readFileSync(file, "utf8").split("\n").find((l) => re.test(l));
++    } catch (_) {
++      row = null;
++    }
++    if (row) break;
++  }
++  if (!row) throw new Error("no " + phase + " pin in project or global AGENTS.md");
+   const [, harness, model, effort] = row.split("|").slice(1).map((c) => c.trim().replace(/`/g, ""));
+   const h = loadHarnesses().find((x) => x.name === harness);
+   if (!h) throw new Error("unknown harness " + harness);
+@@ -102,8 +117,14 @@ function pin(repo, phase) {
+ }
+ 
+ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
++let currentCommand = null;
++let currentFlags = null;
+ const out = (line, code) => {
+   console.log(typeof line === "string" ? line : JSON.stringify(line));
++  if (code != null && currentCommand && currentFlags && currentFlags.run) {
++    if (code === 0) guardSuccess(currentFlags.run, currentCommand);
++    else guardFailure(currentFlags.run, currentCommand, line);
++  }
+   if (code != null) process.exit(code);
+ };
+ 
+@@ -159,6 +180,96 @@ function logEvent(event, extra) {
+   }
+ }
+ 
++function guardPath(run) {
++  if (!run) return null;
++  const key = crypto.createHash("sha256").update(String(run)).digest("hex").slice(0, 24);
++  return path.join(os.tmpdir(), "dely-loop-guard-" + key + ".json");
++}
++
++function readGuard(run) {
++  try {
++    const state = JSON.parse(fs.readFileSync(guardPath(run), "utf8"));
++    return state && typeof state === "object" ? state : { steps: 0, failures: {} };
++  } catch (_) {
++    return { steps: 0, failures: {} };
++  }
++}
++
++function writeGuard(run, state) {
++  try {
++    fs.writeFileSync(guardPath(run), JSON.stringify(state));
++  } catch (_) {
++    /* safety state is best-effort */
++  }
++}
++
++function clearGuard(run) {
++  try {
++    fs.unlinkSync(guardPath(run));
++  } catch (_) {
++    /* absent */
++  }
++}
++
++function guardFailure(run, command, line) {
++  if (!run || !["dispatch", "wait", "wait-bg"].includes(command)) return;
++  const state = readGuard(run);
++  state.failures = state.failures || {};
++  const fingerprint = String(typeof line === "string" ? line : JSON.stringify(line))
++    .replace(/\s+/g, " ")
++    .trim()
++    .slice(0, 500);
++  const prev = state.failures[command];
++  const count = prev && prev.fingerprint === fingerprint ? Number(prev.count || 0) + 1 : 1;
++  state.failures[command] = { fingerprint, count };
++  if (count >= SAME_FAILURE_LIMIT) {
++    state.blockedReason =
++      command + " returned the same failure " + count + " times; automatic retry stopped";
++  }
++  writeGuard(run, state);
++}
++
++function guardSuccess(run, command) {
++  if (!run) return;
++  const state = readGuard(run);
++  if (state.failures) delete state.failures[command];
++  if (command === "wait") {
++    state.steps = 0;
++    delete state.blockedReason;
++  }
++  writeGuard(run, state);
++}
++
++function guardBefore(command, f) {
++  if (!f || !f.run || !["preflight", "dispatch", "wait", "wait-bg"].includes(command)) return;
++  if (process.env.DELY_LOOP_GUARD_OVERRIDE === "1") {
++    clearGuard(f.run);
++    return;
++  }
++  const state = readGuard(f.run);
++  if (state.blockedReason) {
++    console.log(
++      "LOOP_GUARD " +
++        state.blockedReason +
++        ". Stop and report to the user. After explicit user direction, retry once with DELY_LOOP_GUARD_OVERRIDE=1."
++    );
++    process.exit(10);
++  }
++  state.steps = Number(state.steps || 0) + 1;
++  if (state.steps > CONTROL_STEP_LIMIT) {
++    state.blockedReason =
++      "control step budget " + CONTROL_STEP_LIMIT + " exhausted before settlement";
++    writeGuard(f.run, state);
++    console.log(
++      "LOOP_GUARD " +
++        state.blockedReason +
++        ". Stop and report to the user. After explicit user direction, retry once with DELY_LOOP_GUARD_OVERRIDE=1."
++    );
++    process.exit(10);
++  }
++  writeGuard(f.run, state);
++}
++
+ function fail(reason, extra) {
+   logEvent("error", Object.assign({ reason }, extra || {}));
+   out("ERROR " + reason, 9);
+@@ -186,6 +297,135 @@ function printIdentity() {
+ }
+ 
+ function start(repo, run, p, spec, title) {
++  if (p.agent === "antigravity") {
++    const registered = orca(["repo", "add", "--path", repo]);
++    if (registered.ok === false) {
++      return { error: (registered.error && registered.error.message) || "workspace registration failed" };
++    }
++
++    // AGY is implementation-only. Every implementation dispatch gets a fresh terminal.
++    let handle = null;
++    let owned = false;
++
++    if (!handle) {
++      const terminal = orca([
++        "terminal",
++        "create",
++        "--worktree",
++        "path:" + repo,
++        "--shell",
++        "cmd.exe",
++        "--command",
++        "agy --dangerously-skip-permissions",
++        "--title",
++        "Dely AGY Worker",
++      ]);
++      handle = terminal.result && terminal.result.terminal && terminal.result.terminal.handle;
++      if (!handle) {
++        return { error: (terminal.error && terminal.error.message) || "antigravity terminal create failed" };
++      }
++      owned = true;
++
++      sleep(8000);
++      const deadline = Date.now() + 60000;
++      let stableIdentity = 0;
++      while (Date.now() < deadline) {
++        const shown = orca(["terminal", "show", "--terminal", handle]);
++        const t = shown.result && shown.result.terminal;
++        const preview = String((t && t.preview) || "");
++        const trustPrompt =
++          preview.includes("Antigravity CLI requires permission") &&
++          preview.includes("Yes, I trust this folder");
++        if (trustPrompt) {
++          return { error: "antigravity workspace trust required in terminal " + handle };
++        }
++        if (
++          t &&
++          t.connected !== false &&
++          t.writable !== false &&
++          t.agentIdentity === "antigravity"
++        ) {
++          stableIdentity++;
++          if (stableIdentity >= 3) break;
++        } else {
++          stableIdentity = 0;
++        }
++        sleep(1000);
++      }
++      if (stableIdentity < 3) {
++        orca(["terminal", "close", "--terminal", handle]);
++        return { error: "Orca did not stably recognize the Antigravity agent in 60s" };
++      }
++
++      const ready = orca([
++        "terminal",
++        "wait",
++        "--terminal",
++        handle,
++        "--for",
++        "tui-idle",
++        "--timeout-ms",
++        "1000",
++      ]);
++      const wait = ready.result && ready.result.wait;
++      if (wait && wait.blockedReason === "agent-trust-workspace") {
++        return { error: "antigravity workspace trust required in terminal " + handle };
++      }
++    }
++
++    sleep(1000);
++    const finalShown = orca(["terminal", "show", "--terminal", handle]);
++    const finalTerminal = finalShown.result && finalShown.result.terminal;
++    if (!finalTerminal || finalTerminal.agentIdentity !== "antigravity") {
++      if (owned) orca(["terminal", "close", "--terminal", handle]);
++      return { error: "Antigravity identity became unstable before dispatch" };
++    }
++
++    const task = orca([
++      "orchestration",
++      "task-create",
++      "--spec",
++      spec,
++      "--task-title",
++      title,
++      "--run",
++      run,
++    ]);
++    const taskId = task.result && task.result.task && task.result.task.id;
++    if (!taskId) {
++      if (owned) orca(["terminal", "close", "--terminal", handle]);
++      return { error: (task.error && task.error.message) || "antigravity task create failed" };
++    }
++
++    sleep(2000);
++    const dispatch = orca([
++      "orchestration",
++      "dispatch",
++      "--task",
++      taskId,
++      "--to",
++      handle,
++      "--run",
++      run,
++      "--inject",
++      "--return-preamble",
++    ]);
++    const id = dispatch.result && dispatch.result.dispatch && dispatch.result.dispatch.id;
++    if (!id) {
++      if (owned) orca(["terminal", "close", "--terminal", handle]);
++      return { error: (dispatch.error && dispatch.error.message) || "antigravity injected dispatch failed" };
++    }
++    try {
++      fs.appendFileSync(
++        path.join(os.tmpdir(), "dely-agy-" + run + ".jsonl"),
++        JSON.stringify({ dispatchId: id, terminalHandle: handle, owned }) + "\n"
++      );
++    } catch (_) {
++      /* cleanup hint is best-effort */
++    }
++    return { id };
++  }
++
+   const args = [
+     "orchestration",
+     "worker-start",
+@@ -269,7 +509,7 @@ function lastText(id) {
+ }
+ 
+ function preflight(f) {
+-  const pins = ["implement", "review"].map((ph) => pin(f.repo, ph));
++  const pins = ["implement"].map((ph) => pin(f.repo, ph));
+   const uniq = pins.filter(
+     (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
+   );
+@@ -370,6 +610,9 @@ function preflight(f) {
+ }
+ 
+ function dispatch(f) {
++  if (f.phase !== "implement") {
++    out("ERROR AGY dispatch is implement-only; review is owned by Codex Control", 2);
++  }
+   const p = pin(f.repo, f.phase);
+   const spec =
+     fs.readFileSync(path.resolve(f.repo, f["spec-file"]), "utf8") +
+@@ -505,7 +748,7 @@ function wait(f) {
+       // no projection, or a projection with no nextAction, is not attention.
+       const kind = (proj.nextAction || {}).kind || "none";
+       const needs = (proj.attention || {}).requiresAction === true;
+-      return w.dispatchStatus === "dispatched" && (kind !== "none" || needs);
++      return w.dispatchStatus === "dispatched" && (needs || (kind !== "none" && kind !== "inspect"));
+     });
+     if (act.length) {
+       const payload = act.map((w) => ({
+@@ -662,6 +905,53 @@ function notify(f) {
+   }
+ }
+ 
++function cleanup(f) {
++  const state = path.join(os.tmpdir(), "dely-agy-" + f.run + ".jsonl");
++  const handles = new Set();
++  try {
++    for (const line of fs.readFileSync(state, "utf8").split("\n").filter(Boolean)) {
++      try {
++        const rec = JSON.parse(line);
++        if (rec && rec.owned === true && rec.terminalHandle) handles.add(rec.terminalHandle);
++      } catch (_) {
++        /* malformed cleanup hint */
++      }
++    }
++  } catch (_) {
++    /* no AGY terminals recorded */
++  }
++
++  let closed = 0;
++  for (const handle of handles) {
++    const r = orca(["terminal", "close", "--terminal", handle]);
++    if (r.ok !== false) closed++;
++  }
++  try {
++    fs.unlinkSync(state);
++  } catch (_) {
++    /* absent */
++  }
++
++  const tempDir = path.join(process.cwd(), ".tmp-dely");
++  const prefix = f.run + "-";
++  let artifacts = 0;
++  try {
++    for (const name of fs.readdirSync(tempDir)) {
++      if (!name.startsWith(prefix)) continue;
++      const target = path.join(tempDir, name);
++      if (fs.lstatSync(target).isDirectory()) continue;
++      fs.unlinkSync(target);
++      artifacts++;
++    }
++    if (fs.readdirSync(tempDir).length === 0) fs.rmdirSync(tempDir);
++  } catch (e) {
++    if (!e || e.code !== "ENOENT") fail("cleanup temp artifacts: " + (e.message || e), { run: f.run });
++  }
++
++  logEvent("cleanup", { run: f.run, closed, artifacts });
++  out("CLEANED " + closed + " terminals " + artifacts + " artifacts", 0);
++}
++
+ function logCmd(f) {
+   let payload;
+   try {
+@@ -682,7 +972,7 @@ const COMMANDS = {
+     required: [
+       ["repo", "PATH"],
+       ["run", "RUN"],
+-      ["phase", "implement|review"],
++      ["phase", "implement"],
+       ["spec-file", "FILE"],
+     ],
+     optional: [],
+@@ -709,6 +999,10 @@ const COMMANDS = {
+     required: [["run", "RUN"], ["out", "FILE"]],
+     optional: [["as", "TERMINAL"]],
+   },
++  cleanup: {
++    required: [["run", "RUN"]],
++    optional: [],
++  },
+   log: {
+     required: [["run", "RUN"], ["json", "OBJ"]],
+     optional: [["repo", "PATH"]],
+@@ -729,7 +1023,7 @@ function printUsage() {
+ }
+ 
+ const [cmd, ...rest] = process.argv.slice(2);
+-const table = { preflight, dispatch, wait, "wait-bg": waitBg, notify, log: logCmd };
++const table = { preflight, dispatch, wait, "wait-bg": waitBg, notify, cleanup, log: logCmd };
+ if (!cmd) {
+   printIdentity();
+   printUsage();
+@@ -753,4 +1047,12 @@ if (missing.length) {
+   console.log(usageLine(cmd));
+   process.exit(2);
+ }
++if (cmd === "dispatch" && f.phase !== "implement") {
++  console.log("ERROR AGY dispatch is implement-only; review is owned by Codex Control");
++  console.log(usageLine(cmd));
++  process.exit(2);
++}
++currentCommand = cmd;
++currentFlags = f;
++guardBefore(cmd, f);
+ table[cmd](f);
