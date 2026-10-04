@@ -40,6 +40,7 @@ function Has-FlagValue($call, [string]$flag, [string]$value) {
 function Invoke-Scenario([string]$name, [string[]]$extra) {
     $run = "quota-fixture-$name"
     $env:ORCA_FIXTURE_LOG = Join-Path $fixtureRoot "$name.calls.jsonl"
+    $env:ORCA_FIXTURE_SCENARIO = $name
     $cliArgs = @("dispatch", "--repo", $repo, "--run", $run, "--phase", "implement", "--spec-file", "spec.md") + $extra
     $output = @(& $nodeExe $helper @cliArgs 2>&1 | ForEach-Object { $_.ToString() })
     $exitCode = $LASTEXITCODE
@@ -73,7 +74,7 @@ function Write-Utf8NoBom([string]$path, [string]$content) {
     [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
 }
 
-$envNames = @("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "ORCA_CLI_COMMAND", "ORCA_FIXTURE_LOG", "ORCA_TERMINAL_HANDLE", "DELY_ACK_S", "DELY_POLL_S", "DELY_LOOP_GUARD_OVERRIDE", "NODE_OPTIONS")
+$envNames = @("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "ORCA_CLI_COMMAND", "ORCA_FIXTURE_LOG", "ORCA_FIXTURE_SCENARIO", "ORCA_TERMINAL_HANDLE", "DELY_ACK_S", "DELY_POLL_S", "DELY_LOOP_GUARD_OVERRIDE", "NODE_OPTIONS")
 $oldEnv = @{}
 foreach ($name in $envNames) { $oldEnv[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
 
@@ -99,6 +100,7 @@ try {
 const fs = require("fs");
 const path = require("path");
 const log = process.env.ORCA_FIXTURE_LOG;
+const scenario = process.env.ORCA_FIXTURE_SCENARIO || "";
 const args = process.argv.slice(2).filter((x) => x !== "--json");
 const readRecords = () => {
   try { return fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse); } catch (_) { return []; }
@@ -118,7 +120,9 @@ if (args[0] === "terminal" && args[1] === "create") {
   const records = readRecords();
   const codex = records.some((r) => r.args[0] === "terminal" && r.args[1] === "create" && (r.args[r.args.indexOf("--command") + 1] || "").includes("codex.exe"));
   const entered = records.some((r) => r.args[0] === "terminal" && r.args[1] === "send" && r.args.includes("--enter"));
-  result = { terminal: { handle: value("--terminal"), status: "connected", tail: codex && !entered ? ["Pasted Content"] : ["READY", ">"], latestCursor: 1 } };
+  const screenReads = records.filter((r) => r.args[0] === "terminal" && r.args[1] === "read").length;
+  const promptVisible = codex && !entered && (scenario !== "quota" || screenReads >= 2);
+  result = { terminal: { handle: value("--terminal"), status: "connected", tail: promptVisible ? ["[Pasted Content 5830 chars]"] : ["READY", ">"], latestCursor: 1 } };
 } else if (args[0] === "terminal" && args[1] === "send") {
   result = { submission: { accepted: true } };
 } else if (args[0] === "orchestration" && args[1] === "task-create") {
@@ -126,12 +130,19 @@ if (args[0] === "terminal" && args[1] === "create") {
 } else if (args[0] === "orchestration" && args[1] === "dispatch") {
   result = { dispatch: { id: "ctx_fixture" } };
 } else if (args[0] === "orchestration" && args[1] === "worker-start") {
-  result = { dispatchId: "ctx_fixture", taskId: "task_fixture", state: "ready", turnStart: "input_accepted" };
+  result = { dispatchId: "ctx_fixture", taskId: "task_fixture", state: "ready" };
 } else if (args[0] === "orchestration" && args[1] === "worker-show") {
   const entered = readRecords().some((r) => r.args[0] === "terminal" && r.args[1] === "send" && r.args.includes("--enter"));
-  result = entered
-    ? { turnStart: "observed", prompt: { stages: ["input_accepted", "turn_started"] } }
-    : { turnStart: "input_accepted", prompt: { stages: ["input_accepted"] } };
+  const working = entered && scenario !== "quota-not-working";
+  result = {
+    observation: { status: "live", exactWorker: true, agentWait: null },
+    projection: {
+      provider: { id: "codex", model: "gpt-6-luna" },
+      stage: { worker: "ready", dispatch: "dispatched", detail: "input_accepted", activity: working ? "working" : "idle" },
+      liveness: { verdict: "live", source: "agent_status" },
+      evidence: { durable: true, liveStatus: "fresh" }
+    }
+  };
 } else if (args[0] === "orchestration" && args[1] === "check") {
   const run = value("--run");
   const records = readRecords();
@@ -191,14 +202,22 @@ Atomics.wait = () => "timed-out";
     $quotaCommand = if ($quotaTerminal) { Read-Command $quotaTerminal } else { "" }
     $workerStart = @($quota.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" }) | Select-Object -First 1
     $enterCalls = @($quota.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
-    $observedTurn = @($quota.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-show" -and $_.response.result.turnStart -eq "observed" }).Count -gt 0
+    $screenCalls = @($quota.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "read" -and $_.args -contains "--screen" })
+    $screenPromptIndexes = @(); for ($i = 0; $i -lt $screenCalls.Count; $i++) { if (($screenCalls[$i].response.result.terminal.tail -join "\n") -match 'Pasted Content') { $screenPromptIndexes += $i } }
+    $delayedPrompt = $screenCalls.Count -ge 3 -and $screenPromptIndexes.Count -gt 0 -and $screenPromptIndexes[0] -gt 0
+    $observedTurn = @($quota.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-show" -and $_.response.result.projection.stage.activity -eq "working" }).Count -gt 0
     $waitCall = @($quota.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "wait" }) | Select-Object -First 1
     $waitSatisfied = $waitCall -and $waitCall.response.result.wait.satisfied -eq $true -and (Has-FlagValue $waitCall "--for" "tui-idle")
     $effective = @($quota.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
-    $effectivePins = $effective -and $effective.launch.effective.agent -eq "codex" -and $effective.launch.effective.model -eq "gpt-6-luna" -and $effective.launch.effective.effort -eq "max" -and $effective.launch.turnStart -eq "observed"
+    $effectivePins = $effective -and $effective.launch.effective.agent -eq "codex" -and $effective.launch.effective.model -eq "gpt-6-luna" -and $effective.launch.effective.effort -eq "max" -and $effective.launch.startEvidence -eq "legacy_working_projection"
     $attachedOnce = $workerStart -and (Has-FlagValue $workerStart "--terminal" "term_fixture") -and -not (Has-FlagValue $workerStart "--model" "gpt-6-luna") -and -not (Has-FlagValue $workerStart "--effort" "max") -and $enterCalls.Count -eq 1 -and $observedTurn
     $correctCommand = $quotaCommand -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"'
-    Assert-Case "quota fallback launches Codex Luna/max and records effective pins" ($quota.ExitCode -eq 0 -and $correctCommand -and $waitSatisfied -and $attachedOnce -and $effectivePins) ($quota.Output + " | command=$quotaCommand")
+    Assert-Case "quota fallback waits for the delayed prompt and accepts the exact working projection" ($quota.ExitCode -eq 0 -and $correctCommand -and $waitSatisfied -and $attachedOnce -and $effectivePins -and $delayedPrompt) ($quota.Output + " | command=$quotaCommand")
+
+    $notWorking = Invoke-Scenario "quota-not-working" @("--fallback", "quota")
+    $notWorkingEnter = @($notWorking.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
+    $nonWorkingEvidence = @($notWorking.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-show" -and $_.response.result.projection.stage.activity -ne "working" }).Count -gt 0
+    Assert-Case "non-working legacy projection does not count as a started turn" ($notWorking.ExitCode -ne 0 -and $notWorkingEnter.Count -eq 1 -and $nonWorkingEvidence -and $notWorking.Output -match "no working Codex turn evidence") $notWorking.Output
 
     $unknown = Invoke-Scenario "unknown" @("--fallback", "provider")
     Assert-Case "unknown fallback reason cannot launch" ($unknown.ExitCode -ne 0 -and -not (Has-Launch $unknown)) $unknown.Output

@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $patchForApply = Join-Path ([System.IO.Path]::GetTempPath()) ("dely-agy-" + [guid]::NewGuid().ToString("N") + ".patch")
 $patchText = [System.IO.File]::ReadAllText($patch, $utf8Strict).Replace("`r`n", "`n")
 [System.IO.File]::WriteAllText($patchForApply, $patchText, $utf8NoBom)
-git -C $globalRoot apply --recount --unidiff-zero $patchForApply
+git -C $globalRoot apply $patchForApply
 $patchApplyExitCode = $LASTEXITCODE
 Remove-Item -LiteralPath $patchForApply -Force
 if ($patchApplyExitCode -ne 0) { exit $patchApplyExitCode }

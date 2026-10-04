@@ -103,7 +103,7 @@ implement_backup -> Codex CLI / gpt-6-luna / max
 review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override either pin independently. Ordinary implementation dispatch stays on AGY; use `dely dispatch --phase implement --fallback quota` only after an explicit provider quota-exhaustion error. That route selects `implement_backup`, starts the native Codex Luna/max terminal, waits for `tui-idle`, and attaches the worker to that same terminal. Dely verifies `turnStart: observed`; if `Pasted Content` remains in the composer, it sends one bare Enter and checks for a started turn. Authentication, timeout, and other errors keep their existing handling.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override either pin independently. Ordinary implementation dispatch stays on AGY; use `dely dispatch --phase implement --fallback quota` only after an explicit provider quota-exhaustion error. That route selects `implement_backup`, starts the native Codex Luna/max terminal, waits for `tui-idle`, and attaches the worker to that same terminal. Dely waits within a bounded deadline for either fresh live working evidence or a visibly unsubmitted prompt; it sends one bare Enter only for the latter, then verifies fresh live working evidence. Authentication, timeout, and other errors keep their existing handling.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 

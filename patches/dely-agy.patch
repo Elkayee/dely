@@ -10,15 +10,24 @@ index 86de955..85da9fc 100644
    "owner": {
      "name": "Hieu Phung",
 diff --git a/skills/delivery/SKILL.md b/skills/delivery/SKILL.md
-index 96fc5e4..93b6fe4 100644
+index 96fc5e4..d52d06e 100644
 --- a/skills/delivery/SKILL.md
 +++ b/skills/delivery/SKILL.md
-@@ -28,2 +28,2 @@ The current interactive session is Control. It owns the approval invariant,
+@@ -25,8 +25,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
+ ## The control session
+ 
+ The current interactive session is Control. It owns the approval invariant,
 -task boundaries, exception handling, dispatch supervision, and release. It
 -does not implement or review the candidate, and does not prescribe question
 +task boundaries, exception handling, dispatch supervision, review, and release.
 +It does not implement the candidate, and does not prescribe question
-@@ -107,4 +107,6 @@ start, or a required capability is absent — there is no direct dispatch and
+ count, order, format, or skill-selection precedence. Native Plan Mode and
+ active design skills govern their own surfaces under the harness's
+ precedence; neither bypasses approval. Before mutation, Control obtains
+@@ -104,10 +104,12 @@ Orchestration is a required Orca capability. `dely:delivery` starts Orca,
+ then Control loads `orca skills get orchestration` and follows its
+ supervised loop. It stops only when the CLI is missing, the runtime cannot
+ start, or a required capability is absent — there is no direct dispatch and
 -no headless fallback of any kind. The launcher is `scripts/dely` relative
 -to this skill. Control learns the helper's interface by running
 -`scripts/dely` with no arguments, which prints its identity and usage,
@@ -29,7 +38,13 @@ index 96fc5e4..93b6fe4 100644
 +PowerShell. Control learns the helper's interface by running the platform
 +launcher with no arguments, which prints its identity and usage, and does
 +not read `scripts/dely.js`. Control's wake mode is that harness's
-@@ -125,10 +127,10 @@ this skill already forbids for prompts.
+ `controlWake` in `../../harnesses.json`. The preflight step runs in setup
+ and again after a `NO_ACK`; a delivery does not preflight before its first
+ dispatch.
+@@ -122,16 +124,16 @@ is a file in the worktree; its path travels as `payload.reportPath` and the
+ message body stays short. `--spec` and `--body` are shell arguments, which
+ this skill already forbids for prompts.
+ 
 -The dispatch prompt carries the task, its scope, and the evidence required.
 -It does not define role dispositions or the conditions for reaching one —
 -those belong to this skill, and a prompt that restates them narrows or
@@ -50,7 +65,13 @@ index 96fc5e4..93b6fe4 100644
 +acknowledgement instruction and a sentence that the Orca preamble and the
 +spec file are everything the worker needs and that it should read no other
 +skill. The `worker-start` receipt records
-@@ -198,5 +200,18 @@ worker **failed** rather than returned a stop status — a non-zero exit with
+ `launch.requested` and `launch.effective`; it does not establish that the
+ worker can serve the request or that it cannot. Orca applies the execution
+ plane's configured permission default and does not add a sandbox the project
+@@ -195,18 +197,32 @@ commit, launch workers, or expand scope.
+ 
+ Stop and ask the human when: a result maps to no route or more than one; the
+ worker **failed** rather than returned a stop status — a non-zero exit with
 -no result, an exhausted quota, an authentication error — which is not
 -`BLOCKED` and must not be treated as one; Orca is unavailable or a required
 -capability is absent; an action needs authority policy reserves to the
@@ -68,19 +89,29 @@ index 96fc5e4..93b6fe4 100644
 +`dely dispatch --phase implement --fallback quota`. Confirm the prior worker
 +is no longer active and release it if Orca reports it stopped. The helper
 +starts native Codex CLI with the `implement_backup` pin, waits for
-+`tui-idle`, and attaches the worker to that same terminal. It verifies
-+`turnStart: observed`; if the screen still shows `Pasted Content`, it sends
-+one bare Enter and verifies the turn started. It never resends prompt text or
++`tui-idle`, and attaches the worker to that same terminal. It waits for
++fresh live working evidence or a visibly unsubmitted prompt, polling screen
++readiness within a bounded deadline. It sends one bare Enter only for that
++prompt and then verifies fresh live working evidence. It never resends prompt text or
 +opens a second Codex editor. This exception applies only to explicit provider
 +quota exhaustion. Authentication, timeout, ambiguous, and other failures keep
 +the existing stop-and-ask handling.
-@@ -207 +222 @@ Control creates a separate task only when that unit has its own test cycle
+ 
+ ## Implementation
+ 
+ Control creates a separate task only when that unit has its own test cycle
 -and a reviewer could accept it while rejecting its neighbor. Same-shaped
 +and Codex could review it independently from its neighbor. Same-shaped
-@@ -209 +224 @@ mechanical changes are batched. Tightly coupled work stays one task and one
+ mechanical changes are batched. Tightly coupled work stays one task and one
 -implementer. Each independent task gets a fresh implementer TUI.
 +implementer. Each independent implementation task gets a fresh AGY TUI.
-@@ -259,29 +274,18 @@ and say so.
+ 
+ An implementer reads the decision record, the plan, and the baseline — not
+ the design session's transcript. It owns only its task, runs a focused
+@@ -256,53 +272,36 @@ and say so.
+ 
+ ## Review
+ 
 -Review independence is role independence: a fresh session that did not
 -implement and does not edit the candidate. It gets the decision record (or
 -Bounded design), the baseline, and the diff. The phase adds no sandbox by
@@ -128,7 +159,10 @@ index 96fc5e4..93b6fe4 100644
 +Control, no Dely `review` phase, review pin, review worker, or review
 +terminal exists. No AGY worker runs while Codex is reviewing the same
 +working tree.
-@@ -292,14 +296,8 @@ One pass is one remediation pass per finding, not per review. For an
+ 
+ ### Remediation
+ 
+ One pass is one remediation pass per finding, not per review. For an
 -in-contract `CHANGES_REQUESTED` finding, the **original implementer**
 -verifies it, fixes the root cause, reruns the affected instruments and
 -closure gates, and writes a separate remediation commit — this is the
@@ -151,7 +185,13 @@ index 96fc5e4..93b6fe4 100644
 +to `REPLAN_OR_SPLIT` rather than starting another repair loop. `BLOCKED`
 +preserves the candidate and escalates the unresolved dependency or authority
 +question; it is not converted into an AGY retry automatically.
-@@ -328,0 +327,8 @@ accepts.
+ 
+ ## Release
+ 
+@@ -326,10 +325,18 @@ approved target and authority. If project policy cannot publish work in
+ progress, Dely delays the push and pull request until the applicable review
+ accepts.
+ 
 +After the final worker is settled, acknowledged, and released, Control runs
 +`dely cleanup --run <run>` as the only cleanup command. It deletes only
 +non-directory files under `.tmp-dely` whose names begin with `<run>-`,
@@ -160,11 +200,16 @@ index 96fc5e4..93b6fe4 100644
 +artifacts and never closes reused terminals. Do not use raw shell deletion
 +for Dely artifacts.
 +
-@@ -332 +338 @@ Control closes a delivery with `dely log --run <run> --json '<object>'`,
+ Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`. It
+ stays opt-in on the presence of `~/.dely/` and is never created by Dely.
+ Control closes a delivery with `dely log --run <run> --json '<object>'`,
 -after release or when it stops early, rather than assembling a line by hand.
 +after cleanup or when it stops early, rather than assembling a line by hand.
+ `dely` with no arguments prints which copy is running, and its usage.
+ 
+ ## Failure and recovery
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index b1af067..a0566e2 100644
+index b1af067..5fd5309 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
 @@ -14,6 +14,9 @@ const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
@@ -459,14 +504,14 @@ index b1af067..a0566e2 100644
    const uniq = pins.filter(
      (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
    );
-@@ -370,6 +610,17 @@ function preflight(f) {
+@@ -370,7 +610,18 @@ function preflight(f) {
  }
  
  function dispatch(f) {
+-  const p = pin(f.repo, f.phase);
 +  if (f.phase !== "implement") {
 +    out("ERROR AGY dispatch is implement-only; review is owned by Codex Control", 2);
 +  }
--  const p = pin(f.repo, f.phase);
 +  const pinPhase = f.fallback === "quota" ? "implement_backup" : f.phase;
 +  const selected = pin(f.repo, pinPhase);
 +  const p = Object.assign({}, selected, { phase: f.phase, pinPhase, fallbackReason: f.fallback || null });
@@ -478,9 +523,8 @@ index b1af067..a0566e2 100644
 +  }
    const spec =
      fs.readFileSync(path.resolve(f.repo, f["spec-file"]), "utf8") +
-@@ -387,8 +638,11 @@
-       logEvent("dispatch", {
-         run: f.run,
+     "\n\nFirst action, before anything else: send a heartbeat with subject `ack`. The Orca preamble and this spec file are everything the worker needs; read no other skill.";
+@@ -389,6 +640,9 @@ function dispatch(f) {
          repo: f.repo,
          phase: p.phase,
          agent: p.agent,
@@ -553,8 +597,7 @@ index b1af067..a0566e2 100644
  function logCmd(f) {
    let payload;
    try {
-@@ -681,9 +983,9 @@ const COMMANDS = {
-   dispatch: {
+@@ -682,10 +983,10 @@ const COMMANDS = {
      required: [
        ["repo", "PATH"],
        ["run", "RUN"],
@@ -565,6 +608,8 @@ index b1af067..a0566e2 100644
 -    optional: [],
 +    optional: [["fallback", "quota"]],
    },
+   wait: {
+     required: [["run", "RUN"], ["control", "HARNESS"]],
 @@ -709,6 +1010,10 @@ const COMMANDS = {
      required: [["run", "RUN"], ["out", "FILE"]],
      optional: [["as", "TERMINAL"]],
@@ -585,7 +630,7 @@ index b1af067..a0566e2 100644
  if (!cmd) {
    printIdentity();
    printUsage();
-@@ -753,4 +1058,155 @@ if (missing.length) {
+@@ -753,4 +1058,184 @@ if (missing.length) {
    console.log(usageLine(cmd));
    process.exit(2);
  }
@@ -618,7 +663,31 @@ index b1af067..a0566e2 100644
 +  const projection = result.projection || {};
 +  const prompt = result.prompt || projection.prompt || {};
 +  const stages = Array.isArray(prompt.stages) ? prompt.stages : [];
-+  return result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started");
++  if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
++    return "turn_started";
++  }
++  const observation = result.observation || {};
++  const provider = projection.provider || {};
++  const stage = projection.stage || {};
++  const liveness = projection.liveness || {};
++  const evidence = projection.evidence || {};
++  if (
++    observation.status === "live" &&
++    observation.exactWorker === true &&
++    provider.id === "codex" &&
++    provider.model === "gpt-6-luna" &&
++    stage.worker === "ready" &&
++    stage.dispatch === "dispatched" &&
++    stage.detail === "input_accepted" &&
++    stage.activity === "working" &&
++    liveness.verdict === "live" &&
++    liveness.source === "agent_status" &&
++    evidence.durable === true &&
++    evidence.liveStatus === "fresh"
++  ) {
++    return "legacy_working_projection";
++  }
++  return null;
 +}
 +
 +function startCodexQuotaTerminal(repo, run, p, spec, title) {
@@ -682,43 +751,48 @@ index b1af067..a0566e2 100644
 +    };
 +  }
 +
-+  let turnStarted = observedTurn(result);
-+  if (!turnStarted) {
-+    turnStarted = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
-+  }
-+  if (!turnStarted) {
-+    const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
-+    const terminalState = (screen.result || {}).terminal || {};
-+    const draft = terminalState.draft || "";
-+    const visible = (terminalState.tail || []).join("\n") + "\n" + JSON.stringify(draft);
-+    if (!/Pasted Content/i.test(visible) && !String(draft).trim()) {
++  let startEvidence = observedTurn(result);
++  if (!startEvidence) {
++    const promptDeadline = Date.now() + 30000;
++    let promptVisible = false;
++    while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
++      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
++      if (startEvidence) break;
++      const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
++      const terminalState = (screen.result || {}).terminal || {};
++      const draft = terminalState.draft || "";
++      const visible = (terminalState.tail || []).join("\n") + "\n" + JSON.stringify(draft);
++      promptVisible = /Pasted Content/i.test(visible) || Boolean(String(draft).trim());
++      if (!promptVisible) sleep(250);
++    }
++    if (!startEvidence && !promptVisible) {
 +      return {
-+        error: "Codex quota backup input was accepted but no started turn or pasted prompt was observed; dispatch=" + id + "; terminal=" + handle,
++        error: "Codex quota backup input was accepted but no started turn or visibly unsubmitted prompt was observed; dispatch=" + id + "; terminal=" + handle,
 +        id,
 +        terminalHandle: handle,
 +      };
 +    }
-+    const enter = orca(["terminal", "send", "--terminal", handle, "--enter"]);
-+    if (enter.ok === false) {
-+      return {
-+        error: "Codex quota backup bare Enter failed after Pasted Content; dispatch=" + id + "; terminal=" + handle + "; " +
-+          ((enter.error && enter.error.message) || "terminal send failed"),
-+        id,
-+        terminalHandle: handle,
-+      };
-+    }
-+    const deadline = Date.now() + 30000;
-+    while (Date.now() < deadline) {
-+      if (observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result)) {
-+        turnStarted = true;
-+        break;
++    if (!startEvidence && promptVisible) {
++      const enter = orca(["terminal", "send", "--terminal", handle, "--enter"]);
++      if (enter.ok === false) {
++        return {
++          error: "Codex quota backup bare Enter failed after a visible unsubmitted prompt; dispatch=" + id + "; terminal=" + handle + "; " +
++            ((enter.error && enter.error.message) || "terminal send failed"),
++          id,
++          terminalHandle: handle,
++        };
 +      }
-+      sleep(250);
++      const startDeadline = Date.now() + 30000;
++      while (Date.now() < startDeadline && !startEvidence) {
++        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
++        if (startEvidence) break;
++        sleep(250);
++      }
 +    }
 +  }
-+  if (!turnStarted) {
++  if (!startEvidence) {
 +    return {
-+      error: "Codex quota backup prompt was not observed to start; dispatch=" + id + "; terminal=" + handle,
++      error: "Codex quota backup prompt was submitted once but no working Codex turn evidence was observed; dispatch=" + id + "; terminal=" + handle,
 +      id,
 +      terminalHandle: handle,
 +    };
@@ -736,7 +810,7 @@ index b1af067..a0566e2 100644
 +      effective: pins,
 +      source: "native_terminal_command",
 +      command,
-+      turnStart: "observed",
++      startEvidence,
 +      workerStart: result.launch || null,
 +    },
 +  };
