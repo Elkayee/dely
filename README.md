@@ -48,12 +48,19 @@ Run the focused regression check with:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-loop-guard.ps1
 ```
 
+Run the quota-backup fixture against an installed helper path, for example:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-quota-backup.ps1 -HelperPath .\.dely-poc\skills\delivery\scripts\dely.js
+```
+
 ## Files
 
 - `AGENTS.md` — routes implementation to Antigravity CLI and keeps review with Codex Control.
 - `patches/dely-agy.patch` — reproducible local Dely adapter.
 - `scripts/setup-poc.ps1` — rebuilds the local Dely snapshot, applies the AGY adapter, and installs the local Codex plugin.
 - `scripts/poc-preflight.ps1` — Dely preflight through Orca to AGY.
+- `scripts/test-quota-backup.ps1` — black-box quota fallback and pin-propagation fixture.
 - `scripts/poc-e2e.ps1` — deterministic Control -> Dely -> Orca -> AGY proof.
 - `poc/agy-worker-spec.md` — worker task used by the E2E proof.
 - `.dely-poc/` — generated local Dely snapshot; ignored by Git.
@@ -91,11 +98,12 @@ C:\Users\Home33\.codex\AGENTS.md
 with:
 
 ```text
-implement -> Antigravity CLI
-review    -> Codex Control (local review, no worker dispatch)
+implement        -> Antigravity CLI / default / default
+implement_backup -> Codex CLI / gpt-6-luna / max
+review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first. If that workspace has no Dely phase row, it falls back to the user-level `~/.codex/AGENTS.md`. A project can therefore override the global defaults without changing other workspaces.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override either pin independently. Ordinary implementation dispatch stays on AGY; use `dely dispatch --phase implement --fallback quota` only after an explicit provider quota-exhaustion error. That route selects `implement_backup`, starts the native Codex Luna/max terminal, waits for `tui-idle`, and attaches the worker to that same terminal. Dely verifies `turnStart: observed`; if `Pasted Content` remains in the composer, it sends one bare Enter and checks for a started turn. Authentication, timeout, and other errors keep their existing handling.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
@@ -161,4 +169,4 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 ## Worker model
 
-The worker harness is AGY. Model and effort remain `default` in Dely, so the active model is controlled by Antigravity's own configuration. Use `agy models` to inspect the models available to that worker.
+AGY remains the primary worker with model and effort set to `default`, so the active model is controlled by Antigravity's own configuration. The quota-only backup is Codex CLI with `gpt-6-luna` and `max`; Dely applies those values in the native terminal command because Orca's model/effort flags cannot express this combination when attaching an existing terminal.

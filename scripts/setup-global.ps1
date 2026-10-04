@@ -12,11 +12,16 @@ if (Test-Path $globalRoot) {
     Remove-Item $globalRoot -Recurse -Force
 }
 
-git clone --depth 1 https://github.com/hieuphung97/dely.git $globalRoot
+git clone --config core.autocrlf=false --depth 1 https://github.com/hieuphung97/dely.git $globalRoot
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-git -C $globalRoot apply $patch
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$patchForApply = Join-Path ([System.IO.Path]::GetTempPath()) ("dely-agy-" + [guid]::NewGuid().ToString("N") + ".patch")
+$patchText = [System.IO.File]::ReadAllText($patch, $utf8Strict).Replace("`r`n", "`n")
+[System.IO.File]::WriteAllText($patchForApply, $patchText, $utf8NoBom)
+git -C $globalRoot apply --recount --unidiff-zero $patchForApply
+$patchApplyExitCode = $LASTEXITCODE
+Remove-Item -LiteralPath $patchForApply -Force
+if ($patchApplyExitCode -ne 0) { exit $patchApplyExitCode }
 
 $marketplaceFile = Join-Path $globalRoot ".claude-plugin\marketplace.json"
 $marketplace = [System.IO.File]::ReadAllText($marketplaceFile, $utf8Strict)
@@ -60,8 +65,23 @@ if (-not (Select-String -Path $delyScript -Pattern 'DELY_SAME_FAILURE_LIMIT' -Qu
 if (-not (Select-String -Path $delyScript -Pattern 'LOOP_GUARD' -Quiet)) {
     throw "Global Dely copy does not contain the runaway-loop hard stop."
 }
-if (-not (Select-String -Path $delyScript -Pattern 'AGY dispatch is implement-only' -Quiet)) {
+if (-not (Select-String -Path $delyScript -Pattern 'review is owned by Codex Control' -Quiet)) {
     throw "Global Dely copy does not enforce Codex-owned review."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'function startCodexQuotaTerminal' -Quiet)) {
+    throw "Global Dely copy does not contain the quota-only Codex terminal path."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'unknown fallback reason' -Quiet)) {
+    throw "Global Dely copy does not reject unknown fallback reasons."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'model_reasoning_effort=' -Quiet)) {
+    throw "Global Dely copy does not pin Codex reasoning effort in its native terminal command."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'function observedTurn\(value\)' -Quiet)) {
+    throw "Global Dely copy does not require an observed Codex turn start."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'terminal.*send.*--enter' -Quiet)) {
+    throw "Global Dely copy does not submit a visibly pasted Codex prompt."
 }
 if (-not (Select-String -Path $delyScript -Pattern 'function cleanup\(f\)' -Quiet)) {
     throw "Global Dely copy does not contain Run-owned AGY cleanup."
@@ -82,8 +102,10 @@ Default delivery routing for all workspaces. A project-level Dely table override
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |
 | `implement` | Antigravity CLI | default | default |
+| `implement_backup` | Codex CLI | gpt-6-luna | max |
 
 Review is performed directly by Codex Control. Never dispatch review work to AGY.
+Use `--fallback quota` only after an explicit provider quota-exhaustion error. Authentication, timeout and other errors keep their existing handling.
 
 ### Bounded Control
 
