@@ -18,7 +18,9 @@ delivery run.
 
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |
-| `implement` | Antigravity CLI | default | default |
+| `implement` | Antigravity CLI | claude-sonnet-5-5-high | default |
+| `implement_backup` | Antigravity CLI | gemini-3.8-flash-high | default |
+| `implement_backup_2` | Codex CLI | gpt-6-luna | max |
 
 Review is owned by Codex Control. Never dispatch a `review` phase to AGY.
 <!-- dely:end -->

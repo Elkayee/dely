@@ -74,6 +74,15 @@ if (-not (Select-String -Path $delyScript -Pattern 'function startCodexQuotaTerm
 if (-not (Select-String -Path $delyScript -Pattern 'unknown fallback reason' -Quiet)) {
     throw "Global Dely copy does not reject unknown fallback reasons."
 }
+if (-not (Select-String -Path $delyScript -Pattern 'fallback-stage' -Quiet)) {
+    throw "Global Dely copy does not support ordered quota stages."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'gemini-3\.8-flash-high' -Quiet)) {
+    throw "Global Dely copy does not pin the Flash High quota stage."
+}
+if (-not (Select-String -Path $delyScript -Pattern 'implement_backup_2' -Quiet)) {
+    throw "Global Dely copy does not pin the final Luna backup."
+}
 if (-not (Select-String -Path $delyScript -Pattern 'model_reasoning_effort=' -Quiet)) {
     throw "Global Dely copy does not pin Codex reasoning effort in its native terminal command."
 }
@@ -101,11 +110,12 @@ Default delivery routing for all workspaces. A project-level Dely table override
 
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |
-| `implement` | Antigravity CLI | default | default |
-| `implement_backup` | Codex CLI | gpt-6-luna | max |
+| `implement` | Antigravity CLI | claude-sonnet-5-5-high | default |
+| `implement_backup` | Antigravity CLI | gemini-3.8-flash-high | default |
+| `implement_backup_2` | Codex CLI | gpt-6-luna | max |
 
 Review is performed directly by Codex Control. Never dispatch review work to AGY.
-Use `--fallback quota` only after an explicit provider quota-exhaustion error. Authentication, timeout and other errors keep their existing handling.
+For explicit primary Sonnet quota, route to `--fallback quota --fallback-stage 1`; only explicit Flash quota advances to `--fallback quota --fallback-stage 2` after the prior attempt is inactive and released when required. Authentication, timeout, unknown errors, and the final stage do not advance.
 
 ### Bounded Control
 

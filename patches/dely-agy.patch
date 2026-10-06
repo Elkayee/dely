@@ -10,7 +10,7 @@ index 86de955..85da9fc 100644
    "owner": {
      "name": "Hieu Phung",
 diff --git a/skills/delivery/SKILL.md b/skills/delivery/SKILL.md
-index 96fc5e4..d52d06e 100644
+index 96fc5e4..95472a8 100644
 --- a/skills/delivery/SKILL.md
 +++ b/skills/delivery/SKILL.md
 @@ -25,8 +25,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
@@ -68,7 +68,7 @@ index 96fc5e4..d52d06e 100644
  `launch.requested` and `launch.effective`; it does not establish that the
  worker can serve the request or that it cannot. Orca applies the execution
  plane's configured permission default and does not add a sandbox the project
-@@ -195,18 +197,32 @@ commit, launch workers, or expand scope.
+@@ -195,18 +197,39 @@ commit, launch workers, or expand scope.
  
  Stop and ask the human when: a result maps to no route or more than one; the
  worker **failed** rather than returned a stop status — a non-zero exit with
@@ -77,25 +77,32 @@ index 96fc5e4..d52d06e 100644
 -capability is absent; an action needs authority policy reserves to the
 -human; or the same worker fails twice on the same input. Say what you know,
 -what you tried, and what the options are. Do not pick one.
-+no result, an authentication error, or any error other than explicit quota
-+exhaustion — which is not `BLOCKED` and must not be treated as one; Orca is
-+unavailable or a required capability is absent; an action needs authority
-+policy reserves to the human; or the same worker fails twice on the same
-+input. Say what you know, what you tried, and what the options are. Do not
-+pick one.
++no result, an authentication error, a timeout, or any error other than the
++two explicit provider quota cases below; which is not `BLOCKED`
++and must not be treated as one; Orca is unavailable or a required capability
++is absent; an action needs authority policy reserves to the human; or the
++same worker fails twice on the same input. If stage 2 fails or exhausts its
++quota, stop and ask; it is the final backup. Say what you know, what you
++tried, and what the options are. Do not pick one.
 +
-+For an implementation worker that returns an explicit provider quota-
-+exhaustion error, the user has authorized one fresh dispatch through
-+`dely dispatch --phase implement --fallback quota`. Confirm the prior worker
-+is no longer active and release it if Orca reports it stopped. The helper
-+starts native Codex CLI with the `implement_backup` pin, waits for
-+`tui-idle`, and attaches the worker to that same terminal. It waits for
-+fresh live working evidence or a visibly unsubmitted prompt, polling screen
-+readiness within a bounded deadline. It sends one bare Enter only for that
-+prompt and then verifies fresh live working evidence. It never resends prompt text or
-+opens a second Codex editor. This exception applies only to explicit provider
-+quota exhaustion. Authentication, timeout, ambiguous, and other failures keep
-+the existing stop-and-ask handling.
++For an explicit provider quota-exhaustion error from the primary `implement`
++worker, verify with `worker-list` or `worker-show` that the prior dispatch is
++no longer active, then call `worker-release` when Orca reports it stopped.
++If the prior attempt cannot be confirmed inactive or released as required,
++stop and ask. Otherwise dispatch `dely dispatch --phase implement --fallback quota --fallback-stage 1`. This selects Antigravity CLI /
++`gemini-3.8-flash-high` / `default` and uses the normal
++AGY startup, trust, and receipt path.
++
++Only if that stage-1 Flash worker returns an explicit provider quota-
++exhaustion error, make the same inactive/release check and dispatch `dely dispatch --phase implement --fallback quota --fallback-stage 2`.
++Stage 2 selects native Codex CLI / `gpt-6-luna` / `max`.
++The helper waits for `tui-idle`, attaches the worker to that same terminal,
++and verifies fresh live working evidence. If the prompt is visibly
++unsubmitted, it sends one bare Enter, then verifies working evidence; it
++never resends prompt text or opens a second Codex editor. Authentication,
++timeout, ambiguous, and other failures do not advance either stage. Stage 2
++is final; do not retry or loop past it. This is the ordered quota exception,
++not a general fallback engine.
  
  ## Implementation
  
@@ -108,7 +115,7 @@ index 96fc5e4..d52d06e 100644
  
  An implementer reads the decision record, the plan, and the baseline — not
  the design session's transcript. It owns only its task, runs a focused
-@@ -256,53 +272,36 @@ and say so.
+@@ -256,53 +279,36 @@ and say so.
  
  ## Review
  
@@ -188,7 +195,7 @@ index 96fc5e4..d52d06e 100644
  
  ## Release
  
-@@ -326,10 +325,18 @@ approved target and authority. If project policy cannot publish work in
+@@ -326,10 +332,18 @@ approved target and authority. If project policy cannot publish work in
  progress, Dely delays the push and pull request until the applicable review
  accepts.
  
@@ -209,7 +216,7 @@ index 96fc5e4..d52d06e 100644
  
  ## Failure and recovery
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index b1af067..5fd5309 100644
+index b1af067..b847d14 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
 @@ -14,6 +14,9 @@ const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
@@ -359,11 +366,176 @@ index b1af067..5fd5309 100644
  function fail(reason, extra) {
    logEvent("error", Object.assign({ reason }, extra || {}));
    out("ERROR " + reason, 9);
-@@ -186,6 +297,135 @@ function printIdentity() {
+@@ -185,7 +296,304 @@ function printIdentity() {
+   console.log("dely " + version + " sha " + (delySha() || "null") + " sha256 " + skill);
  }
  
++function observedTurn(value) {
++  const result = value || {};
++  const projection = result.projection || {};
++  const prompt = result.prompt || projection.prompt || {};
++  const stages = Array.isArray(prompt.stages) ? prompt.stages : [];
++  if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
++    return "turn_started";
++  }
++  const observation = result.observation || {};
++  const provider = projection.provider || {};
++  const stage = projection.stage || {};
++  const liveness = projection.liveness || {};
++  const evidence = projection.evidence || {};
++  if (
++    observation.status === "live" &&
++    observation.exactWorker === true &&
++    provider.id === "codex" &&
++    provider.model === "gpt-6-luna" &&
++    stage.worker === "ready" &&
++    stage.dispatch === "dispatched" &&
++    stage.detail === "input_accepted" &&
++    stage.activity === "working" &&
++    liveness.verdict === "live" &&
++    liveness.source === "agent_status" &&
++    evidence.durable === true &&
++    evidence.liveStatus === "fresh"
++  ) {
++    return "legacy_working_projection";
++  }
++  return null;
++}
++
++function startCodexQuotaTerminal(repo, run, p, spec, title) {
++  if (process.platform !== "win32") {
++    return { error: "Codex quota backup launch is verified only on Windows" };
++  }
++  const codex = path.join(
++    process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"),
++    "npm", "node_modules", "@openai", "codex", "node_modules", "@openai",
++    "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "bin", "codex.exe"
++  );
++  if (!fs.existsSync(codex)) return { error: "Native Codex CLI is unavailable: " + codex };
++
++  const command = '& "' + codex + '" --model "' + p.model + '" -c "model_reasoning_effort=' + p.effort + '"';
++  const terminal = orca([
++    "terminal", "create", "--worktree", "path:" + repo,
++    "--shell", "powershell.exe", "--command", command,
++    "--title", title || "Dely Codex quota backup",
++  ]);
++  const handle = terminal.result && terminal.result.terminal && terminal.result.terminal.handle;
++  if (!handle) {
++    return { error: (terminal.error && terminal.error.message) || "Codex quota backup terminal create failed" };
++  }
++  try {
++    fs.appendFileSync(
++      path.join(os.tmpdir(), "dely-agy-" + run + ".jsonl"),
++      JSON.stringify({ dispatchId: null, terminalHandle: handle, owned: true }) + "\n"
++    );
++  } catch (_) {
++    /* cleanup hint is best-effort */
++  }
++
++  const ready = orca([
++    "terminal", "wait", "--terminal", handle,
++    "--for", "tui-idle", "--timeout-ms", "30000",
++  ]);
++  if (!ready.result || !ready.result.wait || ready.result.wait.satisfied !== true) {
++    return {
++      error: "Codex quota backup terminal did not become idle: " +
++        ((ready.result && ready.result.wait && ready.result.wait.blockedReason) ||
++          (ready.error && ready.error.message) || "timeout"),
++      terminalHandle: handle,
++    };
++  }
++
++  const started = orca([
++    "orchestration", "worker-start", "--spec", spec,
++    "--worktree", "path:" + repo, "--run", run,
++    "--task-title", title, "--terminal", handle,
++  ]);
++  const result = started.result || {};
++  const id = result.dispatchId;
++  if (result.state !== "ready" || !id) {
++    return {
++      error: "Codex quota backup worker-start " +
++        (result.failedStage || result.state || (started.error && started.error.message) || "unknown") +
++        "; dispatch=" + (id || "none") + "; terminal=" + handle,
++      terminalHandle: handle,
++    };
++  }
++  let startEvidence = observedTurn(result);
++  if (!startEvidence) {
++    const promptDeadline = Date.now() + 30000;
++    let promptVisible = false;
++    while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
++      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
++      if (startEvidence) break;
++      const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
++      const terminalState = (screen.result || {}).terminal || {};
++      const draft = terminalState.draft || "";
++      const visible = (terminalState.tail || []).join("\n") + "\n" + JSON.stringify(draft);
++      promptVisible = /Pasted Content/i.test(visible) || Boolean(String(draft).trim());
++      if (!promptVisible) sleep(250);
++    }
++    if (!startEvidence && !promptVisible) {
++      return {
++        error: "Codex quota backup input was accepted but no started turn or visibly unsubmitted prompt was observed; dispatch=" + id + "; terminal=" + handle,
++        id,
++        terminalHandle: handle,
++      };
++    }
++    if (!startEvidence && promptVisible) {
++      const enter = orca(["terminal", "send", "--terminal", handle, "--enter"]);
++      if (enter.ok === false) {
++        return {
++          error: "Codex quota backup bare Enter failed after a visible unsubmitted prompt; dispatch=" + id + "; terminal=" + handle + "; " +
++            ((enter.error && enter.error.message) || "terminal send failed"),
++          id,
++          terminalHandle: handle,
++        };
++      }
++      const startDeadline = Date.now() + 30000;
++      while (Date.now() < startDeadline && !startEvidence) {
++        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
++        if (startEvidence) break;
++        sleep(250);
++      }
++    }
++  }
++  if (!startEvidence) {
++    return {
++      error: "Codex quota backup prompt was submitted once but no working Codex turn evidence was observed; dispatch=" + id + "; terminal=" + handle,
++      id,
++      terminalHandle: handle,
++    };
++  }
++  try {
++    fs.appendFileSync(
++      path.join(os.tmpdir(), "dely-agy-" + run + ".jsonl"),
++      JSON.stringify({ dispatchId: id, terminalHandle: handle, owned: true }) + "\n"
++    );
++  } catch (_) {
++    /* cleanup hint is best-effort */
++  }
++  const pins = { agent: p.agent, model: p.model, effort: p.effort };
++  return {
++    id,
++    taskId: result.taskId || result.task_id || null,
++    terminalHandle: handle,
++    state: result.state,
++    launch: {
++      requested: pins,
++      effective: pins,
++      source: "native_terminal_command",
++      command,
++      startEvidence,
++      workerStart: result.launch || null,
++    },
++  };
++}
++
  function start(repo, run, p, spec, title) {
 +  if (p.agent === "antigravity") {
++    if (p.model !== "default" && !/^[0-9a-zA-Z_.:@/-]+$/.test(p.model)) {
++      return { error: "Invalid model name: " + p.model };
++    }
 +    const registered = orca(["repo", "add", "--path", repo]);
 +    if (registered.ok === false) {
 +      return { error: (registered.error && registered.error.message) || "workspace registration failed" };
@@ -382,7 +554,7 @@ index b1af067..5fd5309 100644
 +        "--shell",
 +        "cmd.exe",
 +        "--command",
-+        "agy --dangerously-skip-permissions",
++        "agy" + (p.model !== "default" ? ' --model "' + p.model + '"' : "") + " --dangerously-skip-permissions",
 +        "--title",
 +        "Dely AGY Worker",
 +      ]);
@@ -492,10 +664,14 @@ index b1af067..5fd5309 100644
 +    return { id };
 +  }
 +
++  if (p.fallbackReason === "quota") {
++    return startCodexQuotaTerminal(repo, run, p, spec, title);
++  }
++
    const args = [
      "orchestration",
      "worker-start",
-@@ -269,7 +509,7 @@ function lastText(id) {
+@@ -269,7 +677,7 @@ function lastText(id) {
  }
  
  function preflight(f) {
@@ -504,7 +680,7 @@ index b1af067..5fd5309 100644
    const uniq = pins.filter(
      (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
    );
-@@ -370,7 +610,18 @@ function preflight(f) {
+@@ -370,7 +778,33 @@ function preflight(f) {
  }
  
  function dispatch(f) {
@@ -512,29 +688,63 @@ index b1af067..5fd5309 100644
 +  if (f.phase !== "implement") {
 +    out("ERROR AGY dispatch is implement-only; review is owned by Codex Control", 2);
 +  }
-+  const pinPhase = f.fallback === "quota" ? "implement_backup" : f.phase;
++  const fallbackStage = f.fallback === "quota" ? Number(f["fallback-stage"] || 1) : null;
++  const pinPhase = fallbackStage === 1
++    ? "implement_backup"
++    : fallbackStage === 2
++      ? "implement_backup_2"
++      : f.phase;
 +  const selected = pin(f.repo, pinPhase);
-+  const p = Object.assign({}, selected, { phase: f.phase, pinPhase, fallbackReason: f.fallback || null });
-+  if (
-+    p.fallbackReason === "quota" &&
-+    (p.agent !== "codex" || p.model !== "gpt-6-luna" || p.effort !== "max")
-+  ) {
-+    out("ERROR quota fallback pin must be Codex CLI / gpt-6-luna / max", 2);
++  const p = Object.assign({}, selected, {
++    phase: f.phase,
++    pinPhase,
++    fallbackReason: f.fallback || null,
++    fallbackStage,
++  });
++  if (p.fallbackReason === "quota") {
++    const flash = p.agent === "antigravity" && p.model === "gemini-3.8-flash-high" && p.effort === "default";
++    const legacyLuna = p.agent === "codex" && p.model === "gpt-6-luna" && p.effort === "max";
++    const luna = legacyLuna;
++    if (fallbackStage === 1 && !flash && !legacyLuna) {
++      out("ERROR quota stage 1 pin must be Antigravity CLI / gemini-3.8-flash-high / default; legacy workspaces may use Codex CLI / gpt-6-luna / max", 2);
++    }
++    if (fallbackStage === 2 && !luna) {
++      out("ERROR quota stage 2 pin must be Codex CLI / gpt-6-luna / max", 2);
++    }
 +  }
    const spec =
      fs.readFileSync(path.resolve(f.repo, f["spec-file"]), "utf8") +
      "\n\nFirst action, before anything else: send a heartbeat with subject `ack`. The Orca preamble and this spec file are everything the worker needs; read no other skill.";
-@@ -389,6 +640,9 @@ function dispatch(f) {
+@@ -379,6 +813,17 @@ function dispatch(f) {
+     logEvent("error", { run: f.run, repo: f.repo, reason: s.error });
+     out("FAILED " + s.error, 5);
+   }
++  const selectedPins = { agent: p.agent, model: p.model, effort: p.effort };
++  s.launch = Object.assign(
++    {
++      pinPhase: p.pinPhase,
++      fallbackStage: p.fallbackStage,
++      requested: selectedPins,
++      effective: selectedPins,
++      source: p.agent === "antigravity" ? "agy_cli_model_flag" : "worker_start",
++    },
++    s.launch || {}
++  );
+   const interval = Math.max(20, Math.min(5000, Math.floor(POLL_S * 1000)));
+   const t0 = Date.now();
+   for (; Date.now() - t0 < ACK_S * 1000; sleep(interval)) {
+@@ -389,6 +834,10 @@ function dispatch(f) {
          repo: f.repo,
          phase: p.phase,
          agent: p.agent,
 +        pinPhase: p.pinPhase,
 +        fallbackReason: p.fallbackReason,
++        fallbackStage: p.fallbackStage,
 +        launch: s.launch || null,
          dispatchId: s.id,
          seconds: Math.round((Date.now() - t0) / 1000),
        });
-@@ -505,7 +759,7 @@ function wait(f) {
+@@ -505,7 +954,7 @@ function wait(f) {
        // no projection, or a projection with no nextAction, is not attention.
        const kind = (proj.nextAction || {}).kind || "none";
        const needs = (proj.attention || {}).requiresAction === true;
@@ -543,7 +753,7 @@ index b1af067..5fd5309 100644
      });
      if (act.length) {
        const payload = act.map((w) => ({
-@@ -662,6 +916,53 @@ function notify(f) {
+@@ -662,6 +1111,53 @@ function notify(f) {
    }
  }
  
@@ -597,7 +807,7 @@ index b1af067..5fd5309 100644
  function logCmd(f) {
    let payload;
    try {
-@@ -682,10 +983,10 @@ const COMMANDS = {
+@@ -682,10 +1178,10 @@ const COMMANDS = {
      required: [
        ["repo", "PATH"],
        ["run", "RUN"],
@@ -606,11 +816,11 @@ index b1af067..5fd5309 100644
        ["spec-file", "FILE"],
      ],
 -    optional: [],
-+    optional: [["fallback", "quota"]],
++    optional: [["fallback", "quota"], ["fallback-stage", "1|2"]],
    },
    wait: {
      required: [["run", "RUN"], ["control", "HARNESS"]],
-@@ -709,6 +1010,10 @@ const COMMANDS = {
+@@ -709,6 +1205,10 @@ const COMMANDS = {
      required: [["run", "RUN"], ["out", "FILE"]],
      optional: [["as", "TERMINAL"]],
    },
@@ -621,7 +831,7 @@ index b1af067..5fd5309 100644
    log: {
      required: [["run", "RUN"], ["json", "OBJ"]],
      optional: [["repo", "PATH"]],
-@@ -729,7 +1034,7 @@ function printUsage() {
+@@ -729,7 +1229,7 @@ function printUsage() {
  }
  
  const [cmd, ...rest] = process.argv.slice(2);
@@ -630,7 +840,7 @@ index b1af067..5fd5309 100644
  if (!cmd) {
    printIdentity();
    printUsage();
-@@ -753,4 +1058,184 @@ if (missing.length) {
+@@ -753,4 +1253,37 @@ if (missing.length) {
    console.log(usageLine(cmd));
    process.exit(2);
  }
@@ -649,169 +859,22 @@ index b1af067..5fd5309 100644
 +  console.log(usageLine(cmd));
 +  process.exit(2);
 +}
++if (f["fallback-stage"] != null && cmd !== "dispatch") {
++  console.log("ERROR --fallback-stage is supported only for implementation dispatch");
++  console.log(usageLine(cmd));
++  process.exit(2);
++}
++if (f["fallback-stage"] != null && f.fallback !== "quota") {
++  console.log("ERROR --fallback-stage requires --fallback quota");
++  console.log(usageLine(cmd));
++  process.exit(2);
++}
++if (f["fallback-stage"] != null && !["1", "2"].includes(String(f["fallback-stage"]))) {
++  console.log("ERROR invalid fallback stage: " + f["fallback-stage"] + " (supported: 1, 2)");
++  console.log(usageLine(cmd));
++  process.exit(2);
++}
 +currentCommand = cmd;
 +currentFlags = f;
 +guardBefore(cmd, f);
-+const startPrimary = start;
-+start = function (repo, run, p, spec, title) {
-+  if (p.fallbackReason === "quota") return startCodexQuotaTerminal(repo, run, p, spec, title);
-+  return startPrimary(repo, run, p, spec, title);
-+};
  table[cmd](f);
-+function observedTurn(value) {
-+  const result = value || {};
-+  const projection = result.projection || {};
-+  const prompt = result.prompt || projection.prompt || {};
-+  const stages = Array.isArray(prompt.stages) ? prompt.stages : [];
-+  if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
-+    return "turn_started";
-+  }
-+  const observation = result.observation || {};
-+  const provider = projection.provider || {};
-+  const stage = projection.stage || {};
-+  const liveness = projection.liveness || {};
-+  const evidence = projection.evidence || {};
-+  if (
-+    observation.status === "live" &&
-+    observation.exactWorker === true &&
-+    provider.id === "codex" &&
-+    provider.model === "gpt-6-luna" &&
-+    stage.worker === "ready" &&
-+    stage.dispatch === "dispatched" &&
-+    stage.detail === "input_accepted" &&
-+    stage.activity === "working" &&
-+    liveness.verdict === "live" &&
-+    liveness.source === "agent_status" &&
-+    evidence.durable === true &&
-+    evidence.liveStatus === "fresh"
-+  ) {
-+    return "legacy_working_projection";
-+  }
-+  return null;
-+}
-+
-+function startCodexQuotaTerminal(repo, run, p, spec, title) {
-+  if (process.platform !== "win32") {
-+    return { error: "Codex quota backup launch is verified only on Windows" };
-+  }
-+  const codex = path.join(
-+    process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"),
-+    "npm", "node_modules", "@openai", "codex", "node_modules", "@openai",
-+    "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "bin", "codex.exe"
-+  );
-+  if (!fs.existsSync(codex)) return { error: "Native Codex CLI is unavailable: " + codex };
-+  const command = '& "' + codex + '" --model "' + p.model + '" -c "model_reasoning_effort=' + p.effort + '"';
-+  const terminal = orca([
-+    "terminal", "create", "--worktree", "path:" + repo,
-+    "--shell", "powershell.exe", "--command", command,
-+    "--title", "Dely Codex quota backup",
-+  ]);
-+  const handle = terminal.result && terminal.result.terminal && terminal.result.terminal.handle;
-+  if (!handle) {
-+    return { error: (terminal.error && terminal.error.message) || "Codex quota backup terminal create failed" };
-+  }
-+  const recordTerminal = (dispatchId) => {
-+    try {
-+      fs.appendFileSync(
-+        path.join(os.tmpdir(), "dely-agy-" + run + ".jsonl"),
-+        JSON.stringify({ dispatchId, terminalHandle: handle, owned: true }) + "\n"
-+      );
-+    } catch (_) {
-+      /* cleanup hint is best-effort */
-+    }
-+  };
-+  recordTerminal(null);
-+
-+  const ready = orca([
-+    "terminal", "wait", "--terminal", handle,
-+    "--for", "tui-idle", "--timeout-ms", "30000",
-+  ]);
-+  if (!ready.result || !ready.result.wait || ready.result.wait.satisfied !== true) {
-+    return {
-+      error: "Codex quota backup terminal did not become idle: " +
-+        ((ready.result && ready.result.wait && ready.result.wait.blockedReason) ||
-+          (ready.error && ready.error.message) || "timeout"),
-+      terminalHandle: handle,
-+    };
-+  }
-+
-+  const started = orca([
-+    "orchestration", "worker-start", "--spec", spec,
-+    "--worktree", "path:" + repo, "--run", run,
-+    "--task-title", title, "--terminal", handle,
-+  ]);
-+  const result = started.result || {};
-+  const id = result.dispatchId;
-+  if (result.state !== "ready" || !id) {
-+    return {
-+      error: "Codex quota backup worker-start " +
-+        (result.failedStage || result.state || (started.error && started.error.message) || "unknown") +
-+        "; dispatch=" + (id || "none") + "; terminal=" + handle,
-+      terminalHandle: handle,
-+    };
-+  }
-+
-+  let startEvidence = observedTurn(result);
-+  if (!startEvidence) {
-+    const promptDeadline = Date.now() + 30000;
-+    let promptVisible = false;
-+    while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
-+      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
-+      if (startEvidence) break;
-+      const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
-+      const terminalState = (screen.result || {}).terminal || {};
-+      const draft = terminalState.draft || "";
-+      const visible = (terminalState.tail || []).join("\n") + "\n" + JSON.stringify(draft);
-+      promptVisible = /Pasted Content/i.test(visible) || Boolean(String(draft).trim());
-+      if (!promptVisible) sleep(250);
-+    }
-+    if (!startEvidence && !promptVisible) {
-+      return {
-+        error: "Codex quota backup input was accepted but no started turn or visibly unsubmitted prompt was observed; dispatch=" + id + "; terminal=" + handle,
-+        id,
-+        terminalHandle: handle,
-+      };
-+    }
-+    if (!startEvidence && promptVisible) {
-+      const enter = orca(["terminal", "send", "--terminal", handle, "--enter"]);
-+      if (enter.ok === false) {
-+        return {
-+          error: "Codex quota backup bare Enter failed after a visible unsubmitted prompt; dispatch=" + id + "; terminal=" + handle + "; " +
-+            ((enter.error && enter.error.message) || "terminal send failed"),
-+          id,
-+          terminalHandle: handle,
-+        };
-+      }
-+      const startDeadline = Date.now() + 30000;
-+      while (Date.now() < startDeadline && !startEvidence) {
-+        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result);
-+        if (startEvidence) break;
-+        sleep(250);
-+      }
-+    }
-+  }
-+  if (!startEvidence) {
-+    return {
-+      error: "Codex quota backup prompt was submitted once but no working Codex turn evidence was observed; dispatch=" + id + "; terminal=" + handle,
-+      id,
-+      terminalHandle: handle,
-+    };
-+  }
-+
-+  recordTerminal(id);
-+  const pins = { agent: p.agent, model: p.model, effort: p.effort };
-+  return {
-+    id,
-+    taskId: result.taskId || result.task_id || null,
-+    terminalHandle: handle,
-+    state: result.state,
-+    launch: {
-+      requested: pins,
-+      effective: pins,
-+      source: "native_terminal_command",
-+      command,
-+      startEvidence,
-+      workerStart: result.launch || null,
-+    },
-+  };
-+}

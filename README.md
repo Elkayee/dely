@@ -98,12 +98,13 @@ C:\Users\Home33\.codex\AGENTS.md
 with:
 
 ```text
-implement        -> Antigravity CLI / default / default
-implement_backup -> Codex CLI / gpt-6-luna / max
+implement        -> Antigravity CLI / claude-sonnet-5-5-high / default
+implement_backup -> Antigravity CLI / gemini-3.8-flash-high / default
+implement_backup_2 -> Codex CLI / gpt-6-luna / max
 review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override either pin independently. Ordinary implementation dispatch stays on AGY; use `dely dispatch --phase implement --fallback quota` only after an explicit provider quota-exhaustion error. That route selects `implement_backup`, starts the native Codex Luna/max terminal, waits for `tui-idle`, and attaches the worker to that same terminal. Dely waits within a bounded deadline for either fresh live working evidence or a visibly unsubmitted prompt; it sends one bare Enter only for the latter, then verifies fresh live working evidence. Authentication, timeout, and other errors keep their existing handling.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override each pin independently. Ordinary implementation dispatch launches AGY with the Sonnet High model. Only an explicit Sonnet provider quota uses `dely dispatch --phase implement --fallback quota --fallback-stage 1` to launch AGY Flash High/default. Only an explicit Flash provider quota advances to `dely dispatch --phase implement --fallback quota --fallback-stage 2` after confirming the prior attempt is inactive and released when required. Stage 2 launches native Codex Luna/max, waits for `tui-idle`, and attaches the worker to that same terminal. Dely waits within a bounded deadline for fresh live working evidence or a visibly unsubmitted prompt; it sends one bare Enter only for the latter, then verifies fresh live working evidence. Authentication, timeout, unknown failures, and stage 2 do not advance the chain.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
@@ -169,4 +170,4 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 ## Worker model
 
-AGY remains the primary worker with model and effort set to `default`, so the active model is controlled by Antigravity's own configuration. The quota-only backup is Codex CLI with `gpt-6-luna` and `max`; Dely applies those values in the native terminal command because Orca's model/effort flags cannot express this combination when attaching an existing terminal.
+AGY is the primary worker, pinned to `claude-sonnet-5-5-high` with default effort. Explicit Sonnet quota advances to AGY `gemini-3.8-flash-high` at stage 1; only explicit Flash quota advances to Codex `gpt-6-luna` at max effort in stage 2. Dely passes the selected AGY model to its native CLI and sets the Codex model and reasoning effort in the native terminal command; stage 2 keeps the existing idle and live-working startup checks.
