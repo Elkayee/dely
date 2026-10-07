@@ -1,0 +1,21 @@
+{
+  "name": "dely",
+  "version": "0.24.1",
+  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
+  "license": "MIT",
+  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
+  "author": {
+    "name": "Hieu Phung",
+    "url": "https://github.com/hieuphung97"
+  },
+  "homepage": "https://github.com/hieuphung97/dely",
+  "repository": "https://github.com/hieuphung97/dely",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Delivery",
+    "shortDescription": "Design, implement, review independently, close",
+    "defaultPrompt": [
+      "Use the delivery skill to classify and handle this change, and the setup skill to configure the project."
+    ]
+  }
+}
