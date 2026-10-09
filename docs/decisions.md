@@ -4349,3 +4349,26 @@ a record ambiguous. Add locking only after an observed concurrent append corrupt
 short record. Add rotation only after file growth causes a maintenance problem. A public
 schema or reader requires a separate approved use case; ordinary maintenance reading by
 a person or agent does not trigger one.
+
+### Codex task admission before supported mutations
+
+The local Codex adapter adds SessionStart and UserPromptSubmit context plus
+PreToolUse evidence checks. Instructions alone did not prove that Control
+had called Jev, loaded its chosen skills or entered Dely.
+
+Control explicitly prepares and reviews the current task. The adapter binds
+advice, task inputs, loaded skills and instructions to hashes and the current
+session/turn. Hard remains direct. Delegated grades require the installed
+delivery skill and actual Dely dispatch evidence for the exact spec/context.
+An existing matching Run can be reused when the same task continues; the
+adapter never requires replaying a delivered prompt.
+
+Existing user and Orca hooks remain in place. The advisor is frozen for the
+installed adapter, retaining its credential search root without copying keys.
+Verified Dely workers retain their supplied-spec-only contract. Stop permits
+an honest blocked report after one rejection, avoiding an endless loop.
+
+This is an omission guardrail with documented tool coverage, not a security
+boundary or proof of semantic compliance. Native hook review/trust remains
+with the human, and activation must be verified separately. The installer,
+procedure, limits and focused instrument are in docs/codex-compliance.md.
