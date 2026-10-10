@@ -13,11 +13,13 @@ The exact supplied session roster remains in `session-skills.json` for mandatory
 and explicit Control selections. `skill-sources.json` retains every original
 session/home name, path, description, policy and source. `skills.json` contains
 one record per canonical source, preferring the session name/path/description.
-Aliases retain the most restrictive supplied, source and configuration policy.
+Aliases retain the most restrictive supplied, source and configuration policy,
+including YAML at both the supplied path and the canonical target directory.
 Skill instruction bodies are never sent to Jev.
 
 The snapshots, advice, all catalog source files, invocation policies and active
-configuration are fingerprinted. Original path bindings are checked separately,
+configuration are fingerprinted, including both alias and canonical YAML paths
+even when either policy file is absent. Original path bindings are checked separately,
 so retargeting an alias invalidates admission even with identical source bytes.
 Absent policy/configuration files are recorded explicitly; creating one or
 changing a source during an API request requires fresh preparation and review.

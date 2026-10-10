@@ -9,7 +9,7 @@ const { spawnSync } = require("child_process");
 const guard = require("./codex-compliance.js");
 const routingPath = process.env.COMPLIANCE_ROUTING || path.join(os.homedir(),
   ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.8/skills/delivery/scripts/task-routing.js");
-const catalogHelpers = 'const {combineSkills,skillKey}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey});\n';
+const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths});\n';
 
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-compliance-test-"));
@@ -142,6 +142,37 @@ test("retargeting a prepared alias is rejected even when instruction bytes are i
   fs.symlinkSync(replacement, alias, "junction");
   assert.throws(f.review, /Prepare this turn|path changed/);
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("file aliases retain canonical and alias-local policy with both YAML locations protected", async (t) => {
+  const f = fixture(t);
+  const original = path.join(f.repo, "original");
+  const alias = path.join(f.repo, "alias");
+  fs.mkdirSync(path.join(original, "agents"), { recursive: true });
+  fs.mkdirSync(alias);
+  const source = path.join(original, "SKILL.md");
+  const targetPolicy = path.join(original, "agents/openai.yaml");
+  const aliasPolicy = path.join(alias, "agents/openai.yaml");
+  fs.writeFileSync(source, "---\nname: optional\ndescription: Optional workflow\n---\nPRIVATE_BODY\n");
+  fs.writeFileSync(targetPolicy, "policy:\n  allow_implicit_invocation: false\n");
+  const link = path.join(alias, "SKILL.md");
+  fs.symlinkSync(source, link, "file");
+  f.task.skills.push({ name: "file-alias", path: link, description: "Optional session workflow", allow_implicit_invocation: true });
+  await f.prepare();
+  assert.throws(() => f.review({ skills: '["required","file-alias"]' }), /Explicit-only skills/);
+  f.task.required_skills.push("file-alias");
+  await f.prepare();
+  f.review({ skills: '["required","file-alias"]' });
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.fingerprints[fs.realpathSync(targetPolicy)], guard.digest(fs.readFileSync(targetPolicy)));
+  assert.equal(state.fingerprints[path.resolve(aliasPolicy)], null);
+  fs.writeFileSync(targetPolicy, "policy:\n  allow_implicit_invocation: true\n");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  fs.mkdirSync(path.dirname(aliasPolicy));
+  fs.writeFileSync(aliasPolicy, "policy:\n  allow_implicit_invocation: false\n");
+  f.task.required_skills = ["required"];
+  await f.prepare();
+  assert.throws(() => f.review({ skills: '["required","file-alias"]' }), /Explicit-only skills/);
 });
 
 test("unselected session skills remain protected after admission", async (t) => {

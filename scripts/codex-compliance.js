@@ -243,10 +243,10 @@ async function prepare(options, home) {
   const sourceRoster = path.join(directory, "skill-sources.json");
   const adviceFile = path.join(directory, "skill-advice.json");
   const advisor = require(settings.advisor);
-  if (typeof advisor.discoverSkills !== "function" || typeof advisor.combineSkills !== "function") throw Error("Reinstall the complete-catalog skill advisor before preparing this task.");
+  if (["discoverSkills", "combineSkills", "skillPolicyPaths", "skillKey"].some((name) => typeof advisor[name] !== "function")) throw Error("Reinstall the complete-catalog skill advisor before preparing this task.");
   const homeSkills = advisor.discoverSkills(path.join(os.homedir(), ".agents", "skills"), home);
   const { skills, sources } = advisor.combineSkills(task.skills, homeSkills, home);
-  const catalogSources = sources.flatMap((skill) => [skill.path, path.join(path.dirname(skill.path), "agents", "openai.yaml")]);
+  const catalogSources = sources.flatMap((skill) => [skill.path, canonical(skill.path), ...advisor.skillPolicyPaths(skill.path)]);
   const catalogFingerprints = fingerprints([...catalogSources, path.join(home, "config.toml")]);
   const catalogPaths = pathBindings(catalogSources);
   write(sessionRoster, { request: task.request, skills: task.skills });

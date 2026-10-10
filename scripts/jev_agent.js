@@ -82,16 +82,24 @@ function disabledSkills(codexHome) {
   return disabled;
 }
 
+function skillPolicyPaths(file) {
+  return [...new Set([path.dirname(file), path.dirname(fs.realpathSync(file))])]
+    .map((directory) => path.join(directory, "agents", "openai.yaml"));
+}
+
 function skillPolicy(file, disabled) {
-  const directory = path.dirname(file);
   const text = fs.readFileSync(file, "utf8");
   const frontmatter = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || "";
-  const policyFile = path.join(directory, "agents", "openai.yaml");
-  const policy = fs.existsSync(policyFile) ? fs.readFileSync(policyFile, "utf8")
-    .match(/^[ \t]+allow_implicit_invocation:[ \t]*([^\r\n]*)/m)?.[1].replace(/[ \t]+#.*$/, "").trim() : undefined;
-  if (policy !== undefined && !["true", "false"].includes(policy)) throw Error("Invalid skill invocation policy: " + file);
-  return { allow_implicit_invocation: policy !== "false" && !/^disable-model-invocation:[ \t]*true(?:[ \t]*(?:#.*)?)?$/m.test(frontmatter),
-    enabled: !disabled.has(skillKey(file)) && !disabled.has(skillKey(directory)) };
+  let implicit = !/^disable-model-invocation:[ \t]*true(?:[ \t]*(?:#.*)?)?$/m.test(frontmatter);
+  const policyFiles = skillPolicyPaths(file);
+  for (const policyFile of policyFiles) {
+    const policy = fs.existsSync(policyFile) ? fs.readFileSync(policyFile, "utf8")
+      .match(/^[ \t]+allow_implicit_invocation:[ \t]*([^\r\n]*)/m)?.[1].replace(/[ \t]+#.*$/, "").trim() : undefined;
+    if (policy !== undefined && !["true", "false"].includes(policy)) throw Error("Invalid skill invocation policy: " + file);
+    implicit = implicit && policy !== "false";
+  }
+  return { allow_implicit_invocation: implicit, enabled: !disabled.has(skillKey(file)) &&
+    policyFiles.every((policyFile) => !disabled.has(skillKey(path.dirname(path.dirname(policyFile))))) };
 }
 
 function combineSkills(sessionSkills, homeSkills, codexHome) {
@@ -396,7 +404,7 @@ async function main(argv = process.argv.slice(2)) {
   return result.status === "NOT_EVALUATED" ? 3 : 0;
 }
 
-module.exports = { MODEL, RELATION, skillKey, combineSkills, discoverSkills, validateInput, questionsFor, validateReply, advise, main };
+module.exports = { MODEL, RELATION, skillKey, skillPolicyPaths, combineSkills, discoverSkills, validateInput, questionsFor, validateReply, advise, main };
 if (require.main === module) main().then((code) => { process.exitCode = code; }).catch(() => {
   console.error("Jev agent command failed. Check input schema, installed Dely and output path; no action was executed.");
   process.exitCode = 2;
