@@ -16,4 +16,3 @@ Store the common task rules and four relation definitions once in State. Keep ea
 4. Run focused regressions and repository closure; fresh independent Codex exact-HEAD review. Install both Codex homes from accepted source, preserve trusted hooks byte-for-byte and credential_root D:/orca, then demonstrate full-catalog prepare and multiple accepted skills loaded through review.
 
 Scope:advisor, focused compliance integration/tests, agent-facing guides and this plan. Leave D:/orca and unrelated Taniwha state untouched. No remote publication is requested.
-
