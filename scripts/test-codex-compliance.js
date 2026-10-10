@@ -195,12 +195,18 @@ test("editing the advisor checkout preserves the frozen advice used by the activ
   assert.equal((await f.prepare()).skill_advice.reason, "TEST_UNAVAILABLE");
 });
 
-test("the installed command consumes native Windows stdin and emits a hook decision", { skip: process.platform !== "win32" }, (t) => {
+test("Windows hooks bypass shadowed Node and execute through the actual PowerShell seam", { skip: process.platform !== "win32" }, (t) => {
   const f = fixture(t);
   const manifest = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"));
   const command = manifest.hooks.PreToolUse[0].hooks[0].command;
-  const result = spawnSync(command,
-    { input: JSON.stringify(f.event), encoding: "utf8", windowsHide: true, shell: "cmd.exe" });
+  assert.ok(command.startsWith("& "));
+  assert.ok(command.includes(process.execPath));
+  const shadow = path.join(path.dirname(f.repo), "shadow");
+  fs.mkdirSync(shadow);
+  fs.writeFileSync(path.join(shadow, "node"), Buffer.from([127, 69, 76, 70]));
+  const result = spawnSync("C:/Program Files/PowerShell/7/pwsh.exe", ["-NoProfile", "-Command", command],
+    { input: JSON.stringify(f.event), encoding: "utf8", windowsHide: true, timeout: 5000,
+      env: { ...process.env, PATH: shadow + path.delimiter + process.env.PATH } });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, "deny");
 });

@@ -5,7 +5,9 @@ before supported tool mutations. It preserves the existing Dely routes.
 Install it in every Codex home used on this machine, including Orca's
 CODEX_HOME. It needs Node 24, an installed Dely task-routing module and the
 existing Jev advisor. Node 24 must be on the hook process PATH. It adds no
-service or dependency.
+service or dependency. On Windows, hook commands and preparation guidance
+use the absolute native node.exe with PowerShell's call operator. This avoids
+an extensionless Linux NVM binary shadowing Node and opening the app picker.
 
 ## Install and activate
 

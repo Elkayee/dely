@@ -25,6 +25,9 @@ const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
 const settingsFile = (home) => path.join(root(home), "settings.json");
 const fingerprints = (files) => Object.fromEntries(files.map((file) => [canonical(file), hashFile(file)]));
+const psQuote = (value) => "'" + value.replace(/'/g, "''") + "'";
+const nodeCommand = (script) => process.platform === "win32" ?
+  "& " + psQuote(process.execPath) + " " + psQuote(script) : 'node "' + script + '"';
 
 function instructions(cwd, home) {
   const files = new Set();
@@ -51,8 +54,8 @@ function checkedSettings(home) {
 function context(event, home) {
   const script = path.join(root(home), "codex-compliance.js").replace(/\\/g, "/");
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
-    "Before implementation, supply the actual session skill roster and task evidence to: node \"" + script +
-    "\" prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
+    "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
+    " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --task-json '<JSON>'. " +
     "Inspect the Jev results, then explicitly review with this script's review command. " +
     "Hard is direct; Easy/Medium-/Medium+ need a matching Dely dispatch before edits. " +
@@ -305,7 +308,8 @@ function install(options, home) {
   const advisorSource = fs.readFileSync(advisor, "utf8");
   const rootDeclaration = 'const ROOT = path.resolve(__dirname, "..");';
   if (!advisorSource.includes(rootDeclaration)) throw Error("Unrecognized advisor root; installation was not changed.");
-  const hookCommand = 'node "' + script + '" hook --home "' + home + '"';
+  const hookCommand = nodeCommand(script) + " hook --home " +
+    (process.platform === "win32" ? psQuote(home) : '"' + home + '"');
   const guide = path.resolve(__dirname, "../docs/codex-compliance.md");
   const manifestFile = path.join(home, "hooks.json");
   const manifest = fs.existsSync(manifestFile) ? read(manifestFile) : {};
@@ -313,8 +317,10 @@ function install(options, home) {
   for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"]) {
     const groups = manifest.hooks[event] || [];
     if (!Array.isArray(groups)) throw Error("Invalid existing hooks; nothing was installed.");
-    manifest.hooks[event] = groups.filter((group) => !(group.hooks || []).some((item) =>
-      item.command === hookCommand));
+    manifest.hooks[event] = groups.map((group) => ({ ...group,
+      hooks: (group.hooks || []).filter((item) => !(item.statusMessage === "Checking Jev and Dely task evidence" &&
+        String(item.command || "").includes("codex-compliance.js"))),
+    })).filter((group) => group.hooks.length);
     manifest.hooks[event].push({ hooks: [{
       type: "command", command: hookCommand,
       timeout: 15, statusMessage: "Checking Jev and Dely task evidence",
