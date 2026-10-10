@@ -40,8 +40,9 @@ Before implementation:
 1. Build a task JSON from the actual request and current session skill catalog.
    Supply complete descriptions and absolute SKILL.md paths. Include every
    mandatory or user-selected skill in required_skills.
-2. Invoke the installed script's prepare command with --session, --turn,
-   --repo and --task-json. It writes isolated inputs and calls the existing
+2. Save the complete task JSON as UTF-8 through the approved preparation
+   surface. Invoke the installed script's prepare command with --session,
+   --turn, --repo and --task-file <path>. It writes isolated inputs and calls the existing
    Jev skill advisor and task assessment; it does not approve their results.
 3. Inspect both results. Invoke review with the same IDs, --difficulty,
    --reason, --skills and --skill-reason. The skills argument is a JSON array
@@ -56,6 +57,14 @@ Before implementation:
    existing risk exclusions and model selection; the hook checks the active
    model slug against the reviewed primary. Native events do not supply effort,
    so the existing harness model/effort checks still own that evidence.
+
+File input keeps a large session skill catalog out of the Windows process
+command line. Relative paths resolve from the current working directory;
+quote paths containing spaces. UTF-8 with or without a BOM is accepted.
+Exactly one input is required: --task-file <path> or the existing
+--task-json '<JSON>'. Invalid files, UTF-8 or JSON fail before preparation
+writes task snapshots or authorizes any mutation. Both forms use the same
+validation and fingerprinted snapshots below.
 
 The task JSON shape is:
 

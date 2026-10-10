@@ -56,7 +56,7 @@ function context(event, home) {
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
-    "\" --repo \"" + event.cwd + "\" --task-json '<JSON>'. " +
+    "\" --repo \"" + event.cwd + "\" --task-file '<path-to-task.json>'. " +
     "Inspect the Jev results, then explicitly review with this script's review command. " +
     "Hard is direct; Easy/Medium-/Medium+ need a matching Dely dispatch before edits. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
@@ -214,7 +214,12 @@ function hook(event, home, workerCheck = verifiedWorker) {
 
 async function prepare(options, home) {
   const settings = checkedSettings(home);
-  const task = JSON.parse(options["task-json"]);
+  const file = options["task-file"];
+  if ((file !== undefined) === (options["task-json"] !== undefined)) {
+    throw Error("Supply exactly one of --task-file or --task-json.");
+  }
+  const task = JSON.parse(file === undefined ? options["task-json"] :
+    new TextDecoder("utf-8", { fatal: true }).decode(fs.readFileSync(file)));
   if (!["implement", "advice"].includes(task.mode) || !task.request || !Array.isArray(task.skills)) {
     throw Error("Task JSON needs mode, request and the current session skills array.");
   }
@@ -343,7 +348,7 @@ function install(options, home) {
 async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
   const { values } = parseArgs({ args: argv.slice(1), options: Object.fromEntries(
-    ["home", "session", "turn", "repo", "task-json", "difficulty", "reason", "skill-reason", "skills", "run", "routing", "advisor"]
+    ["home", "session", "turn", "repo", "task-json", "task-file", "difficulty", "reason", "skill-reason", "skills", "run", "routing", "advisor"]
       .map((name) => [name, { type: "string" }])) });
   const home = path.resolve(values.home || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
   let result;

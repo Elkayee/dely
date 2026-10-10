@@ -211,6 +211,66 @@ test("Windows hooks bypass shadowed Node and execute through the actual PowerShe
   assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, "deny");
 });
 
+test("file input prepares the complete oversized catalog through the native CLI", (t) => {
+  const f = fixture(t);
+  const task = { ...f.task, skills: [...f.task.skills, ...Array.from({ length: 104 }, (_, i) => ({
+    name: "catalog-" + i, path: f.skill,
+    description: "Complete skill description with Unicode Đ and quoted 'text'.\n".repeat(12),
+  }))] };
+  const input = JSON.stringify(task);
+  assert.ok(input.length > 42967);
+  assert.equal(task.skills.length, 106);
+  const file = path.join(path.dirname(f.skill), "task with spaces Đ.json");
+  fs.writeFileSync(file, "\uFEFF" + input);
+  const script = path.join(__dirname, "codex-compliance.js");
+  const args = [script, "prepare", "--home", f.home, "--session", f.options.session,
+    "--turn", f.options.turn, "--repo", f.repo];
+  if (process.platform === "win32") {
+    const inline = spawnSync(process.execPath, [...args, "--task-json", input], { encoding: "utf8" });
+    assert.ok(inline.error, "the oversized inline task must reproduce the Windows launch failure");
+    assert.equal(inline.status, null);
+  }
+  const result = spawnSync(process.execPath, [...args, "--task-file", file], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, "PREPARED");
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, f.options.session), "utf8"));
+  assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")), {
+    request: task.request, skills: task.skills,
+  });
+  assert.equal(fs.readFileSync(state.assessment.task.spec_file, "utf8"), task.spec);
+  assert.deepEqual(JSON.parse(fs.readFileSync(state.assessment.task.context_file, "utf8")), task.context);
+  f.review();
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+test("invalid file inputs never produce a prepared task", async (t) => {
+  const cases = [
+    { name: "missing input", options: {} },
+    { name: "both inputs", both: true },
+    { name: "missing file", options: { "task-file": "missing.json" } },
+    { name: "malformed JSON", bytes: Buffer.from("{ SECRET_SENTINEL") },
+    { name: "invalid UTF-8", invalidUtf8: true },
+  ];
+  for (const row of cases) await t.test(row.name, async (t) => {
+    const f = fixture(t);
+    let options = row.options;
+    if (row.both) {
+      const file = path.join(path.dirname(f.skill), "valid.json");
+      fs.writeFileSync(file, JSON.stringify(f.task));
+      options = { "task-json": JSON.stringify(f.task), "task-file": file };
+    } else if (row.bytes || row.invalidUtf8) {
+      const file = path.join(path.dirname(f.skill), "invalid.json");
+      const bytes = row.bytes || Buffer.from(JSON.stringify(f.task));
+      if (row.invalidUtf8) bytes[bytes.indexOf("Implement")] = 0xff;
+      fs.writeFileSync(file, bytes);
+      options = { "task-file": file };
+    }
+    await assert.rejects(() => guard.prepare({ session: f.options.session, turn: f.options.turn,
+      repo: f.repo, ...options }, f.home));
+    assert.equal(fs.existsSync(guard.stateFile(f.home, f.options.session)), false);
+  });
+});
+
 test("advice-only review never authorizes edits; Stop permits an honest blocked report", async (t) => {
   const f = fixture(t);
   f.task.mode = "advice";
