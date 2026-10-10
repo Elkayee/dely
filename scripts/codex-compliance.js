@@ -380,6 +380,7 @@ async function main(argv = process.argv.slice(2)) {
     const advice = { ...result.skill_advice, file: path.join(result.task_directory, "skill-advice.json") };
     delete advice.evaluations;
     if (Array.isArray(advice.suggestions)) advice.suggestions = advice.suggestions.map((skill) => ({ name: skill.name, path: skill.path }));
+    if (advice.suggestion) advice.suggestion = { name: advice.suggestion.name, path: advice.suggestion.path };
     result = { status: result.status, task_directory: result.task_directory, skill_advice: advice,
       ...(result.assessment ? { assessment: result.assessment } : {}) };
   }

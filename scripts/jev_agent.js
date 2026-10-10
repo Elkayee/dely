@@ -170,9 +170,12 @@ function questionsFor(input, mode, indices) {
 }
 
 function validateSkillReply(reply, questions) {
+  if (!reply || typeof reply !== "object" || Array.isArray(reply) ||
+      Object.keys(reply).some((key) => !["model", "answers", "usage"].includes(key))) throw Error("Unexpected skill response fields");
   const checked = { ...reply, answers: { ...reply?.answers } };
   for (const id of Object.keys(questions)) {
     const source = checked.answers[id];
+    if (source && Object.keys(source).some((key) => !["type", "choice", "confidence", "probabilities"].includes(key))) throw Error("Unexpected skill answer fields");
     const answer = source && { type: source.type, choice: source.choice, confidence: source.confidence, probabilities: source.probabilities };
     if (answer) checked.answers[id] = answer;
     const p = answer?.probabilities;

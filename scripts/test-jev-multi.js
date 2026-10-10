@@ -91,3 +91,18 @@ test("rounding support does not admit arbitrary missing probability mass or a wr
     assert.deepEqual(result.suggestions, []);
   }
 });
+
+test("unknown top-level and answer fields fail before normalization, while documented usage is accepted", async () => {
+  const response = () => ({ model: advisor.MODEL, answers: { s0: { type: "choice", choice: "direct", confidence: 0.42,
+    probabilities: { direct: 0.55, supporting: 0.32, unrelated: 0.1, unknown: 0.02 } } }, usage: { input_tokens: 100, output_tokens: 20 } });
+  const call = (reply) => advisor.advise(catalog(1), "skill", { apiKey: "TEST_KEY", fetch: async () => ({ ok: true, json: async () => reply }) });
+  assert.equal((await call(response())).status, "REVIEW_REQUIRED");
+  const top = response(); top.extra = 1;
+  const answer = response(); answer.answers.s0.extra = "unexpected";
+  const reserved = response(); reserved.answers.s0.raw_probabilities = { injected: 1 };
+  for (const invalid of [top, answer, reserved]) {
+    const result = await call(invalid);
+    assert.equal(result.status, "NOT_EVALUATED");
+    assert.deepEqual(result.suggestions, []);
+  }
+});

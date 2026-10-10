@@ -141,7 +141,7 @@ test("a policy created while advice is running cannot produce a prepared snapsho
 
 test("native prepare CLI delivers all suggestions compactly and points to complete evaluations", (t) => {
   const f = fixture(t);
-  const records = Array.from({ length: 3 }, (_, i) => ({ name: "recommended-" + i, path: f.skill, description: "Complete metadata " + i }));
+  const records = Array.from({ length: 3 }, (_, i) => ({ name: "recommended-" + i, path: f.skill, description: ("Complete metadata " + i).repeat(1000) }));
   const source = 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nconst records = ' + JSON.stringify(records) + ';\n' +
     'exports.discoverSkills = () => records;\nexports.advise = async (input) => ({mode:"skill",status:"REVIEW_REQUIRED",input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"),suggestions:records,suggestion:records[0],evaluations:[{internal:"COMPLETE_EVALUATION_MARKER"}],selection:{catalog_count:3,eligible_count:3,evaluated_count:3,requests:1,rounds:1}});\n';
   fs.writeFileSync(f.advisor, source);
@@ -154,6 +154,8 @@ test("native prepare CLI delivers all suggestions compactly and points to comple
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout);
   assert.deepEqual(result.skill_advice.suggestions, records.map((s) => ({ name: s.name, path: s.path })));
+  assert.deepEqual(result.skill_advice.suggestion, { name: records[0].name, path: records[0].path });
+  assert.ok(run.stdout.length < 12000, "large descriptions stay in the advice file rather than bloating the native CLI response");
   assert.ok(!run.stdout.includes("COMPLETE_EVALUATION_MARKER"));
   assert.equal(Object.keys(result)[1], "task_directory", "file pointer appears before potentially large lists");
   const full = JSON.parse(fs.readFileSync(result.skill_advice.file, "utf8"));
