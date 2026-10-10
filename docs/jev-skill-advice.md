@@ -1,22 +1,29 @@
-# Home skill advice for Codex
+# Complete session and home skill advice for Codex
 
-Codex compliance preparation discovers Jev's skill catalog only from the user's
-`~/.agents/skills` directory. It reads each `SKILL.md` name and description,
+Codex compliance preparation combines the complete supplied session roster with
+the user's `~/.agents/skills` catalog. Session entries include available system,
+plugin, repository and `.codex/skills` skills, including Dely's delivery skill.
+It reads each home `SKILL.md` name and description,
 `agents/openai.yaml` invocation policy, and disabled paths in the active Codex
 home's `config.toml`. Nested skill folders and directory links are supported;
 ancestor links cannot create an infinite scan. Unsupported metadata fails
 closed rather than silently dropping skills.
 
-The supplied session roster remains in `session-skills.json` for mandatory and
-explicit Control selections. The separate `skills.json` contains the home
-catalog. System, plugin, repository and `.codex/skills` entries from the session
-roster are never added to Jev's skill request. Both snapshots, advice, catalog
-source files, invocation policies and active configuration are fingerprinted.
+The exact supplied session roster remains in `session-skills.json` for mandatory
+and explicit Control selections. `skill-sources.json` retains every original
+session/home name, path, description, policy and source. `skills.json` contains
+one record per canonical source, preferring the session name/path/description.
+Aliases retain the most restrictive supplied, source and configuration policy.
+Skill instruction bodies are never sent to Jev.
+
+The snapshots, advice, all catalog source files, invocation policies and active
+configuration are fingerprinted. Original path bindings are checked separately,
+so retargeting an alias invalidates admission even with identical source bytes.
 Absent policy/configuration files are recorded explicitly; creating one or
 changing a source during an API request requires fresh preparation and review.
 Each Control selector must identify exactly one original record.
 
-Every enabled home skill enters advisory evaluation, including explicit-only
+Every enabled combined skill enters advisory evaluation, including explicit-only
 records. Useful explicit-only suggestions retain their policy and include
 `requires_explicit_invocation: true`. Their suitability does not authorize
 automatic invocation. Disabled records remain local with a `NOT_EVALUATED`
@@ -87,8 +94,10 @@ Run `node --test scripts/test-jev-agent.js scripts/test-jev-skills.js
 scripts/test-jev-multi.js scripts/test-codex-compliance.js` from this checkout.
 Tests cover complete 106, 500 and 1,000-entry catalogs, 30 late recommendations
 without a top-k cut, complementary workflows, uncertainty, provider rounding,
-policy restrictions, home-only discovery, failures, mandatory Control selections
-and immutable snapshots. CLI routing tests resolve the existing installed
+policy restrictions, home discovery, session-only policy enforcement, aliases,
+failures, mandatory Control selections and immutable snapshots. An integration
+check combines a session Dely skill recommendation with eligible route selection
+and verifies that mutation still requires a matching dispatch. CLI routing tests resolve the existing installed
 routing/usage modules when an isolated checkout lacks those machine-local files.
 
 Install the adapter with the existing compliance installer and this checkout's

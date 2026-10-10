@@ -27,6 +27,13 @@ const settingsFile = (home) => path.join(root(home), "settings.json");
 const fingerprints = (files) => Object.fromEntries(files.map((file) =>
   [fs.existsSync(file) ? canonical(file) : path.resolve(file), fs.existsSync(file) ? hashFile(file) : null]));
 const unchanged = (file, hash) => (fs.existsSync(file) ? hashFile(file) : null) === hash;
+const pathBindings = (files) => Object.fromEntries(files.map((file) =>
+  [path.resolve(file), fs.existsSync(file) ? canonical(file) : null]));
+const checkCatalogPaths = (state) => {
+  if (state.catalog_paths && JSON.stringify(pathBindings(Object.keys(state.catalog_paths))) !== JSON.stringify(state.catalog_paths)) {
+    throw Error("Skill catalog path changed; prepare and review again.");
+  }
+};
 const psQuote = (value) => "'" + value.replace(/'/g, "''") + "'";
 const nodeCommand = (script) => process.platform === "win32" ?
   "& " + psQuote(process.execPath) + " " + psQuote(script) : 'node "' + script + '"';
@@ -58,7 +65,8 @@ function context(event, home) {
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
-    "\" --repo \"" + event.cwd + "\" --task-file '<path-to-task.json>'. " +
+    "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
+    " --task-file '<path-to-task.json>'. " +
     "Inspect every item in Jev's suggestions array against the task, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Hard is direct; Easy/Medium-/Medium+ need a matching Dely dispatch before edits. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
@@ -142,6 +150,7 @@ function validate(state, event, home, requireDispatch = true) {
     throw Error("Current task has no reviewed Jev/skill evidence. Run prepare, inspect results, then review.");
   }
   const settings = checkedSettings(home);
+  checkCatalogPaths(state);
   for (const [file, hash] of Object.entries(state.fingerprints)) {
     if (!unchanged(file, hash)) throw Error("Task, advice or loaded skill changed; prepare and review again.");
   }
@@ -231,20 +240,26 @@ async function prepare(options, home) {
   fs.mkdirSync(directory, { recursive: true });
   const skillInput = path.join(directory, "skills.json");
   const sessionRoster = path.join(directory, "session-skills.json");
+  const sourceRoster = path.join(directory, "skill-sources.json");
   const adviceFile = path.join(directory, "skill-advice.json");
   const advisor = require(settings.advisor);
-  if (typeof advisor.discoverSkills !== "function") throw Error("Reinstall the home-catalog skill advisor before preparing this task.");
+  if (typeof advisor.discoverSkills !== "function" || typeof advisor.combineSkills !== "function") throw Error("Reinstall the complete-catalog skill advisor before preparing this task.");
   const homeSkills = advisor.discoverSkills(path.join(os.homedir(), ".agents", "skills"), home);
-  const catalogSources = homeSkills.flatMap((skill) => [skill.path, path.join(path.dirname(skill.path), "agents", "openai.yaml")]);
+  const { skills, sources } = advisor.combineSkills(task.skills, homeSkills, home);
+  const catalogSources = sources.flatMap((skill) => [skill.path, path.join(path.dirname(skill.path), "agents", "openai.yaml")]);
   const catalogFingerprints = fingerprints([...catalogSources, path.join(home, "config.toml")]);
+  const catalogPaths = pathBindings(catalogSources);
   write(sessionRoster, { request: task.request, skills: task.skills });
-  write(skillInput, { request: task.request, skills: homeSkills });
+  write(sourceRoster, { request: task.request, skills: sources });
+  write(skillInput, { request: task.request, skills });
   const advice = await advisor.advise(read(skillInput), "skill", { repo });
-  if (Object.entries(catalogFingerprints).some(([file, hash]) => !unchanged(file, hash))) throw Error("Home catalog sources changed during advice; prepare again.");
+  if (Object.entries(catalogFingerprints).some(([file, hash]) => !unchanged(file, hash)) ||
+      JSON.stringify(pathBindings(catalogSources)) !== JSON.stringify(catalogPaths)) throw Error("Skill catalog sources changed during advice; prepare again.");
   write(adviceFile, advice);
   const state = {
     session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
     prepared_at: new Date().toISOString(), skill_input: skillInput, session_roster: sessionRoster, skill_advice: adviceFile,
+    source_roster: sourceRoster, catalog_paths: catalogPaths,
     required_skills: task.required_skills || [], instructions: instructions(repo, home),
   };
   if (!Array.isArray(state.required_skills) || state.required_skills.some((name) => !task.skills.some((skill) => skill.name === name))) {
@@ -262,7 +277,7 @@ async function prepare(options, home) {
     state.assessment = await routing.assess(loadedTask);
     write(path.join(directory, "assessment.json"), state.assessment);
   }
-  state.fingerprints = { ...fingerprints([skillInput, sessionRoster, adviceFile,
+  state.fingerprints = { ...fingerprints([skillInput, sessionRoster, sourceRoster, adviceFile,
     ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...catalogFingerprints };
   write(stateFile(home, options.session), state);
   return { status: state.status, skill_advice: advice, assessment: state.assessment, task_directory: directory };
@@ -274,12 +289,20 @@ function review(options, home) {
   const file = stateFile(home, options.session);
   const state = read(file);
   if (state.turn !== options.turn || state.status !== "PREPARED") throw Error("Prepare this turn before reviewing.");
+  checkCatalogPaths(state);
   for (const [p, hash] of Object.entries(state.fingerprints)) if (!unchanged(p, hash)) throw Error("Prepared inputs changed.");
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed.");
   const input = read(state.skill_input);
   const roster = state.session_roster ? read(state.session_roster) : input;
-  const catalog = [...new Map([...roster.skills, ...input.skills].map((skill) => [skill.name + "\0" +
-    (process.platform === "win32" ? path.resolve(skill.path).toLowerCase() : path.resolve(skill.path)), skill])).values()];
+  const key = require(settings.advisor).skillKey;
+  const policyBySource = new Map(input.skills.map((skill) => [key(skill.path), skill]));
+  const originals = state.source_roster ? read(state.source_roster).skills : [...roster.skills, ...input.skills];
+  const catalog = [...new Map(originals.map((skill) => {
+    const policy = policyBySource.get(key(skill.path));
+    const merged = { ...skill, ...(policy ? { enabled: policy.enabled,
+      allow_implicit_invocation: policy.allow_implicit_invocation } : {}) };
+    return [skill.name + "\0" + (process.platform === "win32" ? path.resolve(skill.path).toLowerCase() : path.resolve(skill.path)), merged];
+  })).values()];
   const advice = read(state.skill_advice);
   const selected = JSON.parse(options.skills || "[]");
   if (!Array.isArray(selected) || selected.some((id) => !catalog.some((skill) => skill.name === id || skill.path === id))) {
@@ -341,9 +364,17 @@ function install(options, home) {
   const manifestFile = path.join(home, "hooks.json");
   const manifest = fs.existsSync(manifestFile) ? read(manifestFile) : {};
   if (!manifest.hooks) manifest.hooks = {};
+  const preserveHooks = options["preserve-hooks"] === true;
   for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"]) {
     const groups = manifest.hooks[event] || [];
     if (!Array.isArray(groups)) throw Error("Invalid existing hooks; nothing was installed.");
+    if (preserveHooks) {
+      if (groups.flatMap((group) => group.hooks || []).filter((item) =>
+        item.statusMessage === "Checking Jev and Dely task evidence" && String(item.command || "").includes("codex-compliance.js")).length !== 1) {
+        throw Error("Preserving hooks requires one existing compliance handler per event.");
+      }
+      continue;
+    }
     manifest.hooks[event] = groups.map((group) => ({ ...group,
       hooks: (group.hooks || []).filter((item) => !(item.statusMessage === "Checking Jev and Dely task evidence" &&
         String(item.command || "").includes("codex-compliance.js"))),
@@ -365,15 +396,16 @@ function install(options, home) {
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
   write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely,
     dependencies: fingerprints([routing, frozenAdvisor, dely]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
-  write(manifestFile, manifest);
-  return { home, script, script_sha256: hashFile(script), configured_events: 4, trust: "REQUIRES_NATIVE_HOOK_REVIEW" };
+  if (!preserveHooks) write(manifestFile, manifest);
+  return { home, script, script_sha256: hashFile(script), configured_events: 4,
+    trust: preserveHooks ? "UNCHANGED_REQUIRES_EXISTING_NATIVE_TRUST" : "REQUIRES_NATIVE_HOOK_REVIEW" };
 }
 
 async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
-  const { values } = parseArgs({ args: argv.slice(1), options: Object.fromEntries(
+  const { values } = parseArgs({ args: argv.slice(1), options: { ...Object.fromEntries(
     ["home", "session", "turn", "repo", "task-json", "task-file", "difficulty", "reason", "skill-reason", "skills", "run", "routing", "advisor"]
-      .map((name) => [name, { type: "string" }])) });
+      .map((name) => [name, { type: "string" }])), "preserve-hooks": { type: "boolean" } } });
   const home = path.resolve(values.home || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
   let result;
   if (command === "hook") result = hook(JSON.parse(fs.readFileSync(0, "utf8")), home);

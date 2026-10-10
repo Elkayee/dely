@@ -9,6 +9,7 @@ const { spawnSync } = require("child_process");
 const guard = require("./codex-compliance.js");
 const routingPath = process.env.COMPLIANCE_ROUTING || path.join(os.homedir(),
   ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.8/skills/delivery/scripts/task-routing.js");
+const catalogHelpers = 'const {combineSkills,skillKey}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey});\n';
 
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-compliance-test-"));
@@ -17,7 +18,7 @@ function fixture(t) {
   fs.mkdirSync(repo);
   fs.writeFileSync(path.join(repo, "AGENTS.md"), "Keep changes scoped.\n");
   const advisor = path.join(directory, "advisor.js");
-  fs.writeFileSync(advisor, 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nexports.discoverSkills = () => [];\nexports.advise = async (input) => ({status:"NOT_EVALUATED", reason:"TEST_UNAVAILABLE", input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"), suggestion:null});\n');
+  fs.writeFileSync(advisor, catalogHelpers + 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nexports.discoverSkills = () => [];\nexports.advise = async (input) => ({status:"NOT_EVALUATED", reason:"TEST_UNAVAILABLE", input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"), suggestion:null});\n');
   const skill = path.join(directory, "SKILL.md");
   fs.writeFileSync(skill, "Read the actual source before editing.\n");
   fs.mkdirSync(home);
@@ -52,7 +53,7 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
-test("prepare sends only the home catalog while Control retains its independent mandatory roster", async (t) => {
+test("prepare evaluates session and home skills while retaining the exact mandatory roster", async (t) => {
   const f = fixture(t);
   const homeSkill = path.join(f.repo, "home-skill", "SKILL.md");
   const policy = path.join(f.repo, "home-skill", "agents", "openai.yaml");
@@ -63,7 +64,7 @@ test("prepare sends only the home catalog while Control retains its independent 
   const mock = require(f.settings.advisor);
   mock.discoverSkills = (root, home) => { assert.equal(root, path.join(os.homedir(), ".agents", "skills")); assert.equal(home, f.home); return [record]; };
   mock.advise = async (input) => {
-    assert.deepEqual(input.skills, [record]);
+    assert.deepEqual(input.skills.map((skill) => skill.name), ["required", "dely:delivery", "home-skill"]);
     assert.ok(!JSON.stringify(input).includes("PRIVATE_LOCAL_BODY"));
     return { status: "REVIEW_REQUIRED", input_sha256: guard.digest(JSON.stringify(input)), suggestion: record };
   };
@@ -71,13 +72,149 @@ test("prepare sends only the home catalog while Control retains its independent 
   assert.equal(prepared.skill_advice.suggestion.name, "home-skill");
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   assert.deepEqual(JSON.parse(fs.readFileSync(state.session_roster, "utf8")).skills, f.task.skills);
-  assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")).skills, [record]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")).skills.map((skill) => skill.name),
+    ["required", "dely:delivery", "home-skill"]);
   const reviewed = f.review({ skills: '["required","home-skill"]' });
   assert.equal(reviewed.status, "REVIEWED");
   assert.deepEqual(reviewed.loaded_skills.map((s) => s.name), ["required", "home-skill"]);
   assert.deepEqual(guard.hook(f.event, f.home), {});
   fs.writeFileSync(policy, "policy:\n  allow_implicit_invocation: false\n");
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+for (const policy of ["explicit-only", "disabled"]) {
+  test("session-only " + policy + " policy cannot be waived by supplied metadata", async (t) => {
+    const f = fixture(t);
+    f.task.required_skills = [];
+    f.task.skills[0].enabled = true;
+    f.task.skills[0].allow_implicit_invocation = true;
+    if (policy === "explicit-only") {
+      const file = path.join(path.dirname(f.skill), "agents/openai.yaml");
+      fs.mkdirSync(path.dirname(file));
+      fs.writeFileSync(file, "policy:\n  allow_implicit_invocation: false\n");
+    } else {
+      fs.writeFileSync(path.join(f.home, "config.toml"),
+        "[[skills.config]]\npath = " + JSON.stringify(path.dirname(f.skill)) + "\nenabled = false\n");
+    }
+    await f.prepare();
+    assert.throws(f.review, policy === "disabled" ? /Disabled skills/ : /Explicit-only skills/);
+  });
+}
+
+test("canonical aliases are evaluated once without relaxing home invocation policy", async (t) => {
+  const f = fixture(t);
+  const alias = path.join(f.repo, "skill-link");
+  fs.symlinkSync(path.dirname(f.skill), alias, "junction");
+  f.task.skills[0].path = path.join(alias, "SKILL.md");
+  f.task.required_skills = [];
+  require(f.settings.advisor).discoverSkills = () => [{ name: "home-alias", path: f.skill,
+    description: "Same source", allow_implicit_invocation: false }];
+  await f.prepare();
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const input = JSON.parse(fs.readFileSync(state.skill_input, "utf8"));
+  assert.deepEqual(input.skills.map((s) => s.name), ["required", "dely:delivery"]);
+  assert.equal(input.skills[0].allow_implicit_invocation, false);
+  assert.throws(f.review, /Explicit-only skills/);
+  f.task.required_skills = ["required"];
+  await f.prepare();
+  assert.equal(f.review().loaded_skills[0].path, fs.realpathSync(f.skill));
+});
+
+test("session-only skill content is fingerprinted before Control can load it", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  fs.appendFileSync(f.skill, "Changed instruction body.\n");
+  assert.throws(f.review, /changed/i);
+});
+
+test("retargeting a prepared alias is rejected even when instruction bytes are identical", async (t) => {
+  const f = fixture(t);
+  const alias = path.join(f.repo, "alias");
+  const replacement = path.join(f.repo, "replacement");
+  fs.mkdirSync(replacement);
+  fs.copyFileSync(f.skill, path.join(replacement, "SKILL.md"));
+  fs.symlinkSync(path.dirname(f.skill), alias, "junction");
+  f.task.skills[0].path = path.join(alias, "SKILL.md");
+  await f.prepare();
+  f.review();
+  if (process.platform === "win32") fs.rmdirSync(alias);
+  else fs.unlinkSync(alias);
+  fs.symlinkSync(replacement, alias, "junction");
+  assert.throws(f.review, /Prepare this turn|path changed/);
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("unselected session skills remain protected after admission", async (t) => {
+  const f = fixture(t);
+  const unused = path.join(f.repo, "unused.md");
+  fs.writeFileSync(unused, "Unselected system instructions.\n");
+  f.task.skills.push({ name: "system-unused", path: unused, description: "An unrelated session skill" });
+  await f.prepare();
+  f.review();
+  fs.appendFileSync(unused, "Changed source.\n");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("native preparation guidance names the configured hook home explicitly", (t) => {
+  const f = fixture(t);
+  const result = guard.hook({ ...f.event, hook_event_name: "SessionStart" }, f.home);
+  assert.ok(result.hookSpecificOutput.additionalContext.includes("--home "));
+  assert.ok(result.hookSpecificOutput.additionalContext.includes(f.home));
+});
+
+test("preserving hooks refuses missing admission handlers before replacing installed software", (t) => {
+  const f = fixture(t);
+  const file = path.join(f.home, "hooks.json");
+  const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+  delete manifest.hooks.Stop;
+  fs.writeFileSync(file, JSON.stringify(manifest));
+  const script = path.join(f.home, "dely-compliance/codex-compliance.js");
+  const before = guard.digest(fs.readFileSync(script));
+  assert.throws(() => guard.install({ routing: routingPath, advisor: f.advisor, "preserve-hooks": true }, f.home), /one existing compliance handler/);
+  assert.equal(guard.digest(fs.readFileSync(script)), before);
+  assert.equal(fs.readFileSync(file, "utf8"), JSON.stringify(manifest));
+});
+
+test("Jev recommends a session delivery skill and eligible route while dispatch admission stays mandatory", async (t) => {
+  const f = fixture(t);
+  f.task.context.risks.routing = false;
+  f.task.required_skills.push("dely:delivery");
+  const routing = require(routingPath);
+  const assess = routing.assess;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task) => assess(task, { apiKey: "TEST_KEY", fetch: async () => ({ ok: true,
+    json: async () => ({ model: routing.MODEL, answers: Object.fromEntries(Object.keys(routing.questions()).map((id) => [id,
+      { type: "choice", choice: "medium_minus", confidence: 1, probabilities: {
+        easy: 0, medium_minus: 1, medium_plus: 0, hard: 0, insufficient_evidence: 0 } }])) }) }) });
+  const advisor = require("./jev_agent.js");
+  require(f.settings.advisor).advise = (input) => advisor.advise(input, "skill", { apiKey: "TEST_KEY",
+    fetch: async (_, options) => ({ ok: true, json: async () => ({ model: advisor.MODEL,
+      answers: Object.fromEntries(Object.keys(JSON.parse(options.body).questions).map((id) => [id,
+        { type: "choice", choice: "direct", confidence: 1, probabilities: { direct: 1, supporting: 0, unrelated: 0, unknown: 0 } }])) }) }) });
+  const prepared = await f.prepare();
+  assert.ok(prepared.skill_advice.suggestions.some((skill) => skill.name === "dely:delivery"));
+  assert.equal(prepared.assessment.difficulty, "medium_minus");
+  assert.equal(prepared.assessment.route.workflow, "dely");
+  assert.equal(prepared.assessment.route.primary.model, "gemini-3.8-flash-high");
+  assert.throws(() => f.review({ difficulty: "medium_minus" }), /mandatory skill/);
+  const reviewed = f.review({ difficulty: "medium_minus", skills: '["required","dely:delivery"]', run: "test-route" });
+  assert.equal(reviewed.skill_review.evaluation_status, "REVIEW_REQUIRED");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("software refresh preserves existing native hook definitions byte for byte", (t) => {
+  const f = fixture(t);
+  const file = path.join(f.home, "hooks.json");
+  const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+  for (const groups of Object.values(manifest.hooks)) {
+    for (const group of groups) for (const item of group.hooks) {
+      if (item.statusMessage === "Checking Jev and Dely task evidence") item.command += " --existing-wiring";
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify(manifest, null, 3));
+  const before = fs.readFileSync(file);
+  guard.install({ routing: routingPath, advisor: f.advisor, "preserve-hooks": true }, f.home);
+  assert.equal(fs.readFileSync(file, "utf8"), before.toString("utf8"));
 });
 
 test("reinstalling a candidate from a new checkout retains the existing credential search root", (t) => {
@@ -144,8 +281,8 @@ test("native prepare CLI delivers all suggestions compactly and points to comple
   const records = Array.from({ length: 3 }, (_, i) => ({ name: "recommended-" + i, path: f.skill, description: ("Complete metadata " + i).repeat(1000) }));
   records[0].allow_implicit_invocation = false;
   records[0].requires_explicit_invocation = true;
-  const source = 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nconst records = ' + JSON.stringify(records) + ';\n' +
-    'exports.discoverSkills = () => records;\nexports.advise = async (input) => ({mode:"skill",status:"REVIEW_REQUIRED",input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"),suggestions:records,suggestion:records[0],evaluations:[{internal:"COMPLETE_EVALUATION_MARKER"}],selection:{catalog_count:3,eligible_count:3,evaluated_count:3,requests:1,rounds:1}});\n';
+  const source = catalogHelpers + 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nconst records = ' + JSON.stringify(records) + ';\n' +
+    'exports.discoverSkills = () => records.map(({requires_explicit_invocation,...skill}) => skill);\nexports.advise = async (input) => ({mode:"skill",status:"REVIEW_REQUIRED",input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"),suggestions:records,suggestion:records[0],evaluations:[{internal:"COMPLETE_EVALUATION_MARKER"}],selection:{catalog_count:3,eligible_count:3,evaluated_count:3,requests:1,rounds:1}});\n';
   fs.writeFileSync(f.advisor, source);
   guard.install({ routing: routingPath, advisor: f.advisor }, f.home);
   const taskFile = path.join(f.repo, "multi-task.json");

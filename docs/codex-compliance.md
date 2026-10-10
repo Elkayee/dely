@@ -27,6 +27,11 @@ through Codex's native /hooks interface, then start a fresh session.
 Untrusted definitions are skipped by Codex. The installer deliberately
 reports REQUIRES_NATIVE_HOOK_REVIEW instead of claiming activation.
 
+For software updates with existing admission wiring, add `--preserve-hooks`.
+This requires one compliance handler for each of the four events and leaves
+`hooks.json` byte-for-byte unchanged, including shared-home wiring. It refreshes
+the frozen software and guides without granting or changing native hook trust.
+
 ## Agent procedure
 
 SessionStart and each UserPromptSubmit supply the current session/turn IDs,
@@ -42,7 +47,8 @@ Before implementation:
    mandatory or user-selected skill in required_skills.
 2. Save the complete task JSON as UTF-8 through the approved preparation
    surface. Invoke the installed script's prepare command with --session,
-   --turn, --repo and --task-file <path>. It writes isolated inputs and calls the existing
+   --turn, --repo, the explicit --home from the hook's guidance, and --task-file
+   <path>. It writes isolated inputs and calls the existing
    Jev skill advisor and task assessment; it does not approve their results.
 3. Inspect both results. Invoke review with the same IDs, --difficulty,
    --reason, --skills and --skill-reason. The skills argument is a JSON array
@@ -94,8 +100,11 @@ The task JSON shape is:
     }
 
 Use mode advice for skill advice without implementation; omit spec/context.
-Jev skill advice discovers only the user's home `.agents/skills` catalog. The
-supplied session roster is snapshotted separately for mandatory Control skills.
+Jev skill advice evaluates the union of the complete supplied session roster
+and discovered `.agents/skills` catalog, including available system/plugin Dely
+skills. Canonical sources are evaluated once; every original identity remains
+available to Control. Invocation/configuration policies remain restrictive across
+aliases. The exact session roster is preserved separately for mandatory skills.
 Inspect the complete `suggestions[]` list and choose every skill the task needs,
 alongside mandatory/user-selected skills. The singular `suggestion` field is a
 legacy alias; a task is not limited to that one entry. Detailed evaluations are

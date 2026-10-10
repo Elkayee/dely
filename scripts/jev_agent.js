@@ -61,10 +61,12 @@ function metadataString(frontmatter, field) {
   return raw.replace(/\s+#.*$/, "");
 }
 
-function discoverSkills(skillRoot = path.join(os.homedir(), ".agents", "skills"), codexHome = path.join(os.homedir(), ".codex")) {
-  const root = path.resolve(skillRoot);
-  if (!fs.existsSync(root)) return [];
-  const normalize = (file) => process.platform === "win32" ? path.resolve(file).toLowerCase() : path.resolve(file);
+function skillKey(file) {
+  const resolved = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function disabledSkills(codexHome) {
   const disabled = new Set();
   const config = path.join(codexHome, "config.toml");
   if (fs.existsSync(config)) {
@@ -74,9 +76,50 @@ function discoverSkills(skillRoot = path.join(os.homedir(), ".agents", "skills")
       const found = match[1].match(/^[ \t]*path[ \t]*=[ \t]*("(?:[^"\\]|\\.)*"|'[^']*')[ \t]*(?:#.*)?$/m);
       if (!found) throw Error("Disabled skill configuration needs a path");
       const value = found[1][0] === '"' ? JSON.parse(found[1]) : found[1].slice(1, -1);
-      disabled.add(normalize(value));
+      disabled.add(skillKey(value));
     }
   }
+  return disabled;
+}
+
+function skillPolicy(file, disabled) {
+  const directory = path.dirname(file);
+  const text = fs.readFileSync(file, "utf8");
+  const frontmatter = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || "";
+  const policyFile = path.join(directory, "agents", "openai.yaml");
+  const policy = fs.existsSync(policyFile) ? fs.readFileSync(policyFile, "utf8")
+    .match(/^[ \t]+allow_implicit_invocation:[ \t]*([^\r\n]*)/m)?.[1].replace(/[ \t]+#.*$/, "").trim() : undefined;
+  if (policy !== undefined && !["true", "false"].includes(policy)) throw Error("Invalid skill invocation policy: " + file);
+  return { allow_implicit_invocation: policy !== "false" && !/^disable-model-invocation:[ \t]*true(?:[ \t]*(?:#.*)?)?$/m.test(frontmatter),
+    enabled: !disabled.has(skillKey(file)) && !disabled.has(skillKey(directory)) };
+}
+
+function combineSkills(sessionSkills, homeSkills, codexHome) {
+  for (const skills of [sessionSkills, homeSkills]) validateInput({ request: "Combine skill metadata", skills }, "skill");
+  const sources = [...sessionSkills.map((skill) => ({ ...skill, source: "session" })),
+    ...homeSkills.map((skill) => ({ ...skill, source: "home" }))];
+  const disabled = disabledSkills(codexHome);
+  const unique = new Map();
+  for (const source of sources) {
+    if (!path.isAbsolute(source.path)) throw Error("Skill catalog paths must be absolute.");
+    const key = skillKey(source.path);
+    const policy = skillPolicy(source.path, disabled);
+    let skill = unique.get(key);
+    if (!skill) {
+      skill = { name: source.name, path: source.path, description: source.description,
+        enabled: true, allow_implicit_invocation: true };
+      unique.set(key, skill);
+    }
+    skill.enabled = skill.enabled && source.enabled !== false && policy.enabled;
+    skill.allow_implicit_invocation = skill.allow_implicit_invocation && source.allow_implicit_invocation !== false && policy.allow_implicit_invocation;
+  }
+  return { skills: [...unique.values()], sources };
+}
+
+function discoverSkills(skillRoot = path.join(os.homedir(), ".agents", "skills"), codexHome = path.join(os.homedir(), ".codex")) {
+  const root = path.resolve(skillRoot);
+  if (!fs.existsSync(root)) return [];
+  const disabled = disabledSkills(codexHome);
   const skills = [];
   function walk(directory, ancestors) {
     const real = fs.realpathSync(directory);
@@ -90,12 +133,8 @@ function discoverSkills(skillRoot = path.join(os.homedir(), ".agents", "skills")
         const text = fs.readFileSync(file, "utf8");
         const frontmatter = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
         if (frontmatter === undefined) throw Error("Missing skill frontmatter: " + file);
-        const policyFile = path.join(directory, "agents", "openai.yaml");
-        const policy = fs.existsSync(policyFile) ? fs.readFileSync(policyFile, "utf8").match(/^[ \t]+allow_implicit_invocation:[ \t]*([^\r\n]*)/m)?.[1].replace(/[ \t]+#.*$/, "").trim() : undefined;
-        if (policy !== undefined && !["true", "false"].includes(policy)) throw Error("Invalid skill invocation policy: " + file);
         skills.push({ name: metadataString(frontmatter, "name"), path: file, description: metadataString(frontmatter, "description"),
-          allow_implicit_invocation: policy !== "false" && !/^disable-model-invocation:[ \t]*true(?:[ \t]*(?:#.*)?)?$/m.test(frontmatter),
-          enabled: !disabled.has(normalize(file)) });
+          ...skillPolicy(file, disabled) });
       }
     }
   }
@@ -357,7 +396,7 @@ async function main(argv = process.argv.slice(2)) {
   return result.status === "NOT_EVALUATED" ? 3 : 0;
 }
 
-module.exports = { MODEL, RELATION, discoverSkills, validateInput, questionsFor, validateReply, advise, main };
+module.exports = { MODEL, RELATION, skillKey, combineSkills, discoverSkills, validateInput, questionsFor, validateReply, advise, main };
 if (require.main === module) main().then((code) => { process.exitCode = code; }).catch(() => {
   console.error("Jev agent command failed. Check input schema, installed Dely and output path; no action was executed.");
   process.exitCode = 2;
