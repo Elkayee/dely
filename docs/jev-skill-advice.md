@@ -12,6 +12,9 @@ explicit Control selections. The separate `skills.json` contains the home
 catalog. System, plugin, repository and `.codex/skills` entries from the session
 roster are never added to Jev's skill request. Both snapshots, advice, catalog
 source files, invocation policies and active configuration are fingerprinted.
+Absent policy/configuration files are recorded explicitly; creating one or
+changing a source during an API request requires fresh preparation and review.
+Each Control selector must identify exactly one original record.
 
 Only implicitly invocable, enabled catalog entries enter automatic advice.
 Explicit-only records stay in the local catalog, and Control can select them

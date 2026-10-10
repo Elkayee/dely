@@ -24,7 +24,9 @@ const write = (file, value) => {
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
 const settingsFile = (home) => path.join(root(home), "settings.json");
-const fingerprints = (files) => Object.fromEntries(files.map((file) => [canonical(file), hashFile(file)]));
+const fingerprints = (files) => Object.fromEntries(files.map((file) =>
+  [fs.existsSync(file) ? canonical(file) : path.resolve(file), fs.existsSync(file) ? hashFile(file) : null]));
+const unchanged = (file, hash) => (fs.existsSync(file) ? hashFile(file) : null) === hash;
 const psQuote = (value) => "'" + value.replace(/'/g, "''") + "'";
 const nodeCommand = (script) => process.platform === "win32" ?
   "& " + psQuote(process.execPath) + " " + psQuote(script) : 'node "' + script + '"';
@@ -141,7 +143,7 @@ function validate(state, event, home, requireDispatch = true) {
   }
   const settings = checkedSettings(home);
   for (const [file, hash] of Object.entries(state.fingerprints)) {
-    if (hashFile(file) !== hash) throw Error("Task, advice or loaded skill changed; prepare and review again.");
+    if (!unchanged(file, hash)) throw Error("Task, advice or loaded skill changed; prepare and review again.");
   }
   if (JSON.stringify(instructions(event.cwd, home)) !== JSON.stringify(state.instructions)) {
     throw Error("AGENTS.md changed; read the instructions and review the task again.");
@@ -233,9 +235,12 @@ async function prepare(options, home) {
   const advisor = require(settings.advisor);
   if (typeof advisor.discoverSkills !== "function") throw Error("Reinstall the home-catalog skill advisor before preparing this task.");
   const homeSkills = advisor.discoverSkills(path.join(os.homedir(), ".agents", "skills"), home);
+  const catalogSources = homeSkills.flatMap((skill) => [skill.path, path.join(path.dirname(skill.path), "agents", "openai.yaml")]);
+  const catalogFingerprints = fingerprints([...catalogSources, path.join(home, "config.toml")]);
   write(sessionRoster, { request: task.request, skills: task.skills });
   write(skillInput, { request: task.request, skills: homeSkills });
   const advice = await advisor.advise(read(skillInput), "skill", { repo });
+  if (Object.entries(catalogFingerprints).some(([file, hash]) => !unchanged(file, hash))) throw Error("Home catalog sources changed during advice; prepare again.");
   write(adviceFile, advice);
   const state = {
     session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
@@ -257,11 +262,8 @@ async function prepare(options, home) {
     state.assessment = await routing.assess(loadedTask);
     write(path.join(directory, "assessment.json"), state.assessment);
   }
-  const catalogSources = homeSkills.flatMap((skill) => [skill.path,
-    path.join(path.dirname(skill.path), "agents", "openai.yaml")]).filter((file) => fs.existsSync(file));
-  state.fingerprints = fingerprints([skillInput, sessionRoster, adviceFile, ...catalogSources,
-    ...(fs.existsSync(path.join(home, "config.toml")) ? [path.join(home, "config.toml")] : []),
-    ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]);
+  state.fingerprints = { ...fingerprints([skillInput, sessionRoster, adviceFile,
+    ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...catalogFingerprints };
   write(stateFile(home, options.session), state);
   return { status: state.status, skill_advice: advice, assessment: state.assessment, task_directory: directory };
 }
@@ -272,7 +274,7 @@ function review(options, home) {
   const file = stateFile(home, options.session);
   const state = read(file);
   if (state.turn !== options.turn || state.status !== "PREPARED") throw Error("Prepare this turn before reviewing.");
-  for (const [p, hash] of Object.entries(state.fingerprints)) if (hashFile(p) !== hash) throw Error("Prepared inputs changed.");
+  for (const [p, hash] of Object.entries(state.fingerprints)) if (!unchanged(p, hash)) throw Error("Prepared inputs changed.");
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed.");
   const input = read(state.skill_input);
   const roster = state.session_roster ? read(state.session_roster) : input;
@@ -283,10 +285,11 @@ function review(options, home) {
   if (!Array.isArray(selected) || selected.some((id) => !catalog.some((skill) => skill.name === id || skill.path === id))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
   }
-  if (selected.some((id) => catalog.filter((skill) => skill.name === id).length > 1)) {
-    throw Error("Duplicate skill names require selecting the exact catalog path.");
-  }
-  const selectedSkills = catalog.filter((skill) => selected.includes(skill.name) || selected.includes(skill.path));
+  const selectedSkills = [...new Set(selected.map((id) => {
+    const matches = catalog.filter((skill) => skill.name === id || skill.path === id);
+    if (matches.length !== 1) throw Error("Duplicate or ambiguous skill selectors require an exact catalog path or name matching one original record.");
+    return matches[0];
+  }))];
   if (state.required_skills.some((name) => !selectedSkills.some((skill) => skill.name === name))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
   }
@@ -348,6 +351,8 @@ function install(options, home) {
     "hooks-before-" + Date.now() + "-" + crypto.randomBytes(4).toString("hex") + ".json"));
   fs.copyFileSync(__filename, script);
   fs.copyFileSync(guide, path.join(directory, "guide.md"));
+  const adviceGuide = path.resolve(__dirname, "../docs/jev-skill-advice.md");
+  if (fs.existsSync(adviceGuide)) fs.copyFileSync(adviceGuide, path.join(directory, "jev-skill-advice.md"));
   // Freeze advice code without moving its credential search root or copying any key.
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });

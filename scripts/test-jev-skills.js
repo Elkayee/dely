@@ -38,7 +38,7 @@ function provider(input, target, calls, chooseNone = false) {
 }
 
 for (const [count, size] of [[106, 400], [500, 200], [1000, 200]]) {
-  test("full " + count + "-skill catalog is evaluated with a real final decision over finalists", async () => {
+  test("full " + count + "-skill catalog is evaluated with a shared final decision over finalists", async () => {
     const input = catalog(count, size);
     const before = JSON.stringify(input);
     const calls = [];

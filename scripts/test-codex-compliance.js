@@ -93,6 +93,52 @@ test("reinstalling a candidate from a new checkout retains the existing credenti
   assert.ok(fs.readFileSync(settings.advisor, "utf8").includes("const ROOT = " + JSON.stringify(original) + ";"));
 });
 
+for (const kind of ["policy", "config"]) {
+  test("creating an absent " + kind + " after prepare invalidates Control review", async (t) => {
+    const f = fixture(t);
+    const record = { name: "home-only", path: f.skill, description: "Home catalog record" };
+    require(f.settings.advisor).discoverSkills = () => [record];
+    await f.prepare();
+    const file = kind === "policy" ? path.join(path.dirname(f.skill), "agents", "openai.yaml") : path.join(f.home, "config.toml");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, kind === "policy" ? "policy:\n  allow_implicit_invocation: yes\n" : "[[skills.config]]\npath = " + JSON.stringify(f.skill) + "\nenabled = false\n");
+    assert.throws(() => f.review(), /changed/i);
+  });
+}
+
+for (const kind of ["shared path", "name/path collision"]) {
+  test("Control rejects a selector with " + kind + " instead of loading extra records", async (t) => {
+    const f = fixture(t);
+    const other = path.join(f.repo, "other-skill.md");
+    fs.writeFileSync(other, "Other skill source");
+    f.task.skills.push({ name: kind === "shared path" ? "alias" : f.skill,
+      path: kind === "shared path" ? f.skill : other, description: "Another original record" });
+    await f.prepare();
+    assert.throws(() => f.review({ skills: JSON.stringify([f.skill]) }), /ambiguous|duplicate/i);
+  });
+}
+
+test("installed guide's home-advice documentation link resolves locally", (t) => {
+  const f = fixture(t);
+  assert.ok(fs.readFileSync(path.join(f.home, "dely-compliance", "guide.md"), "utf8").includes("jev-skill-advice.md"));
+  assert.ok(fs.existsSync(path.join(f.home, "dely-compliance", "jev-skill-advice.md")));
+});
+
+test("a policy created while advice is running cannot produce a prepared snapshot", async (t) => {
+  const f = fixture(t);
+  const mock = require(f.settings.advisor);
+  mock.discoverSkills = () => [{ name: "home-only", path: f.skill, description: "Home record" }];
+  const advise = mock.advise;
+  mock.advise = async (input) => {
+    const policy = path.join(path.dirname(f.skill), "agents", "openai.yaml");
+    fs.mkdirSync(path.dirname(policy), { recursive: true });
+    fs.writeFileSync(policy, "policy:\n  allow_implicit_invocation: false\n");
+    return advise(input);
+  };
+  await assert.rejects(() => f.prepare(), /changed during advice/);
+  assert.ok(!fs.existsSync(guard.stateFile(f.home, "session")));
+});
+
 test("missing review is denied under bypass permissions; simple reads are available", (t) => {
   const f = fixture(t);
   const denied = guard.hook({ ...f.event, permission_mode: "bypassPermissions" }, f.home);
