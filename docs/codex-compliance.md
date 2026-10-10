@@ -94,6 +94,9 @@ The task JSON shape is:
     }
 
 Use mode advice for skill advice without implementation; omit spec/context.
+Jev skill advice discovers only the user's home `.agents/skills` catalog. The
+supplied session roster is snapshotted separately for mandatory Control skills.
+See [home skill advice](jev-skill-advice.md) for packet limits and selection.
 That review does not authorize mutations. Questions requiring no tools do
 not need a delivery assessment. A new user turn invalidates the previous
 turn's authorization; prepare and explicitly review the current task again.

@@ -228,14 +228,18 @@ async function prepare(options, home) {
   const directory = path.join(root(home), "tasks", crypto.randomBytes(12).toString("hex"));
   fs.mkdirSync(directory, { recursive: true });
   const skillInput = path.join(directory, "skills.json");
+  const sessionRoster = path.join(directory, "session-skills.json");
   const adviceFile = path.join(directory, "skill-advice.json");
-  write(skillInput, { request: task.request, skills: task.skills });
   const advisor = require(settings.advisor);
+  if (typeof advisor.discoverSkills !== "function") throw Error("Reinstall the home-catalog skill advisor before preparing this task.");
+  const homeSkills = advisor.discoverSkills(path.join(os.homedir(), ".agents", "skills"), home);
+  write(sessionRoster, { request: task.request, skills: task.skills });
+  write(skillInput, { request: task.request, skills: homeSkills });
   const advice = await advisor.advise(read(skillInput), "skill", { repo });
   write(adviceFile, advice);
   const state = {
     session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
-    prepared_at: new Date().toISOString(), skill_input: skillInput, skill_advice: adviceFile,
+    prepared_at: new Date().toISOString(), skill_input: skillInput, session_roster: sessionRoster, skill_advice: adviceFile,
     required_skills: task.required_skills || [], instructions: instructions(repo, home),
   };
   if (!Array.isArray(state.required_skills) || state.required_skills.some((name) => !task.skills.some((skill) => skill.name === name))) {
@@ -253,7 +257,10 @@ async function prepare(options, home) {
     state.assessment = await routing.assess(loadedTask);
     write(path.join(directory, "assessment.json"), state.assessment);
   }
-  state.fingerprints = fingerprints([skillInput, adviceFile,
+  const catalogSources = homeSkills.flatMap((skill) => [skill.path,
+    path.join(path.dirname(skill.path), "agents", "openai.yaml")]).filter((file) => fs.existsSync(file));
+  state.fingerprints = fingerprints([skillInput, sessionRoster, adviceFile, ...catalogSources,
+    ...(fs.existsSync(path.join(home, "config.toml")) ? [path.join(home, "config.toml")] : []),
     ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]);
   write(stateFile(home, options.session), state);
   return { status: state.status, skill_advice: advice, assessment: state.assessment, task_directory: directory };
@@ -268,15 +275,18 @@ function review(options, home) {
   for (const [p, hash] of Object.entries(state.fingerprints)) if (hashFile(p) !== hash) throw Error("Prepared inputs changed.");
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed.");
   const input = read(state.skill_input);
+  const roster = state.session_roster ? read(state.session_roster) : input;
+  const catalog = [...new Map([...roster.skills, ...input.skills].map((skill) => [skill.name + "\0" +
+    (process.platform === "win32" ? path.resolve(skill.path).toLowerCase() : path.resolve(skill.path)), skill])).values()];
   const advice = read(state.skill_advice);
   const selected = JSON.parse(options.skills || "[]");
-  if (!Array.isArray(selected) || selected.some((id) => !input.skills.some((skill) => skill.name === id || skill.path === id))) {
+  if (!Array.isArray(selected) || selected.some((id) => !catalog.some((skill) => skill.name === id || skill.path === id))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
   }
-  if (selected.some((id) => input.skills.filter((skill) => skill.name === id).length > 1)) {
+  if (selected.some((id) => catalog.filter((skill) => skill.name === id).length > 1)) {
     throw Error("Duplicate skill names require selecting the exact catalog path.");
   }
-  const selectedSkills = input.skills.filter((skill) => selected.includes(skill.name) || selected.includes(skill.path));
+  const selectedSkills = catalog.filter((skill) => selected.includes(skill.name) || selected.includes(skill.path));
   if (state.required_skills.some((name) => !selectedSkills.some((skill) => skill.name === name))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
   }
@@ -311,6 +321,8 @@ function install(options, home) {
   const script = path.join(directory, "codex-compliance.js");
   const frozenAdvisor = path.join(directory, "jev-advisor.js");
   const advisorSource = fs.readFileSync(advisor, "utf8");
+  const previous = fs.existsSync(settingsFile(home)) ? read(settingsFile(home)) : null;
+  const credentialRoot = previous?.credential_root || path.dirname(path.dirname(previous?.advisor_source || advisor));
   const rootDeclaration = 'const ROOT = path.resolve(__dirname, "..");';
   if (!advisorSource.includes(rootDeclaration)) throw Error("Unrecognized advisor root; installation was not changed.");
   const hookCommand = nodeCommand(script) + " hook --home " +
@@ -338,8 +350,8 @@ function install(options, home) {
   fs.copyFileSync(guide, path.join(directory, "guide.md"));
   // Freeze advice code without moving its credential search root or copying any key.
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
-    "const ROOT = " + JSON.stringify(path.dirname(path.dirname(advisor))) + ";\n"), { mode: 0o600 });
-  write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, delivery, dely,
+    "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
+  write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely,
     dependencies: fingerprints([routing, frozenAdvisor, dely]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
   write(manifestFile, manifest);
   return { home, script, script_sha256: hashFile(script), configured_events: 4, trust: "REQUIRES_NATIVE_HOOK_REVIEW" };

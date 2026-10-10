@@ -17,7 +17,7 @@ function fixture(t) {
   fs.mkdirSync(repo);
   fs.writeFileSync(path.join(repo, "AGENTS.md"), "Keep changes scoped.\n");
   const advisor = path.join(directory, "advisor.js");
-  fs.writeFileSync(advisor, 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nexports.advise = async (input) => ({status:"NOT_EVALUATED", reason:"TEST_UNAVAILABLE", input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"), suggestion:null});\n');
+  fs.writeFileSync(advisor, 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nexports.discoverSkills = () => [];\nexports.advise = async (input) => ({status:"NOT_EVALUATED", reason:"TEST_UNAVAILABLE", input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"), suggestion:null});\n');
   const skill = path.join(directory, "SKILL.md");
   fs.writeFileSync(skill, "Read the actual source before editing.\n");
   fs.mkdirSync(home);
@@ -51,6 +51,47 @@ function fixture(t) {
   });
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
+
+test("prepare sends only the home catalog while Control retains its independent mandatory roster", async (t) => {
+  const f = fixture(t);
+  const homeSkill = path.join(f.repo, "home-skill", "SKILL.md");
+  const policy = path.join(f.repo, "home-skill", "agents", "openai.yaml");
+  fs.mkdirSync(path.dirname(policy), { recursive: true });
+  fs.writeFileSync(homeSkill, "---\nname: home-skill\ndescription: Home-only advice\n---\nPRIVATE_LOCAL_BODY\n");
+  fs.writeFileSync(policy, "policy:\n  allow_implicit_invocation: true\n");
+  const record = { name: "home-skill", path: homeSkill, description: "Home-only advice", enabled: true, allow_implicit_invocation: true };
+  const mock = require(f.settings.advisor);
+  mock.discoverSkills = (root, home) => { assert.equal(root, path.join(os.homedir(), ".agents", "skills")); assert.equal(home, f.home); return [record]; };
+  mock.advise = async (input) => {
+    assert.deepEqual(input.skills, [record]);
+    assert.ok(!JSON.stringify(input).includes("PRIVATE_LOCAL_BODY"));
+    return { status: "REVIEW_REQUIRED", input_sha256: guard.digest(JSON.stringify(input)), suggestion: record };
+  };
+  const prepared = await f.prepare();
+  assert.equal(prepared.skill_advice.suggestion.name, "home-skill");
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.deepEqual(JSON.parse(fs.readFileSync(state.session_roster, "utf8")).skills, f.task.skills);
+  assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")).skills, [record]);
+  const reviewed = f.review({ skills: '["required","home-skill"]' });
+  assert.equal(reviewed.status, "REVIEWED");
+  assert.deepEqual(reviewed.loaded_skills.map((s) => s.name), ["required", "home-skill"]);
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  fs.writeFileSync(policy, "policy:\n  allow_implicit_invocation: false\n");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("reinstalling a candidate from a new checkout retains the existing credential search root", (t) => {
+  const f = fixture(t);
+  const original = JSON.parse(fs.readFileSync(guard.settingsFile(f.home), "utf8")).credential_root;
+  const nextAdvisor = path.join(f.repo, "scripts", "advisor.js");
+  fs.mkdirSync(path.dirname(nextAdvisor), { recursive: true });
+  fs.copyFileSync(f.advisor, nextAdvisor);
+  guard.install({ routing: routingPath, advisor: nextAdvisor }, f.home);
+  const settings = JSON.parse(fs.readFileSync(guard.settingsFile(f.home), "utf8"));
+  assert.equal(settings.credential_root, original);
+  assert.equal(settings.advisor_source, fs.realpathSync(nextAdvisor));
+  assert.ok(fs.readFileSync(settings.advisor, "utf8").includes("const ROOT = " + JSON.stringify(original) + ";"));
+});
 
 test("missing review is denied under bypass permissions; simple reads are available", (t) => {
   const f = fixture(t);
@@ -234,7 +275,7 @@ test("file input prepares the complete oversized catalog through the native CLI"
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).status, "PREPARED");
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, f.options.session), "utf8"));
-  assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")), {
+  assert.deepEqual(JSON.parse(fs.readFileSync(state.session_roster, "utf8")), {
     request: task.request, skills: task.skills,
   });
   assert.equal(fs.readFileSync(state.assessment.task.spec_file, "utf8"), task.spec);
