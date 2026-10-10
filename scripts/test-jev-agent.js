@@ -61,12 +61,14 @@ test("context ranks relevant code, pins requirements and retains all original pr
   assert.deepEqual(context, before);
 });
 
-test("skill suggests exactly an offered record or none, never loads it", async () => {
-  const chosen = await run(skills, "skill", transport({ skill: "s0" }));
+test("skill suggests supplied records or an empty list, never loads them", async () => {
+  const chosen = await run(skills, "skill", transport({ s0: "direct", s1: "unrelated" }));
   assert.deepEqual(chosen.suggestion, skills.skills[0]);
   assert.equal(chosen.status, "REVIEW_REQUIRED");
-  const none = await run(skills, "skill", transport({ skill: "none" }));
+  assert.deepEqual(chosen.suggestions, [skills.skills[0]]);
+  const none = await run(skills, "skill", transport({ s0: "unrelated", s1: "unrelated" }));
   assert.equal(none.suggestion, null);
+  assert.deepEqual(none.suggestions, []);
 });
 
 test("same skill name at distinct paths remains distinguishable", () => {
@@ -127,7 +129,7 @@ test("invalid replies cannot turn into useful advice", async () => {
     assert.equal(result.status, "NOT_EVALUATED");
     assert.deepEqual(result.ranked_context, context.candidates);
   }
-  const skill = await run(skills, "skill", transport({ skill: "s0" }, (r) => { r.answers.skill.choice = "s99"; }));
+  const skill = await run(skills, "skill", transport({ s0: "direct", s1: "unrelated" }, (r) => { r.answers.s0.choice = "injected"; }));
   assert.equal(skill.status, "NOT_EVALUATED");
   assert.equal(skill.suggestion, null);
 });

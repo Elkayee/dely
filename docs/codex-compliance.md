@@ -96,6 +96,10 @@ The task JSON shape is:
 Use mode advice for skill advice without implementation; omit spec/context.
 Jev skill advice discovers only the user's home `.agents/skills` catalog. The
 supplied session roster is snapshotted separately for mandatory Control skills.
+Inspect the complete `suggestions[]` list and choose every skill the task needs,
+alongside mandatory/user-selected skills. The singular `suggestion` field is a
+legacy alias; a task is not limited to that one entry. Detailed evaluations are
+saved in the advice file printed by `prepare`.
 See [home skill advice](jev-skill-advice.md) for packet limits and selection.
 That review does not authorize mutations. Questions requiring no tools do
 not need a delivery assessment. A new user turn invalidates the previous

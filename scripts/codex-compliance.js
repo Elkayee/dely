@@ -59,7 +59,7 @@ function context(event, home) {
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --task-file '<path-to-task.json>'. " +
-    "Inspect the Jev results, then explicitly review with this script's review command. " +
+    "Inspect every item in Jev's suggestions array against the task, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Hard is direct; Easy/Medium-/Medium+ need a matching Dely dispatch before edits. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
@@ -376,6 +376,13 @@ async function main(argv = process.argv.slice(2)) {
     result = command === "prepare" ? await prepare(values, home) : review(values, home);
   } else if (command === "status") result = checkedSettings(home);
   else throw Error("Use install, prepare, review, status or hook; see docs/codex-compliance.md.");
+  if (command === "prepare") {
+    const advice = { ...result.skill_advice, file: path.join(result.task_directory, "skill-advice.json") };
+    delete advice.evaluations;
+    if (Array.isArray(advice.suggestions)) advice.suggestions = advice.suggestions.map((skill) => ({ name: skill.name, path: skill.path }));
+    result = { status: result.status, task_directory: result.task_directory, skill_advice: advice,
+      ...(result.assessment ? { assessment: result.assessment } : {}) };
+  }
   process.stdout.write(JSON.stringify(result) + "\n");
 }
 
