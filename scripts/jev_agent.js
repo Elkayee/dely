@@ -167,7 +167,8 @@ function questionsFor(input, mode, indices) {
       question: "Classify `skill` against state.request using state.selection_rules and state.rubric.",
       skill: { name: input.skills[i].name, description: input.skills[i].description },
     },
-    criteria: { direct: null, supporting: null, unrelated: null, unknown: null },
+    criteria: { direct: "Primary requested workflow", supporting: "Materially needed complementary workflow",
+      unrelated: "Not useful for the requested actions", unknown: "Insufficient task or skill evidence" },
   }]));
 }
 

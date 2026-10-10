@@ -29,7 +29,8 @@ Each packet uses `state: { request, selection_rules, rubric }`. Common rules and
 the four relation definitions appear once per packet. Every enabled skill gets
 its own Choice containing its name and complete description once, under an ID
 tied to its original catalog index. Question instructions refer to the shared
-rules and rubric; criterion keys use the documented null descriptions.
+rules and rubric; criteria use short self-contained descriptions to distinguish
+the four options. Full applicability rules are shared rather than repeated.
 The possible relations are `direct`,
 `supporting`, `unrelated` and `unknown`. Skills are judged independently against
 the actual requested actions; several complementary workflows can fit one task.

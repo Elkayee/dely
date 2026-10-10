@@ -54,22 +54,23 @@ test("a useful explicit-only skill is suggested with its policy visible without 
   assert.equal(JSON.stringify(input), original);
 });
 
-test("152 skills share their task rules and fit one request without a shortlist", async () => {
+test("152 skills share their task rules and fit two requests without a shortlist", async () => {
   const input = catalog(152);
   input.skills.slice(0, 63).forEach((skill) => { skill.allow_implicit_invocation = false; });
   const calls = [];
   const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: provider(input,
     { s0: "direct", s151: "supporting" }, calls) });
   assert.equal(result.status, "REVIEW_REQUIRED");
-  assert.equal(calls.length, 1);
-  assert.equal(Object.keys(calls[0].questions).length, 152);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.flatMap((packet) => Object.keys(packet.questions)).length, 152);
   assert.equal(calls[0].state.request, input.request);
   assert.match(calls[0].state.selection_rules, /independently/);
   assert.match(calls[0].state.rubric.supporting, /materially needed/);
   assert.ok(!calls[0].state.skills, "metadata stays in its individual question");
-  for (const question of Object.values(calls[0].questions)) {
+  for (const question of calls.flatMap((packet) => Object.values(packet.questions))) {
     assert.match(question.instructions.question, /state.rubric/);
-    assert.deepEqual(question.criteria, { direct: null, supporting: null, unrelated: null, unknown: null });
+    assert.deepEqual(question.criteria, { direct: "Primary requested workflow", supporting: "Materially needed complementary workflow",
+      unrelated: "Not useful for the requested actions", unknown: "Insufficient task or skill evidence" });
   }
   assert.equal(result.suggestions.length, 2);
   assert.equal(result.selection.explicit_count, 63);
@@ -139,6 +140,14 @@ test("rounding support does not admit arbitrary missing probability mass or a wr
     assert.equal(result.status, "NOT_EVALUATED");
     assert.deepEqual(result.suggestions, []);
   }
+});
+
+test("an observed low-confidence label conflicting with probabilities remains unevaluated", async () => {
+  const result = await advisor.advise(catalog(1), "skill", { apiKey: "TEST_KEY", fetch: async () => ({ ok: true,
+    json: async () => ({ model: advisor.MODEL, answers: { s0: { type: "choice", choice: "unknown", confidence: 0.2,
+      probabilities: { direct: 0.06, supporting: 0.15, unrelated: 0.4, unknown: 0.39 } } } }) }) });
+  assert.equal(result.status, "NOT_EVALUATED");
+  assert.deepEqual(result.suggestions, []);
 });
 
 test("unknown top-level and answer fields fail before normalization, while documented usage is accepted", async () => {
