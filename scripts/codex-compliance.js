@@ -293,6 +293,13 @@ function review(options, home) {
   if (state.required_skills.some((name) => !selectedSkills.some((skill) => skill.name === name))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
   }
+  for (const skill of selectedSkills) {
+    if (skill.enabled === false) throw Error("Disabled skills cannot be loaded.");
+    if (skill.allow_implicit_invocation === false && !roster.skills.some((record) =>
+      record.name === skill.name && samePath(record.path, skill.path) && state.required_skills.includes(record.name))) {
+      throw Error("Explicit-only skills must be required by the user's instruction or a mandatory workflow in the session roster.");
+    }
+  }
   if (!["REVIEW_REQUIRED", "NOT_EVALUATED", "NOT_APPLICABLE"].includes(advice.status)) throw Error("Invalid skill advice status.");
   if (advice.status !== "NOT_APPLICABLE" && advice.input_sha256 !== digest(JSON.stringify(input))) throw Error("Advice is for different input.");
   const loaded = selectedSkills.map((skill) => ({
@@ -378,9 +385,11 @@ async function main(argv = process.argv.slice(2)) {
   else throw Error("Use install, prepare, review, status or hook; see docs/codex-compliance.md.");
   if (command === "prepare") {
     const advice = { ...result.skill_advice, file: path.join(result.task_directory, "skill-advice.json") };
+    const compactSkill = (skill) => ({ name: skill.name, path: skill.path,
+      ...(skill.allow_implicit_invocation === false ? { requires_explicit_invocation: true } : {}) });
     delete advice.evaluations;
-    if (Array.isArray(advice.suggestions)) advice.suggestions = advice.suggestions.map((skill) => ({ name: skill.name, path: skill.path }));
-    if (advice.suggestion) advice.suggestion = { name: advice.suggestion.name, path: advice.suggestion.path };
+    if (Array.isArray(advice.suggestions)) advice.suggestions = advice.suggestions.map(compactSkill);
+    if (advice.suggestion) advice.suggestion = compactSkill(advice.suggestion);
     result = { status: result.status, task_directory: result.task_directory, skill_advice: advice,
       ...(result.assessment ? { assessment: result.assessment } : {}) };
   }

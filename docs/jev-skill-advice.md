@@ -16,25 +16,34 @@ Absent policy/configuration files are recorded explicitly; creating one or
 changing a source during an API request requires fresh preparation and review.
 Each Control selector must identify exactly one original record.
 
-Only implicitly invocable, enabled catalog entries enter automatic advice.
-Explicit-only records stay in the local catalog, and Control can select them
-when required by the user's instruction or an applicable workflow. Jev's
+Every enabled home skill enters advisory evaluation, including explicit-only
+records. Useful explicit-only suggestions retain their policy and include
+`requires_explicit_invocation: true`. Their suitability does not authorize
+automatic invocation. Disabled records remain local with a `NOT_EVALUATED`
+evaluation and reason `DISABLED`; they are not sent or suggested. Jev's
 suggestion cannot waive mandatory skills or authorize an implementation.
 
 ## Requests and selection
 
-Each packet uses `state: { request }`. Every eligible skill gets its own Choice
-question containing its name and complete description once, under an ID tied
-to its original catalog index. The possible relations are `direct`,
+Each packet uses `state: { request, selection_rules, rubric }`. Common rules and
+the four relation definitions appear once per packet. Every enabled skill gets
+its own Choice containing its name and complete description once, under an ID
+tied to its original catalog index. Question instructions refer to the shared
+rules and rubric; criterion keys use the documented null descriptions.
+The possible relations are `direct`,
 `supporting`, `unrelated` and `unknown`. Skills are judged independently against
 the actual requested actions; several complementary workflows can fit one task.
 Paths and full instruction bodies stay local.
 
-Every eligible skill is evaluated once, packed into a conservative 32,000-byte
-transport budget. There is no catalog-size or top-k recommendation limit. Each
+Every enabled skill is evaluated once, packed into a conservative 60,000-byte
+transport budget. Shared State plus an individual question must separately fit
+30,000 bytes, including JSON overhead; an oversized pair stops before any API
+call. HTTP packets remain sequential; questions inside each packet are evaluated
+in parallel by Jev. There is no catalog-size or top-k recommendation limit. Each
 Choice has four options, so the provider's 255-option limit does not restrict
-the number of skills across packets. The byte budget is not a measurement of
-the provider's token limit. An individually oversized request/description is
+the number of skills across packets. These byte budgets are conservative guards
+for the provider's distinct 64k total and 32k State-plus-longest-question token
+limits, not tokenizer measurements. An individually oversized request/description is
 reported as `NOT_EVALUATED`; it is never truncated.
 
 Read `suggestions[]` for all records classified as direct or supporting. Direct
@@ -53,12 +62,23 @@ loss, invalid values and mismatched chosen labels still fail validation.
 Provider confidence is retained unchanged and has no approval cutoff. Context
 advice retains its existing strict validation and behavior.
 
-Codex preparation prints every suggested name/path, selection counts and the
+Codex preparation prints every suggested name/path, explicit-invocation flags,
+selection counts and the
 complete advice file path. Full metadata/evaluations remain in that file to
 keep the CLI response compact. Control reviews all recommendations against
 the actual task, combines accepted records with mandatory/user-selected skills,
 and passes all chosen names or unambiguous paths to `review --skills`. Review
-loads the selected instruction bodies; recommendations alone grant no authority.
+rejects disabled records and unrequired explicit-only records before reading
+their instruction bodies. To use an explicit-only skill, the actual session
+roster must contain that exact name/path and `required_skills` must record the
+user's explicit request or an applicable mandatory workflow. Merely accepting
+a Jev suggestion in `--skills` is insufficient. Review loads admitted instruction
+bodies; recommendations alone grant no authority.
+
+`selection.catalog_count` counts all discovered records; `eligible_count` counts
+enabled records sent for evaluation; `explicit_count` counts their explicit-only
+subset; `disabled_count` counts excluded records. `evaluated_count` records actual
+provider coverage, and `requests` records the HTTP call count.
 
 ## Verification and installation
 

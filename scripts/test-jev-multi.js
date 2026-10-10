@@ -37,6 +37,55 @@ test("one task receives multiple complementary original skills and keeps uncerta
   assert.equal(result.input_sha256, crypto.createHash("sha256").update(original).digest("hex"));
 });
 
+test("a useful explicit-only skill is suggested with its policy visible without enabling it", async () => {
+  const input = catalog(3);
+  input.skills[0].allow_implicit_invocation = false;
+  input.skills[1].enabled = false;
+  const original = JSON.stringify(input);
+  const calls = [];
+  const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: provider(input,
+    { s0: "direct", s1: "direct", s2: "supporting" }, calls) });
+  assert.equal(result.status, "REVIEW_REQUIRED");
+  assert.deepEqual(calls.flatMap((packet) => Object.keys(packet.questions)), ["s0", "s2"]);
+  assert.deepEqual(result.suggestions, [{ ...input.skills[0], requires_explicit_invocation: true }, input.skills[2]]);
+  assert.equal(result.selection.explicit_count, 1);
+  assert.equal(result.selection.disabled_count, 1);
+  assert.equal(result.selection.evaluated_count, 2);
+  assert.equal(JSON.stringify(input), original);
+});
+
+test("152 skills share their task rules and fit one request without a shortlist", async () => {
+  const input = catalog(152);
+  input.skills.slice(0, 63).forEach((skill) => { skill.allow_implicit_invocation = false; });
+  const calls = [];
+  const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: provider(input,
+    { s0: "direct", s151: "supporting" }, calls) });
+  assert.equal(result.status, "REVIEW_REQUIRED");
+  assert.equal(calls.length, 1);
+  assert.equal(Object.keys(calls[0].questions).length, 152);
+  assert.equal(calls[0].state.request, input.request);
+  assert.match(calls[0].state.selection_rules, /independently/);
+  assert.match(calls[0].state.rubric.supporting, /materially needed/);
+  assert.ok(!calls[0].state.skills, "metadata stays in its individual question");
+  for (const question of Object.values(calls[0].questions)) {
+    assert.match(question.instructions.question, /state.rubric/);
+    assert.deepEqual(question.criteria, { direct: null, supporting: null, unrelated: null, unknown: null });
+  }
+  assert.equal(result.suggestions.length, 2);
+  assert.equal(result.selection.explicit_count, 63);
+});
+
+test("the shared state plus one UTF-8 question is bounded separately from the whole packet", async () => {
+  for (const [request, description] of [["x".repeat(29000), "x".repeat(1000)], ["Task", "界".repeat(10000)]]) {
+    const input = catalog(1);
+    input.request = request;
+    input.skills[0].description = description;
+    const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: () => assert.fail("oversized pair must stop before network") });
+    assert.equal(result.status, "NOT_EVALUATED");
+    assert.equal(result.reason, "SKILL_REQUEST_TOO_LARGE");
+  }
+});
+
 for (const count of [500, 1000]) {
   test("all " + count + " candidates are independently evaluated without cutting 30 late recommendations", async () => {
     const input = catalog(count);
@@ -48,7 +97,7 @@ for (const count of [500, 1000]) {
     const ids = calls.flatMap((packet) => Object.keys(packet.questions));
     assert.equal(ids.length, count, "each skill is evaluated once rather than eliminated by a shortlist");
     assert.equal(new Set(ids).size, count);
-    assert.ok(calls.every((packet) => Buffer.byteLength(JSON.stringify(packet)) <= 32000));
+    assert.ok(calls.every((packet) => Buffer.byteLength(JSON.stringify(packet)) <= 60000));
     assert.equal(result.selection.evaluated_count, count);
   });
 }

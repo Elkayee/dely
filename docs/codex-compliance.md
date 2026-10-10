@@ -100,7 +100,12 @@ Inspect the complete `suggestions[]` list and choose every skill the task needs,
 alongside mandatory/user-selected skills. The singular `suggestion` field is a
 legacy alias; a task is not limited to that one entry. Detailed evaluations are
 saved in the advice file printed by `prepare`.
-See [home skill advice](jev-skill-advice.md) for packet limits and selection.
+Explicit-only suggestions include `requires_explicit_invocation: true`. They
+are advice until the exact skill is present in the actual session roster and
+`required_skills` records an explicit user request or mandatory workflow.
+Review rejects unrequired explicit-only and disabled records before loading
+their instructions. See [home skill advice](jev-skill-advice.md) for packet
+limits and selection.
 That review does not authorize mutations. Questions requiring no tools do
 not need a delivery assessment. A new user turn invalidates the previous
 turn's authorization; prepare and explicitly review the current task again.

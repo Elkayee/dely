@@ -142,6 +142,8 @@ test("a policy created while advice is running cannot produce a prepared snapsho
 test("native prepare CLI delivers all suggestions compactly and points to complete evaluations", (t) => {
   const f = fixture(t);
   const records = Array.from({ length: 3 }, (_, i) => ({ name: "recommended-" + i, path: f.skill, description: ("Complete metadata " + i).repeat(1000) }));
+  records[0].allow_implicit_invocation = false;
+  records[0].requires_explicit_invocation = true;
   const source = 'const path = require("path");\nconst ROOT = path.resolve(__dirname, "..");\nconst records = ' + JSON.stringify(records) + ';\n' +
     'exports.discoverSkills = () => records;\nexports.advise = async (input) => ({mode:"skill",status:"REVIEW_REQUIRED",input_sha256:require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"),suggestions:records,suggestion:records[0],evaluations:[{internal:"COMPLETE_EVALUATION_MARKER"}],selection:{catalog_count:3,eligible_count:3,evaluated_count:3,requests:1,rounds:1}});\n';
   fs.writeFileSync(f.advisor, source);
@@ -153,14 +155,43 @@ test("native prepare CLI delivers all suggestions compactly and points to comple
     "--repo", f.repo, "--task-file", taskFile], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout);
-  assert.deepEqual(result.skill_advice.suggestions, records.map((s) => ({ name: s.name, path: s.path })));
-  assert.deepEqual(result.skill_advice.suggestion, { name: records[0].name, path: records[0].path });
+  assert.deepEqual(result.skill_advice.suggestions, records.map((s) => ({ name: s.name, path: s.path,
+    ...(s.allow_implicit_invocation === false ? { requires_explicit_invocation: true } : {}) })));
+  assert.deepEqual(result.skill_advice.suggestion, { name: records[0].name, path: records[0].path, requires_explicit_invocation: true });
   assert.ok(run.stdout.length < 12000, "large descriptions stay in the advice file rather than bloating the native CLI response");
   assert.ok(!run.stdout.includes("COMPLETE_EVALUATION_MARKER"));
   assert.equal(Object.keys(result)[1], "task_directory", "file pointer appears before potentially large lists");
   const full = JSON.parse(fs.readFileSync(result.skill_advice.file, "utf8"));
   assert.deepEqual(full.suggestions, records);
   assert.equal(full.evaluations[0].internal, "COMPLETE_EVALUATION_MARKER");
+});
+
+for (const kind of ["explicit-only", "disabled"]) {
+  test("Control rejects " + kind + " suggestions before loading their instructions", async (t) => {
+    const f = fixture(t);
+    const record = { name: "recommended", path: path.join(f.repo, "recommended", "SKILL.md"),
+      description: "A recommended workflow", enabled: kind !== "disabled", allow_implicit_invocation: kind !== "explicit-only" };
+    fs.mkdirSync(path.dirname(record.path));
+    fs.writeFileSync(record.path, "Instructions require policy admission first.\n");
+    const advisor = require(f.settings.advisor);
+    advisor.discoverSkills = () => [record];
+    await f.prepare();
+    assert.throws(() => f.review({ skills: '["required","recommended"]' }),
+      kind === "disabled" ? /Disabled skills cannot be loaded/ : /Explicit-only skills must be required/);
+    assert.equal(JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8")).status, "PREPARED");
+  });
+}
+
+test("Control loads a required explicit-only skill but cannot load a required disabled skill", async (t) => {
+  const f = fixture(t);
+  const record = { ...f.task.skills[0], enabled: true, allow_implicit_invocation: false };
+  const advisor = require(f.settings.advisor);
+  advisor.discoverSkills = () => [record];
+  await f.prepare();
+  assert.equal(f.review().loaded_skills[0].name, "required");
+  record.enabled = false;
+  await f.prepare();
+  assert.throws(() => f.review(), /Disabled skills cannot be loaded/);
 });
 
 test("missing review is denied under bypass permissions; simple reads are available", (t) => {

@@ -18,9 +18,10 @@ function provider(input, target, calls, chooseNone = false) {
   return async (url, options) => {
     assert.equal(url, "https://api.typesafe.ai/v1/systemone");
     assert.equal(options.redirect, "error");
-    assert.ok(Buffer.byteLength(options.body) <= 32000, "bounded request bytes");
+    assert.ok(Buffer.byteLength(options.body) <= 60000, "bounded request bytes");
     const sent = JSON.parse(options.body);
-    assert.deepEqual(sent.state, { request: input.request }, "catalog metadata is never duplicated in state");
+    assert.equal(sent.state.request, input.request);
+    assert.ok(!sent.state.skills, "catalog metadata is never duplicated in state");
     const ids = Object.keys(sent.questions);
     for (const id of ids) {
       const skill = input.skills[Number(id.slice(1))];
@@ -66,7 +67,7 @@ test("a large catalog can return no useful skills after every candidate is evalu
   assert.equal(new Set(calls.flat().filter((id) => id !== "none")).size, 500);
 });
 
-test("disabled and explicitly invoked skills are preserved locally and excluded from implicit advice", async () => {
+test("enabled explicit-only metadata is evaluated while disabled skills stay unevaluated", async () => {
   const input = catalog(3);
   input.skills[0].allow_implicit_invocation = false;
   input.skills[1].enabled = false;
@@ -74,11 +75,12 @@ test("disabled and explicitly invoked skills are preserved locally and excluded 
   const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: provider(input, "s2", calls) });
   assert.equal(result.status, "REVIEW_REQUIRED");
   assert.deepEqual(result.suggestion, input.skills[2]);
-  assert.deepEqual(calls, [["s2"]]);
+  assert.deepEqual(calls, [["s0", "s2"]]);
   assert.equal(input.skills.length, 3);
   assert.equal(result.selection.catalog_count, 3);
-  assert.equal(result.selection.eligible_count, 1);
-  assert.equal(result.selection.evaluated_count, 1);
+  assert.equal(result.selection.eligible_count, 2);
+  assert.equal(result.selection.evaluated_count, 2);
+  assert.equal(result.evaluations.find((e) => e.id === "s1").relevance, "NOT_EVALUATED");
 });
 
 test("home discovery reads metadata, nested skills and policies without returning instruction bodies or sibling skills", (t) => {
@@ -119,7 +121,7 @@ test("oversized single metadata fails closed while large independent questions r
   assert.equal(result.status, "REVIEW_REQUIRED");
   assert.deepEqual(result.suggestions, [bulky.skills[3]]);
   assert.equal(result.selection.evaluated_count, 4);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 2, "separate question bounds still permit several descriptions per packet");
 });
 
 test("later batch failures and malformed answers invalidate the entire skill decision without exposing secrets", async () => {
