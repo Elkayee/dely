@@ -4548,3 +4548,30 @@ This is an omission guardrail with documented tool coverage, not a security
 boundary or proof of semantic compliance. Native hook review/trust remains
 with the human, and activation must be verified separately. The installer,
 procedure, limits and focused instrument are in docs/codex-compliance.md.
+
+## 2026-10-11 — implementation-only preflight (0.24.10)
+
+Review belongs to Codex Control. Preflight checks only the reviewed implementation
+primary, including its existing verified-model-absence Luna/max route. Legacy
+review pins no longer launch a Sol/high healthcheck. Healthcheck instructions
+name the resolved Orca executable and simple coordination calls; the compliance
+gate retains its conservative treatment of compound shell commands.
+
+The regression instrument is `scripts/test-quota-backup.ps1`: the old helper
+launches two workers with a legacy Sol/high review pin; the candidate launches
+one. Native compliance tests also distinguish direct instruction/lifecycle calls
+from the denied conditional-discovery command in the reported worker trace.
+
+Archive `9afe7bd` passed Flash Medium/default preflight in 23 seconds and verified
+Sonnet absence to Codex Luna/max preflight in 58 seconds on Orca 1.4.219. Luna's
+actual session recorded no blocked hook or attempted implementation; replaying
+Stop against that state passed. Preflight closes the terminal on durable
+completion, so a naturally completed native Stop event was not observed.
+
+This is a focused local deployment verification, not a complete portable probe.
+The all-harness argv comparison and destructive/quiet-worker rows 4, 6 and 7 are
+NOT_RUN: this change leaves dispatch, wait, death detection and trust handling
+unchanged, and the retained user-owned worker is preserved. Full Claude trust
+row 5 is NOT_RUN; a new AGY workspace independently stopped at its trust gate,
+and live checks used the already-trusted workspace. Control wake-mode rows are
+not triggered because their implementation and skill sections are unchanged.
