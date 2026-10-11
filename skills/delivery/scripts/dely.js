@@ -728,7 +728,7 @@ function wait(f) {
   }
   const as = f.as ? ["--terminal", f.as] : [];
   const control = (f.as ? selfHarness(f.as) : self) || f.control || null;
-  const deadline = Date.now() + Number(f["timeout-min"] || 60) * 60000;
+  const deadline = Date.now() + Number(f["timeout-min"] || 55) * 60000;
   const stallMin = Number(f["stall-min"] || 10);
   const skip = String(f.skip || "").split(",").filter(Boolean);
   const track = {};
