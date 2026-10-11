@@ -3,11 +3,68 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-10.
+Last updated 2026-10-11.
 
 ---
 
 ## Settled
+
+### 2026-10-11 — The wait deadline drops to 55 minutes, and OMP's Control wake becomes `background`
+
+#### Context
+
+The 2026-09-27 record deferred `controlWake: background` for OMP with the
+trigger "a measured OMP job timeout above `dely wait`'s deadline, or a helper
+deadline below it". OMP's bash tool runs a command as an async job that wakes
+the agent when it exits, but kills the job at 3600 s, which was exactly
+`dely wait`'s default deadline of 60 minutes. OMP Control therefore waited
+through the waker terminal and `notify` path (`wait-bg`) that Codex, Grok,
+Antigravity and Pi still use.
+
+#### Decision
+
+The default deadline of `dely wait` is 55 minutes (3300 s) when `--timeout-min`
+is absent. That is the second half of the trigger: the helper deadline is now
+below OMP's job cap. The default applies to every harness: a `DEADLINE`
+checkpoint arrives 5 minutes earlier than before, and the route after it is
+unchanged (Control waits again, exactly as it did at 60 minutes). `wait-bg`
+runs the same `wait()` and inherits the default.
+
+The `omp` entry has `controlWake: "background"`. An OMP Control runs `dely
+wait` as an ordinary background job and wakes on its exit, with no waker
+terminal. Its `limits` gain "As Control, run dely wait with your largest job
+timeout (3600 s); a shorter timeout kills the wait before it ends.", so the
+README Control cell for OMP is ⚠, and its `notes` record the 55-minute
+deadline and list this section. The waker machinery (`waitBg`, `notify`) is
+untouched: four harnesses still need it.
+
+This closes the Deferred item "`controlWake: background` for OMP" of the
+2026-09-27 record. It also makes the Alternatives entry there ("Rejected for
+now") obsolete.
+
+#### Consequences
+
+- A healthy delivery waits at most 55 minutes per `dely wait` call before
+  `DEADLINE`, for every harness.
+- An OMP Control whose job timeout is below 3300 s still has its wait killed
+  early; the new `limits` sentence says to use the largest timeout.
+- OMP Control no longer needs the waker terminal or the `notify` path; the
+  other waker harnesses keep both.
+
+#### Not yet measured
+
+A full OMP background-Control cycle on the candidate (dispatch, wait, wake on
+exit, settle), and what OMP does when its job is killed before the deadline.
+Both run in this delivery's live checklist before review; this section is
+updated with their results.
+
+#### Verification, 2026-10-11
+
+Fake-clock probe in the Run folder (`.dely/local/runs/run_4ee9dded8927/`):
+`Date.now` reads +3350 s after five calls, the `orca` binary is faked, and
+`wait` runs with no `--timeout-min`. On the baseline file it was still polling
+when a 6 s wall-clock cap killed it (exit 124, the 60-minute default survives
+a 3350 s jump); on the edited file it printed `DEADLINE` and exited 7.
 
 ### 2026-10-10 — The helper releases settled workers
 
@@ -1598,6 +1655,9 @@ marketplace, which already loads its skills.
 
 `controlWake: background` for OMP. Trigger: a measured OMP job timeout above
 `dely wait`'s deadline, or a helper deadline below it.
+
+Closed 2026-10-11 by the helper deadline falling to 55 minutes; see
+"The wait deadline drops to 55 minutes".
 
 ### 2026-09-18 — Live verification runs before review; review-round cost from `~/.dely/log`
 
