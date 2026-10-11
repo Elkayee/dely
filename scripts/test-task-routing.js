@@ -257,6 +257,26 @@ test("workspace .env supplies the key without loading unrelated variables or exp
   }
 });
 
+test("an explicit credential root supplies routing advice without copying its key", async () => {
+  const t = task();
+  const credentialRoot = task().repo;
+  const oldKey = process.env.TYPESAFE_API_KEY;
+  try {
+    delete process.env.TYPESAFE_API_KEY;
+    fs.writeFileSync(path.join(credentialRoot, ".env"), "TYPESAFE_API_KEY=original-root-fixture-key\n");
+    const assessed = await routing.assess(t, { credentialRoot, fetch: async (_url, options) => {
+      assert.equal(options.headers.Authorization, "Bearer original-root-fixture-key");
+      return { ok: true, json: async () => result() };
+    } });
+    assert.equal(assessed.status, "REVIEW_REQUIRED");
+    assert.ok(!JSON.stringify(assessed).includes("original-root-fixture-key"));
+    assert.equal(fs.existsSync(path.join(t.repo, ".env")), false);
+  } finally {
+    if (oldKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = oldKey;
+  }
+});
+
 test("an explicit process key takes precedence over .env", async () => {
   const t = task();
   const oldKey = process.env.TYPESAFE_API_KEY;

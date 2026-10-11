@@ -53,6 +53,18 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+test("task assessment retains the same original credential root as skill advice", async (t) => {
+  const f = fixture(t);
+  const routing = require(routingPath);
+  const assess = routing.assess;
+  t.after(() => { routing.assess = assess; });
+  let observed;
+  routing.assess = (task, options) => { observed = options.credentialRoot; return assess(task, options); };
+  await f.prepare();
+  assert.equal(observed, f.settings.credential_root);
+  assert.notEqual(observed, path.dirname(f.settings.advisor));
+});
+
 test("adapter assessment and review use the configured private opt-in journal", async (t) => {
   const f = fixture(t);
   await f.prepare();

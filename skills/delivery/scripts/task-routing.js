@@ -62,9 +62,9 @@ function route(difficulty) {
     modelUnavailable: luna, fallback: [luna] };
 }
 
-function apiKey(repo) {
+function apiKey(repo, credentialRoot = path.resolve(__dirname, "../../..")) {
   if (text(process.env.TYPESAFE_API_KEY)) return process.env.TYPESAFE_API_KEY.trim();
-  for (const base of [repo, path.resolve(__dirname, "../../..")]) {
+  for (const base of [repo, credentialRoot]) {
     const file = path.join(base, ".env");
     if (!fs.existsSync(file)) continue;
     const key = parseEnv(fs.readFileSync(file, "utf8")).TYPESAFE_API_KEY;
@@ -116,7 +116,7 @@ async function assess(task, options = {}) {
   if (missing.length) return { ...result, reason: "Missing task evidence", missing };
   if (Buffer.byteLength(JSON.stringify({ spec: task.spec, context: task.context })) > 64000) return { ...result, reason: "Jev snapshot is too large; Control must review the full spec or prepare a smaller task" };
   let key;
-  try { key = options.apiKey === undefined ? apiKey(task.repo) : options.apiKey; }
+  try { key = options.apiKey === undefined ? apiKey(task.repo, options.credentialRoot) : options.apiKey; }
   catch (_) { return { ...result, reason: "Could not read TypeSafe credentials; check .env access and format" }; }
   if (!text(key)) return { ...result, reason: "TYPESAFE_API_KEY is not configured" };
   const q = questions();

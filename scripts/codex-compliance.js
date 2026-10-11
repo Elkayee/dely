@@ -276,7 +276,7 @@ async function prepare(options, home) {
     const routing = require(settings.routing);
     const loadedTask = routing.loadTask(repo, specFile, contextFile);
     if (routing.missingEvidence(loadedTask).length) throw Error("Complete and confirm the task context before implementation.");
-    state.assessment = await routing.assess(loadedTask);
+    state.assessment = await routing.assess(loadedTask, { credentialRoot: settings.credential_root });
     write(path.join(directory, "assessment.json"), state.assessment);
   }
   state.fingerprints = { ...fingerprints([skillInput, sessionRoster, sourceRoster, adviceFile,

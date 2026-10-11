@@ -21,6 +21,10 @@ Stop handlers. Reinstalling replaces only this adapter's handlers.
 The adapter freezes the advisor's source while preserving its original
 credential search root. It copies no credentials. Editing the checkout's
 advisor does not replace advice code during an active task.
+Task assessment uses the same preserved credential search root as skill advice,
+so a new worktree or plugin cache does not lose an existing TypeSafe key. The
+workspace and process key precedence remains unchanged; credentials are never
+copied into the installed package.
 
 Codex must have hooks enabled. Review and trust the four exact definitions
 through Codex's native /hooks interface, then start a fresh session.
