@@ -342,7 +342,8 @@ Missing classification/model evidence stays explicit. See the
 
 ### Jev task routing
 
-Version `0.24.7` assesses implementation tasks before Dely creates a Run.
+Version `0.24.9` assesses implementation tasks with policy `jev-task-routing-v3`
+before Dely creates a Run.
 Easy and Medium- use AGY Gemini 3.8 Flash Medium/default. Medium+ uses AGY
 Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback:
 Codex Luna/max at stage 1.
@@ -509,7 +510,7 @@ implement_backup_2 -> Codex CLI / gpt-6-luna / max
 review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override each pin independently. Ordinary implementation dispatch launches AGY with the Sonnet High model. Only an explicit Sonnet provider quota uses `dely dispatch --phase implement --fallback quota --fallback-stage 1` to launch AGY Flash Medium/default. Only an explicit Flash provider quota advances to `dely dispatch --phase implement --fallback quota --fallback-stage 2` after confirming the prior attempt is inactive and released when required. Stage 2 launches native Codex Luna/max, waits for `tui-idle`, and attaches the worker to that same terminal. Dely waits within a bounded deadline for fresh live working evidence or a visibly unsubmitted prompt; it sends one bare Enter only for the latter, then verifies fresh live working evidence. Authentication, timeout, unknown failures, and stage 2 do not advance the chain.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. Pins must match the reviewed difficulty route: Easy/Medium- select Flash Medium/default, and Medium+ selects Sonnet High/default. Every delegated grade has one explicit primary-quota fallback, `--fallback quota --fallback-stage 1`, to Codex Luna/max after the prior attempt is inactive and released when required. There is no second quota stage. A successful nonempty catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unknown failures and an unapplied requested model/level footer stop. Native Codex fallback retains the bounded idle, one visibly unsubmitted-prompt Enter and fresh working-evidence checks.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 

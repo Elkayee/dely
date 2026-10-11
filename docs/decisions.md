@@ -3,11 +3,39 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-09.
+Last updated 2026-10-11.
 
 ---
 
 ## Settled
+
+### 2026-10-11 — Consequential risk criteria and Flash Medium
+
+The owner requested more appropriate Dely delegation and explicitly selected
+Gemini 3.8 Flash Medium/default for Easy and Medium-. Medium+ retains Sonnet
+5.5 High/default with Luna/max for explicit quota or verified model absence.
+Every delegated grade has one quota stage; Hard remains direct Codex Sol/xhigh.
+This version 0.24.9, policy `jev-task-routing-v3` decision supersedes earlier
+Flash High and two-stage quota descriptions below; those records are historical.
+
+The six flags describe actual consequential effects, rather than a task topic
+or repository name. Known consequential effects still force Hard. Missing facts
+remain unevaluated, and Control cannot downgrade a higher-risk Jev response.
+Scope and coordination count changed behavior/components; routine dispatch,
+review and reporting do not add implementation coordination. A bounded snapshot
+showed five Hard sessions, one Medium+ and two incomplete evaluations, rather
+than evidence that every ordinary task was Hard.
+
+Task assessment now retains the same original credential search root as skill
+advice without copying keys. Adapter preparation/review also emit sanitized
+metadata to the configured opt-in journal, with no logging-directory creation.
+
+Verification: 102 focused unit tests and 46 native pin/fallback checks passed.
+A new six-case, test-only task received a valid Jev Medium- result and Control
+review. Its first live preflight stopped at workspace readiness and coordinator
+binding; no implementation prompt or fallback was dispatched. Those live rows
+remain unevaluated pending an actual successful launch and completion; this
+decision does not assert an improved ordinary adoption percentage.
 
 ### 2026-10-09 — Local usage UI and opt-in assessment observation
 
