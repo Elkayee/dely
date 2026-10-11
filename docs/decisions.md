@@ -33,9 +33,12 @@ metadata to the configured opt-in journal, with no logging-directory creation.
 Verification: 102 focused unit tests and 46 native pin/fallback checks passed.
 A new six-case, test-only task received a valid Jev Medium- result and Control
 review. Its first live preflight stopped at workspace readiness and coordinator
-binding; no implementation prompt or fallback was dispatched. Those live rows
-remain unevaluated pending an actual successful launch and completion; this
-decision does not assert an improved ordinary adoption percentage.
+binding, which is retained as a failed observation. After the actual coordinator
+binding was confirmed, both implementation and review preflight passed. Dispatch
+`ctx_343424160d9d` then ran AGY Flash Medium, confirmed the exact receipt, changed
+only the six-case test file, and durably completed with `worker_done succeeded`.
+Control verifies the resulting tests independently. This is one actual bounded
+implementation, not evidence of a machine-wide adoption percentage.
 
 ### 2026-10-09 — Local usage UI and opt-in assessment observation
 
