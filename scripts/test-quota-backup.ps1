@@ -21,7 +21,7 @@ $tick = [string][char]96
 $primaryRow = "|" + $tick + "implement" + $tick + " | Antigravity CLI | claude-sonnet-5-5-high | default |"
 $flashRow = "|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | gemini-3.8-flash-medium | default |"
 $lunaRow = "|" + $tick + "implement_backup_2" + $tick + " | Codex CLI | gpt-6-luna | max |"
-$projectReviewRow = "|" + $tick + "review" + $tick + " | Codex CLI | gpt-6-luna | default |"
+$projectReviewRow = "|" + $tick + "review" + $tick + " | Codex CLI | gpt-6.1-sol | high |"
 $pass = 0
 $fail = 0
 
@@ -265,6 +265,10 @@ cp.execFileSync = function(file, args, options) {
     $taskPreflight = Invoke-Raw "task-preflight-flash" @("preflight", "--repo", $repo, "--run", "quota-fixture-task-preflight-flash", "--assessment-file", "assessment.json", "--spec-file", "spec.md")
     $taskPreflightTerminal = @($taskPreflight.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     Assert-Case "task preflight checks the reviewed Easy Flash primary" ($taskPreflight.ExitCode -eq 0 -and (Read-Command $taskPreflightTerminal) -match '--model "gemini-3.8-flash-medium"') $taskPreflight.Output
+    $preflightStarts = @($taskPreflight.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
+    Assert-Case "Control-owned review never creates a Sol High preflight worker" ($taskPreflight.ExitCode -eq 0 -and $preflightStarts.Count -eq 1) $taskPreflight.Output
+    $preflightSpec = $preflightStarts[0].args[([array]::IndexOf($preflightStarts[0].args, "--spec") + 1)]
+    Assert-Case "healthcheck names the resolved Orca CLI and simple coordination commands" ($preflightSpec -match "orca-fixture.js" -and $preflightSpec -match "directly" -and $preflightSpec -match "no implementation") $preflightSpec
     $partialPreflight = Invoke-Raw "task-preflight-partial" @("preflight", "--repo", $repo, "--run", "quota-fixture-task-preflight-partial", "--assessment-file", "assessment.json")
     Assert-Case "partial task preflight arguments are refused before launch" ($partialPreflight.ExitCode -ne 0 -and -not (Has-Launch $partialPreflight) -and $partialPreflight.Output -match "requires both") $partialPreflight.Output
 

@@ -13,7 +13,7 @@ an extensionless Linux NVM binary shadowing Node and opening the app picker.
 
 Run from the checkout, supplying the installed routing module and advisor:
 
-    rtk proxy node scripts/codex-compliance.js install --home C:/Users/Home33/.codex --routing C:/Users/Home33/.codex/plugins/cache/dely-orca-agy-global/dely/0.24.9/skills/delivery/scripts/task-routing.js --advisor D:/orca/scripts/jev_agent.js
+    rtk proxy node scripts/codex-compliance.js install --home C:/Users/Home33/.codex --routing C:/Users/Home33/.codex/plugins/cache/dely-orca-agy-global/dely/0.24.10/skills/delivery/scripts/task-routing.js --advisor D:/orca/scripts/jev_agent.js
 
 Repeat with Orca's actual CODEX_HOME. The installer preserves other hooks,
 backs up hooks.json and adds SessionStart, UserPromptSubmit, PreToolUse and
@@ -41,6 +41,11 @@ the frozen software and guides without granting or changing native hook trust.
 SessionStart and each UserPromptSubmit supply the current session/turn IDs,
 the installed script and this guide. Read-only inspection can gather context
 before preparation. Keep mandatory instructions outside relevance ranking.
+Use simple read commands and the resolved Orca CLI directly. Shell conditionals,
+pipelines and wrappers remain subject to review; a denied command records an
+attempt and can require review at Stop. A preflight healthcheck performs only
+read-only instruction loading and Orca lifecycle calls, then stops without
+implementation or a separate Jev review.
 After Context Engine returns multiple optional candidates, use the existing
 Jev context command and preserve every candidate and its provenance.
 

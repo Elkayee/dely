@@ -8,7 +8,7 @@ const os = require("os");
 const { spawnSync } = require("child_process");
 const guard = require("./codex-compliance.js");
 const routingPath = process.env.COMPLIANCE_ROUTING || path.join(os.homedir(),
-  ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.9/skills/delivery/scripts/task-routing.js");
+  ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.10/skills/delivery/scripts/task-routing.js");
 const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths});\n';
 
 function fixture(t) {
@@ -442,6 +442,23 @@ test("bootstrap accepts quoted task JSON but denies chained commands and redirec
     "mcp__pycharm_auto__pycharm_notebook_replace_cell", "mcp__pycharm_auto__pycharm_notebook_run_all"]) {
     assert.equal(guard.hook({ ...f.event, tool_name: name }, f.home).hookSpecificOutput.permissionDecision, "deny");
   }
+});
+
+test("read-only preflight coordination stops without Jev while conditional discovery stays denied", (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Preflight only; no implementation." }, f.home);
+  for (const command of [
+    "Get-Content -LiteralPath 'C:/outside-repo/orchestration/SKILL.md' -TotalCount 80",
+    "rtk proxy orca skills get orchestration --json",
+    "rtk proxy orca orchestration send --type heartbeat --subject ack --task-id task_probe --dispatch-id ctx_probe",
+    "rtk proxy orca orchestration send --type worker_done --subject 'preflight ok' --outcome succeeded --task-id task_probe --dispatch-id ctx_probe",
+  ]) {
+    assert.deepEqual(guard.hook({ ...f.event, tool_name: "Bash", tool_input: { command } }, f.home), {});
+  }
+  assert.deepEqual(guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home), {});
+  const conditional = 'if ($env:ORCA_CLI_COMMAND) { & $env:ORCA_CLI_COMMAND skills get orchestration } elseif ($env:ORCA_DEV_REPO_ROOT) { orca-dev skills get orchestration } else { orca skills get orchestration }';
+  assert.equal(guard.hook({ ...f.event, tool_name: "Bash", tool_input: { command: conditional } }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
 test("real routing review permits Hard; failed Jev advice remains explicit and skills are loaded", async (t) => {

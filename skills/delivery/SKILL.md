@@ -49,6 +49,10 @@ The existing model rows remain: `implement` supplies Sonnet,
 Flash's row is selected for an Easy/Medium- primary without a quota reason.
 Pass `--assessment-file` and `--spec-file` together on a task's `dely preflight`
 so its healthcheck uses the same reviewed primary as dispatch.
+Preflight checks implementation only. Review belongs to Codex Control; legacy
+review pins never launch a healthcheck worker. Healthchecks perform simple Orca
+coordination calls and may read mandatory instructions outside the repository.
+They do no implementation and need no separate Jev task review.
 
 Dely accepts a request that may still be vague, brings it to an approved
 design contract, then automates sequential implementation, independent

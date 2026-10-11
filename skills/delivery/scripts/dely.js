@@ -965,29 +965,15 @@ function preflight(f) {
   } catch (e) {
     fail((e && e.message) || String(e), { run: f.run, repo: f.repo });
   }
-  let reviewPin = null;
-  try {
-    reviewPin = pin(f.repo, "review");
-  } catch (e) {
-    const msg = (e && e.message) || String(e);
-    if (msg === "no review pin in project or global AGENTS.md") {
-      reviewPin = null;
-    } else {
-      fail(msg, { run: f.run, repo: f.repo });
-    }
-  }
-  const pins = [implPin];
-  if (reviewPin && reviewPin.agent !== "antigravity") {
-    pins.push(reviewPin);
-  }
-  const uniq = pins.filter(
-    (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
-  );
+  const cli = process.env.ORCA_CLI_COMMAND || "orca";
   const spec =
-    "Preflight only. Do not read, edit or run anything in the repository. Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
+    "Preflight only; no implementation. Do not read, edit or run anything in the repository. " +
+    "The resolved Orca CLI is " + JSON.stringify(cli) + "; invoke it directly for skills get orchestration and orchestration send. " +
+    "Use simple commands without shell conditionals, pipelines or wrappers. Read mandatory instruction files outside the repository with rtk proxy rg. " +
+    "Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
   const open = {};
   let failed = 0;
-  for (let p of uniq) {
+  for (let p of [implPin]) {
     let s = start(f.repo, f.run, p, spec, "preflight-" + p.phase);
     if (s.modelUnavailable === true) {
       const requested = { agent: p.agent, model: p.model, effort: p.effort };

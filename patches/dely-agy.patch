@@ -216,26 +216,26 @@ index 1a0988485566d3597cddc69d9192152c8b7b76b4..89acab58e9517a66afa80bfc729cf707
    ]
  }
 diff --git a/.claude-plugin/plugin.json b/.claude-plugin/plugin.json
-index 4be3ea0..bf37e31 100644
+index 4be3ea0..56168b5 100644
 --- a/.claude-plugin/plugin.json
 +++ b/.claude-plugin/plugin.json
 @@ -1,6 +1,6 @@
  {
    "name": "dely",
 -  "version": "0.20.1",
-+  "version": "0.24.9",
++  "version": "0.24.10",
    "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
    "license": "MIT",
    "keywords": ["delivery", "workflow", "review", "orca", "automation"],
 diff --git a/.codex-plugin/plugin.json b/.codex-plugin/plugin.json
-index a581e57..cb1f575 100644
+index a581e57..daac3a0 100644
 --- a/.codex-plugin/plugin.json
 +++ b/.codex-plugin/plugin.json
 @@ -1,6 +1,6 @@
  {
    "name": "dely",
 -  "version": "0.20.1",
-+  "version": "0.24.9",
++  "version": "0.24.10",
    "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
    "license": "MIT",
    "keywords": ["delivery", "workflow", "review", "orca", "automation"],
@@ -287,13 +287,13 @@ index 0000000..1c9a8de
 +history; a successful probe does not establish an ordinary usage percentage.
 diff --git a/package.json b/package.json
 new file mode 100644
-index 0000000..210e997
+index 0000000..a88b82b
 --- /dev/null
 +++ b/package.json
 @@ -0,0 +1,9 @@
 +{
 +  "name": "dely",
-+  "version": "0.24.9",
++  "version": "0.24.10",
 +  "private": true,
 +  "pi": {
 +    "extensions": ["./extensions/dely-pin.ts"],
@@ -301,10 +301,10 @@ index 0000000..210e997
 +  }
 +}
 diff --git a/skills/delivery/SKILL.md b/skills/delivery/SKILL.md
-index 96fc5e4..6bb081f 100644
+index 96fc5e4..0915ba1 100644
 --- a/skills/delivery/SKILL.md
 +++ b/skills/delivery/SKILL.md
-@@ -5,14 +5,59 @@ description: Deliver a change through an approved design contract, sequential im
+@@ -5,14 +5,63 @@ description: Deliver a change through an approved design contract, sequential im
  
  # Delivery
  
@@ -352,6 +352,10 @@ index 96fc5e4..6bb081f 100644
 +Flash's row is selected for an Easy/Medium- primary without a quota reason.
 +Pass `--assessment-file` and `--spec-file` together on a task's `dely preflight`
 +so its healthcheck uses the same reviewed primary as dispatch.
++Preflight checks implementation only. Review belongs to Codex Control; legacy
++review pins never launch a healthcheck worker. Healthchecks perform simple Orca
++coordination calls and may read mandatory instructions outside the repository.
++They do no implementation and need no separate Jev task review.
 +
  Dely accepts a request that may still be vague, brings it to an approved
  design contract, then automates sequential implementation, independent
@@ -366,7 +370,7 @@ index 96fc5e4..6bb081f 100644
  
  ## Two human gates
  
-@@ -25,8 +70,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
+@@ -25,8 +74,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
  ## The control session
  
  The current interactive session is Control. It owns the approval invariant,
@@ -377,7 +381,7 @@ index 96fc5e4..6bb081f 100644
  count, order, format, or skill-selection precedence. Native Plan Mode and
  active design skills govern their own surfaces under the harness's
  precedence; neither bypasses approval. Before mutation, Control obtains
-@@ -88,7 +133,8 @@ branch when starting on the default branch. The envelope freezes owned
+@@ -88,7 +137,8 @@ branch when starting on the default branch. The envelope freezes owned
  scope and paths; protected pre-existing dirty paths; acceptance criteria,
  counterexample, and focused instruments; branch, base, remote, and
  pull-request target; resolved harness, model, and effort for dispatched
@@ -387,7 +391,7 @@ index 96fc5e4..6bb081f 100644
  open or update a pull request. It never authorises merge, force-push,
  stash, reset, cleanup, or an edit outside owned scope. Dely stages and
  commits only contract-owned paths. It never stashes, resets, cleans, or
-@@ -110,7 +156,8 @@ to this skill. Control learns the helper's interface by running
+@@ -110,7 +160,8 @@ to this skill. Control learns the helper's interface by running
  and does not read `scripts/dely.js`. Control's wake mode is that harness's
  `controlWake` in `../../harnesses.json`. The preflight step runs in setup
  and again after a `NO_ACK`; a delivery does not preflight before its first
@@ -397,7 +401,7 @@ index 96fc5e4..6bb081f 100644
  
  Write the prompt to an untracked file **inside the worktree**. Never inline
  it in a shell argument: prompts carry backticks, quotes and newlines, and a
-@@ -128,8 +175,8 @@ those belong to this skill, and a prompt that restates them narrows or
+@@ -128,8 +179,8 @@ those belong to this skill, and a prompt that restates them narrows or
  contradicts them. Where the design contract states an acceptance row, the
  prompt carries that row as written. Every dispatch goes through
  `dely dispatch`. Control does not compose a worker launch or call
@@ -408,7 +412,7 @@ index 96fc5e4..6bb081f 100644
  preamble and the spec file are everything the worker needs and that it
  should read no other skill. The `worker-start` receipt records
  `launch.requested` and `launch.effective`; it does not establish that the
-@@ -139,12 +186,17 @@ did not pin.
+@@ -139,12 +190,17 @@ did not pin.
  
  **Name the model and effort on every dispatch.** The helper passes
  `--model`/`--effort` when `../../harnesses.json` says that harness takes
@@ -432,7 +436,7 @@ index 96fc5e4..6bb081f 100644
  
  **Never act on an Orca nudge.** After `DISPATCHED`, wait by the wake mode
  of **this Control's own harness** — not the harness of the worker being
-@@ -158,23 +210,27 @@ terminal it runs in and refuses a waker even when `--control` names another
+@@ -158,23 +214,27 @@ terminal it runs in and refuses a waker even when `--control` names another
  one, so `REFUSED … (called with --control …)` means use `wait-bg`.
  
  **Result handling.** `SETTLED`: process the batch, do the guide's completion
@@ -476,7 +480,7 @@ index 96fc5e4..6bb081f 100644
  Stop and relay the printed reason: the harness, the path, and that the human
  opens that harness there once to answer its own dialog; Dely never answers
  it. The failed worker is already stopped and released. When the human says
-@@ -259,7 +315,7 @@ and say so.
+@@ -259,7 +319,7 @@ and say so.
  Review independence is role independence: a fresh session that did not
  implement and does not edit the candidate. It gets the decision record (or
  Bounded design), the baseline, and the diff. The phase adds no sandbox by
@@ -486,7 +490,7 @@ index 96fc5e4..6bb081f 100644
  Architectural task gets an independent task review. After all tasks are
  accepted, a different fresh reviewer performs one integration review of
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index b1af067..b5685bf 100644
+index b1af067..7ea1ea3 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
 @@ -1,24 +1,40 @@
@@ -1195,8 +1199,7 @@ index b1af067..b5685bf 100644
 +        run
 +      ),
 +    };
-   }
--  return { id };
++  }
 +  return { id, taskId: r.result && (r.result.taskId || r.result.task_id || null), state: r.result && r.result.state };
 +}
 +
@@ -1210,7 +1213,8 @@ index b1af067..b5685bf 100644
 +    } catch (_) {
 +      return {};
 +    }
-+  }
+   }
+-  return { id };
 +  return {};
 +}
 +
@@ -1290,7 +1294,7 @@ index b1af067..b5685bf 100644
  }
  
  function clip(s) {
-@@ -268,8 +938,48 @@ function lastText(id) {
+@@ -268,17 +938,56 @@ function lastText(id) {
    return clip(screenText(id));
  }
  
@@ -1305,6 +1309,9 @@ index b1af067..b5685bf 100644
 +
  function preflight(f) {
 -  const pins = ["implement", "review"].map((ph) => pin(f.repo, ph));
+-  const uniq = pins.filter(
+-    (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
+-  );
 +  f.repo = path.resolve(f.repo);
 +  const taskRouting = require("./task-routing.js");
 +  let taskDecision = null;
@@ -1322,31 +1329,18 @@ index b1af067..b5685bf 100644
 +  } catch (e) {
 +    fail((e && e.message) || String(e), { run: f.run, repo: f.repo });
 +  }
-+  let reviewPin = null;
-+  try {
-+    reviewPin = pin(f.repo, "review");
-+  } catch (e) {
-+    const msg = (e && e.message) || String(e);
-+    if (msg === "no review pin in project or global AGENTS.md") {
-+      reviewPin = null;
-+    } else {
-+      fail(msg, { run: f.run, repo: f.repo });
-+    }
-+  }
-+  const pins = [implPin];
-+  if (reviewPin && reviewPin.agent !== "antigravity") {
-+    pins.push(reviewPin);
-+  }
-   const uniq = pins.filter(
-     (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
-   );
-@@ -277,8 +987,21 @@ function preflight(f) {
-     "Preflight only. Do not read, edit or run anything in the repository. Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
++  const cli = process.env.ORCA_CLI_COMMAND || "orca";
+   const spec =
+-    "Preflight only. Do not read, edit or run anything in the repository. Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
++    "Preflight only; no implementation. Do not read, edit or run anything in the repository. " +
++    "The resolved Orca CLI is " + JSON.stringify(cli) + "; invoke it directly for skills get orchestration and orchestration send. " +
++    "Use simple commands without shell conditionals, pipelines or wrappers. Read mandatory instruction files outside the repository with rtk proxy rg. " +
++    "Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
    const open = {};
    let failed = 0;
 -  for (const p of uniq) {
 -    const s = start(f.repo, f.run, p, spec, "preflight-" + p.phase);
-+  for (let p of uniq) {
++  for (let p of [implPin]) {
 +    let s = start(f.repo, f.run, p, spec, "preflight-" + p.phase);
 +    if (s.modelUnavailable === true) {
 +      const requested = { agent: p.agent, model: p.model, effort: p.effort };
@@ -1364,7 +1358,7 @@ index b1af067..b5685bf 100644
      if (s.error) {
        logEvent("preflight", {
          run: f.run,
-@@ -291,9 +1014,12 @@ function preflight(f) {
+@@ -291,9 +1000,12 @@ function preflight(f) {
        });
        out("PREFLIGHT " + p.phase + " " + p.agent + " FAIL start: " + s.error);
        failed++;
@@ -1379,7 +1373,7 @@ index b1af067..b5685bf 100644
      logEvent("preflight", {
        run: f.run,
        repo: f.repo,
-@@ -304,8 +1030,13 @@ function preflight(f) {
+@@ -304,8 +1016,13 @@ function preflight(f) {
        reason: line.replace(/^PREFLIGHT \S+ \S+ FAIL /, ""),
      });
      out(line);
@@ -1395,7 +1389,7 @@ index b1af067..b5685bf 100644
      delete open[id];
      failed++;
    };
-@@ -316,14 +1047,13 @@ function preflight(f) {
+@@ -316,14 +1033,13 @@ function preflight(f) {
        const w = rows.find((x) => x.dispatchId === id);
        if (!w) continue;
        const stage = (w.projection || {}).stage || {};
@@ -1415,7 +1409,7 @@ index b1af067..b5685bf 100644
    while (Object.keys(open).length && Date.now() - t0 < PREFLIGHT_S * 1000) {
      const r = orca([
        "orchestration",
-@@ -335,28 +1065,56 @@ function preflight(f) {
+@@ -335,28 +1051,56 @@ function preflight(f) {
        String(Math.max(1, Math.floor(POLL_S * 1000))),
      ]);
      if (r.ok === false) {
@@ -1486,7 +1480,7 @@ index b1af067..b5685bf 100644
          }
        }
        orca(["orchestration", "check", "--run", f.run, "--ack", res.deliveryId]);
-@@ -364,34 +1122,285 @@ function preflight(f) {
+@@ -364,34 +1108,285 @@ function preflight(f) {
      pollDead();
    }
    for (const [id, rec] of Object.entries(open)) {
@@ -1779,7 +1773,7 @@ index b1af067..b5685bf 100644
        out("DISPATCHED " + s.id, 0);
      }
      const row = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []).find((w) => w.dispatchId === s.id);
-@@ -399,10 +1408,17 @@ function dispatch(f) {
+@@ -399,10 +1394,17 @@ function dispatch(f) {
    }
    const raw = screenText(s.id);
    const secs = Math.round((Date.now() - t0) / 1000);
@@ -1801,7 +1795,7 @@ index b1af067..b5685bf 100644
  }
  
  function advance(track, id) {
-@@ -427,22 +1443,28 @@ function advance(track, id) {
+@@ -427,22 +1429,28 @@ function advance(track, id) {
    return (Date.now() - t.at) / 60000;
  }
  
@@ -1835,7 +1829,7 @@ index b1af067..b5685bf 100644
      const who = self || f.control;
      const wake = (harnessById(who) || {}).controlWake || "unknown";
      if (wake !== "background") {
-@@ -450,32 +1472,47 @@ function wait(f) {
+@@ -450,32 +1458,47 @@ function wait(f) {
        out("REFUSED " + who + " wakes by " + wake + said + "; use dely wait-bg", 3);
      }
    }
@@ -1887,7 +1881,7 @@ index b1af067..b5685bf 100644
          });
          out(
            {
-@@ -491,6 +1528,18 @@ function wait(f) {
+@@ -491,6 +1514,18 @@ function wait(f) {
            0
          );
        }
@@ -1906,7 +1900,7 @@ index b1af067..b5685bf 100644
        orca(["orchestration", "check", ...as, "--run", f.run, "--ack", res.deliveryId]);
        continue;
      }
-@@ -552,9 +1601,11 @@ function wait(f) {
+@@ -552,9 +1587,11 @@ function wait(f) {
  }
  
  function waitBg(f) {
@@ -1919,7 +1913,7 @@ index b1af067..b5685bf 100644
    const lock = file + ".lock";
    const recorded = () => {
      try {
-@@ -580,7 +1631,7 @@ function waitBg(f) {
+@@ -580,7 +1617,7 @@ function waitBg(f) {
      fs.writeFileSync(lock, JSON.stringify({ terminal: "" }), { flag: "wx" });
    } catch (_) {
      if (live(recorded())) {
@@ -1928,7 +1922,7 @@ index b1af067..b5685bf 100644
        out("ALREADY_WAITING: a dely wait is running for this Run; end your turn, it will wake you.", 0);
      }
      writeLock("");
-@@ -593,11 +1644,11 @@ function waitBg(f) {
+@@ -593,11 +1630,11 @@ function waitBg(f) {
    const q = JSON.stringify;
    const self = q(__filename);
    const bin = q(process.execPath);
@@ -1942,7 +1936,7 @@ index b1af067..b5685bf 100644
      "DELY_WAITER=1 " +
      bin +
      " " +
-@@ -622,7 +1673,21 @@ function waitBg(f) {
+@@ -622,7 +1659,21 @@ function waitBg(f) {
      " --out " +
      q(file) +
      "; exit";
@@ -1965,7 +1959,7 @@ index b1af067..b5685bf 100644
    if (r.ok === false) {
      try {
        fs.unlinkSync(lock);
-@@ -632,10 +1697,30 @@ function waitBg(f) {
+@@ -632,10 +1683,30 @@ function waitBg(f) {
      fail((r.error && r.error.message) || "terminal create failed", { run: f.run });
    }
    writeLock((r.result && r.result.terminal && r.result.terminal.handle) || "");
@@ -1997,7 +1991,7 @@ index b1af067..b5685bf 100644
  function notify(f) {
    const run = (orca(["orchestration", "run-show", "--id", f.run]).result || {}).run || {};
    const to = run.coordinator_handle || f.as;
-@@ -662,7 +1747,155 @@ function notify(f) {
+@@ -662,7 +1733,155 @@ function notify(f) {
    }
  }
  
@@ -2153,7 +2147,7 @@ index b1af067..b5685bf 100644
    let payload;
    try {
      payload = JSON.parse(f.json);
-@@ -676,16 +1909,26 @@ function logCmd(f) {
+@@ -676,16 +1895,26 @@ function logCmd(f) {
    process.exit(0);
  }
  
@@ -2183,7 +2177,7 @@ index b1af067..b5685bf 100644
    },
    wait: {
      required: [["run", "RUN"], ["control", "HARNESS"]],
-@@ -694,6 +1937,7 @@ const COMMANDS = {
+@@ -694,6 +1923,7 @@ const COMMANDS = {
        ["skip", "IDS"],
        ["stall-min", "N"],
        ["timeout-min", "N"],
@@ -2191,7 +2185,7 @@ index b1af067..b5685bf 100644
      ],
    },
    "wait-bg": {
-@@ -703,12 +1947,17 @@ const COMMANDS = {
+@@ -703,12 +1933,17 @@ const COMMANDS = {
        ["skip", "IDS"],
        ["stall-min", "N"],
        ["timeout-min", "N"],
@@ -2209,7 +2203,7 @@ index b1af067..b5685bf 100644
    log: {
      required: [["run", "RUN"], ["json", "OBJ"]],
      optional: [["repo", "PATH"]],
-@@ -729,7 +1978,13 @@ function printUsage() {
+@@ -729,7 +1964,13 @@ function printUsage() {
  }
  
  const [cmd, ...rest] = process.argv.slice(2);
@@ -2224,7 +2218,7 @@ index b1af067..b5685bf 100644
  if (!cmd) {
    printIdentity();
    printUsage();
-@@ -753,4 +2008,37 @@ if (missing.length) {
+@@ -753,4 +1994,37 @@ if (missing.length) {
    console.log(usageLine(cmd));
    process.exit(2);
  }
