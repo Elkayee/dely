@@ -68,7 +68,7 @@ function context(event, home) {
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
     " --task-file '<path-to-task.json>'. " +
     "Inspect every item in Jev's suggestions array against the task, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
-    "Hard is direct; Easy/Medium-/Medium+ need a matching Dely dispatch before edits. " +
+    "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
     "Read-only inspection and Orca coordination remain available.";
@@ -334,7 +334,10 @@ function review(options, home) {
     if (state.assessment.route.workflow === "dely" && !loaded.some((skill) => samePath(skill.path, settings.delivery))) {
       throw Error("Delegated tasks must load the installed delivery skill.");
     }
-    state.run = options.run || null;
+    state.run = options.run ? options.run.trim() : null;
+    if (state.assessment.route.workflow === "dely" && !state.run) {
+      throw Error("Create an actual Dely Run, then review with --run <Run ID> before dispatching the reviewed task.");
+    }
     write(path.join(path.dirname(state.skill_input), "reviewed.json"), state.assessment);
   }
   state.status = "REVIEWED";

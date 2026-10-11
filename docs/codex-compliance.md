@@ -54,8 +54,10 @@ Before implementation:
    --reason, --skills and --skill-reason. The skills argument is a JSON array
    of supplied names, or exact catalog paths when names collide. Review loads the full selected instructions into its
    output and checks that required skills were retained.
-4. For a delegated grade, include --run with the actual Dely Run ID and load
-   the installed delivery skill. Use the prepared spec/context and reviewed
+4. For a delegated grade, create the actual Dely Run before review, include
+   its ID with --run, and load the installed delivery skill. Review rejects a
+   missing, empty or whitespace-only Run ID and keeps the task PREPARED.
+   Use the prepared spec/context and reviewed
    assessment for dispatch. The gate accepts the installed Dely coordination
    commands before dispatch, then requires journal evidence with matching
    spec/context hashes before ordinary mutations.

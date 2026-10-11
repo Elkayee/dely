@@ -233,6 +233,26 @@ test("Jev recommends a session delivery skill and eligible route while dispatch 
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
+for (const difficulty of ["easy", "medium_minus", "medium_plus"]) {
+  test(difficulty + " review requires a Dely Run before recording approval", async (t) => {
+    const f = fixture(t);
+    f.task.context.risks.routing = false;
+    const routing = require(routingPath);
+    const assess = routing.assess;
+    t.after(() => { routing.assess = assess; });
+    routing.assess = (task) => assess(task, { apiKey: "" });
+    await f.prepare();
+    for (const run of [undefined, "", " \t "]) {
+      assert.throws(() => f.review({ difficulty, skills: '["required","dely:delivery"]', run }), /Dely Run.*--run/);
+      const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+      assert.equal(state.status, "PREPARED");
+      assert.equal(fs.existsSync(path.join(path.dirname(state.skill_input), "reviewed.json")), false);
+    }
+    assert.equal(f.review({ difficulty, skills: '["required","dely:delivery"]', run: "run-one" }).status, "REVIEWED");
+    assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
 test("software refresh preserves existing native hook definitions byte for byte", (t) => {
   const f = fixture(t);
   const file = path.join(f.home, "hooks.json");
