@@ -2264,7 +2264,7 @@ index b1af067..b5685bf 100644
  table[cmd](f);
 diff --git a/skills/delivery/scripts/task-routing.js b/skills/delivery/scripts/task-routing.js
 new file mode 100644
-index 0000000..ebe57a2
+index 0000000..4c24a7b
 --- /dev/null
 +++ b/skills/delivery/scripts/task-routing.js
 @@ -0,0 +1,236 @@
@@ -2353,11 +2353,11 @@ index 0000000..ebe57a2
 +
 +function questions() {
 +  const dimensions = {
-+    scope: ["Assess scope and dependency coupling.", "One known internal area with understood callers", "A bounded internal adjustment with known owners and low coupling", "Coordinated changes across known internal components", "Open-ended broad refactor or cross-system integration with unresolved boundaries or ownership"],
++    scope: ["Assess changed behavior and dependency coupling. Count components whose behavior changes, not topics, fixtures, or dependencies merely inspected or tested.", "One known internal area with understood callers", "A bounded internal adjustment with known owners and low coupling", "Coordinated changes across known internal components", "Open-ended broad refactor or cross-system integration with unresolved boundaries or ownership"],
 +    uncertainty: ["Assess unresolved implementation decisions.", "Requirements and existing implementation conventions are explicit", "A small internal choice follows established conventions", "Coordinated internal design choices are bounded by an agreed contract", "Open-ended diagnosis or consequential architecture/domain decisions"],
 +    risk: ["Assess actual consequential effects, including effects stated in the spec that are absent from context.risks. A topic or repository name is not an effect.", "Reversible local change with no consequential effect", "Reversible bounded internal behavior with known limited impact and focused acceptance", "Coordinated known internal behavior with bounded reversible effects and integrated acceptance", Object.values(RISK_CRITERIA).join("; ")],
 +    verification: ["Assess the provided acceptance instrument.", "A focused check rejects a specified plausible wrong implementation", "Known focused checks cover the bounded internal adjustment", "Agreed integrated checks reject plausible coordinated implementation errors", "Correctness needs substantial new verification design"],
-+    coordination: ["Assess task horizon and coordination.", "One focused implementation and verification pass", "A short bounded sequence within known internal ownership", "A bounded coordinated sequence across known internal components", "Long open-ended sequence or cross-system coordination"],
++    coordination: ["Assess implementation horizon and coordination across changed components or owners. Routine planning, Dely dispatch, Control review, test execution and reporting are common delivery steps, not additional implementation coordination.", "One focused implementation and verification pass", "A short bounded sequence within known internal ownership", "A bounded coordinated implementation across multiple known components or owners", "Long open-ended sequence or cross-system coordination"],
 +  };
 +  return Object.fromEntries(Object.entries(dimensions).map(([name, [question, easy, medium_minus, medium_plus, hard]]) => [name, {
 +    type: "choice",
