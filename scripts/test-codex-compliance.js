@@ -8,7 +8,7 @@ const os = require("os");
 const { spawnSync } = require("child_process");
 const guard = require("./codex-compliance.js");
 const routingPath = process.env.COMPLIANCE_ROUTING || path.join(os.homedir(),
-  ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.8/skills/delivery/scripts/task-routing.js");
+  ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.9/skills/delivery/scripts/task-routing.js");
 const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths});\n';
 
 function fixture(t) {
@@ -52,6 +52,33 @@ function fixture(t) {
   });
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
+
+test("adapter assessment and review use the configured private opt-in journal", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  const records = () => fs.readFileSync(f.settings.journal, "utf8").trim().split("\n").map(JSON.parse);
+  assert.deepEqual(records().map(row => row.operation), ["assess"]);
+  assert.throws(() => f.review({ skills: "[]" }), /mandatory skill/);
+  assert.equal(records().length, 1);
+  f.review();
+  const rows = records();
+  assert.deepEqual(rows.map(row => row.operation), ["assess", "review"]);
+  assert.equal(rows[0].taskKey, rows[1].taskKey);
+  assert.equal(rows[1].reviewer, "codex-control");
+  assert.equal(rows[1].jevStatus, "NOT_EVALUATED");
+  assert.ok(!JSON.stringify(rows).includes(f.task.context.evidence));
+  assert.ok(Object.hasOwn(f.settings.dependencies, path.join(path.dirname(routingPath), "usage.js")));
+});
+
+test("absent logging directories are not created and never change admission", async (t) => {
+  const f = fixture(t);
+  f.settings.journal = path.join(f.repo, "logging-not-enabled", "log.jsonl");
+  fs.writeFileSync(guard.settingsFile(f.home), JSON.stringify(f.settings));
+  await f.prepare();
+  assert.equal(f.review().status, "REVIEWED");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  assert.equal(fs.existsSync(path.dirname(f.settings.journal)), false);
+});
 
 test("prepare evaluates session and home skills while retaining the exact mandatory roster", async (t) => {
   const f = fixture(t);
@@ -226,7 +253,7 @@ test("Jev recommends a session delivery skill and eligible route while dispatch 
   assert.ok(prepared.skill_advice.suggestions.some((skill) => skill.name === "dely:delivery"));
   assert.equal(prepared.assessment.difficulty, "medium_minus");
   assert.equal(prepared.assessment.route.workflow, "dely");
-  assert.equal(prepared.assessment.route.primary.model, "gemini-3.8-flash-high");
+  assert.equal(prepared.assessment.route.primary.model, "gemini-3.8-flash-medium");
   assert.throws(() => f.review({ difficulty: "medium_minus" }), /mandatory skill/);
   const reviewed = f.review({ difficulty: "medium_minus", skills: '["required","dely:delivery"]', run: "test-route" });
   assert.equal(reviewed.skill_review.evaluation_status, "REVIEW_REQUIRED");

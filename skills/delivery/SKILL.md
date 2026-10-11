@@ -15,7 +15,7 @@ and explicit risk flags; see the repository's Jev task-routing section.
 Use the script's `review` command to record Codex Control's evidence-based
 decision, then pass `--assessment-file <assessment>` on every dispatch.
 
-- Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash High/default.
+- Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash Medium/default.
 - Medium+ (`medium_plus`): AGY Sonnet 5.5 High/default.
 - Every delegated grade has one explicit primary-quota fallback: Codex
   Luna/max at stage 1. There is no second quota stage.
@@ -36,6 +36,11 @@ delivery rules apply to delegated Easy/Medium-/Medium+ work.
 Medium- is bounded internal work with known ownership, low coupling and
 focused acceptance. Medium+ coordinates known internal components and
 integrated acceptance. Consequential risk still promotes either grade to Hard.
+Risk flags describe changed authority, data meaning, compatibility, system
+boundaries, live cutover or delegation policy. Do not set them merely because
+a task mentions security, data, an API, production or a Dely dispatch. Prefer
+Dely for reversible bounded internal work with known ownership and acceptance;
+retain unknown effects as unevaluated. See [task risk policy](../../docs/task-risk-policy.md).
 The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
 Reassess old policy records; the undivided `medium` label is not accepted.
 

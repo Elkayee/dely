@@ -12,9 +12,9 @@ function taskKey(repo, spec, context) {
   ])).digest("hex");
 }
 
-function recordTask(assessment, operation) {
+function recordTask(assessment, operation, journal = path.join(os.homedir(), ".dely", "log.jsonl")) {
   try {
-    const directory = path.join(os.homedir(), ".dely");
+    const directory = path.dirname(journal);
     if (!fs.statSync(directory).isDirectory()) return;
     const task = assessment.task;
     if (!task || !task.repo || !task.spec_sha256 || !task.context_sha256) return;
@@ -29,7 +29,7 @@ function recordTask(assessment, operation) {
       } : null, reviewer: assessment.review?.by || null,
       jevStatus: assessment.jev ? "EVALUATED" : "NOT_EVALUATED",
     };
-    fs.appendFileSync(path.join(directory, "log.jsonl"), JSON.stringify(record) + "\n", { mode: 0o600 });
+    fs.appendFileSync(journal, JSON.stringify(record) + "\n", { mode: 0o600 });
   } catch (_) { /* Logging never changes routing, output or exit status. */ }
 }
 

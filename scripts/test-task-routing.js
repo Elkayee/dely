@@ -49,7 +49,7 @@ test("verified missing-model route is Luna/max for every delegated grade, never 
   for (const difficulty of ["easy", "medium_minus", "medium_plus"]) {
     const assessment = { difficulty, route: routing.route(difficulty) };
     routing.verifyUnavailablePin(assessment, { agent: "codex", model: "gpt-6-luna", effort: "max" });
-    assert.throws(() => routing.verifyUnavailablePin(assessment, { agent: "antigravity", model: "gemini-3.8-flash-high", effort: "default" }));
+    assert.throws(() => routing.verifyUnavailablePin(assessment, { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" }));
     assert.throws(() => routing.verifyUnavailablePin(assessment, { agent: "codex", model: "gpt-6-luna", effort: "default" }));
   }
   assert.throws(() => routing.verifyUnavailablePin({ difficulty: "hard", route: routing.route("hard") },
@@ -91,7 +91,7 @@ test("Easy and Medium- start Flash, Medium+ starts Sonnet, Hard bypasses Dely", 
   const plus = await routing.assess(task(), mock(result({ scope: "medium_minus", coordination: "medium_plus" })));
   const hard = await routing.assess(task(), mock(result({ risk: "hard" })));
   for (const a of [easy, minus]) {
-    assert.equal(a.route.primary.model, "gemini-3.8-flash-high");
+    assert.equal(a.route.primary.model, "gemini-3.8-flash-medium");
     assert.equal(routing.selectedPhase(a, {}), "implement_backup");
   }
   assert.equal(minus.difficulty, "medium_minus");

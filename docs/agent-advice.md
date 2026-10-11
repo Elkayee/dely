@@ -22,9 +22,15 @@ to Dely dispatch. Review is an explicit Control action. Hard risk, stale
 spec/context and another workspace's assessment cannot be downgraded or approved.
 
 The four labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
-Easy/Medium- select Flash High/default; Medium+ selects Sonnet High/default.
+Easy/Medium- select Flash Medium/default; Medium+ selects Sonnet High/default.
 Every delegated grade has one Luna/max quota fallback. Old three-grade
 assessments require a new assessment and Control review.
+
+Apply [the task risk policy](task-risk-policy.md) to consequential effects,
+rather than task topics. Prefer Dely for known reversible bounded internal
+work; keep concrete Hard exclusions and unresolved facts protected. Version
+three clarifies these criteria and changes the Flash primary to Medium;
+reassess version-two records instead of changing their stored route.
 
 ## Context after retrieval
 

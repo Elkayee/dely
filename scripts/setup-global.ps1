@@ -81,8 +81,8 @@ if (-not (Select-String -Path $delyScript -Pattern 'unknown fallback reason' -Qu
 if (-not (Select-String -Path $delyScript -Pattern 'fallback-stage' -Quiet)) {
     throw "Global Dely copy does not support ordered quota stages."
 }
-if (-not (Select-String -Path $delyScript -Pattern 'gemini-3\.8-flash-high' -Quiet)) {
-    throw "Global Dely copy does not pin the Flash High quota stage."
+if (-not (Select-String -Path (Join-Path $globalRoot "skills\delivery\scripts\task-routing.js") -Pattern 'gemini-3\.8-flash-medium' -Quiet)) {
+    throw "Global Dely copy does not pin the Flash Medium quota stage."
 }
 if (-not (Select-String -Path $delyScript -Pattern 'implement_backup_2' -Quiet)) {
     throw "Global Dely copy does not pin the final Luna backup."
@@ -115,13 +115,15 @@ Default delivery routing for all workspaces. A project-level Dely table override
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |
 | `implement` | Antigravity CLI | claude-sonnet-5-5-high | default |
-| `implement_backup` | Antigravity CLI | gemini-3.8-flash-high | default |
+| `implement_backup` | Antigravity CLI | gemini-3.8-flash-medium | default |
 | `implement_backup_2` | Codex CLI | gpt-6-luna | max |
 
 Review is performed directly by Codex Control. Never dispatch review work to AGY.
 Assess before creating a Dely Run with the installed `skills/delivery/scripts/task-routing.js`, then record Codex Control review. Every dispatch requires `--assessment-file`; its spec/context hashes must still match.
-Easy and Medium- (medium_minus) use AGY Gemini 3.8 Flash High/default; Medium+ (medium_plus) uses AGY Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback to Codex Luna/max at stage 1. Hard is handled directly by Codex gpt-6.1-sol/xhigh without Dely.
+Easy and Medium- (medium_minus) use AGY Gemini 3.8 Flash Medium/default; Medium+ (medium_plus) uses AGY Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback to Codex Luna/max at stage 1. Hard is handled directly by Codex gpt-6.1-sol/xhigh without Dely.
 Medium- is bounded internal work with known ownership, low coupling and focused acceptance. Medium+ coordinates known internal components and integrated acceptance. Consequential risk still selects Hard; old assessments must be rerun under the four-tier policy.
+Prefer Dely for reversible bounded internal changes. Risk flags describe actual consequential effects, not task topics or repository names; record concrete evidence for each true flag. Documentation, tests, local parsing, internal refactors with known boundaries, and routine Dely/worktree coordination are not Hard merely by topic. Unknown effects stay NOT_EVALUATED.
+The six Hard effects are changes to security authority/trust; destructive or sensitive data, persisted schema compatibility or business meaning; public interface compatibility; system boundaries or unresolved architecture; live production cutover; and delegation/admission/fallback authority or worker ownership. Ordinary reviewed dispatch is not a routing-policy change.
 The implement row supplies Sonnet, implement_backup supplies Flash even as a primary, and implement_backup_2 supplies the single Luna fallback. Pass --assessment-file and --spec-file together on task preflight so it checks the reviewed primary.
 Only explicit provider quota advances the selected chain after the prior attempt is inactive and released when required. Authentication, timeout, unknown errors, and the final stage do not advance.
 A successful AGY model catalog proving the requested model absent selects Codex gpt-6-luna/max directly, skipping Flash. Discovery/auth/timeout errors and an unapplied live footer still stop. Model absence is not a quota stage.

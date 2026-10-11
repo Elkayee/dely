@@ -343,7 +343,7 @@ Missing classification/model evidence stays explicit. See the
 ### Jev task routing
 
 Version `0.24.7` assesses implementation tasks before Dely creates a Run.
-Easy and Medium- use AGY Gemini 3.8 Flash High/default. Medium+ uses AGY
+Easy and Medium- use AGY Gemini 3.8 Flash Medium/default. Medium+ uses AGY
 Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback:
 Codex Luna/max at stage 1.
 Hard runs directly in Codex Sol/xhigh without Dely. Codex Control reviews
@@ -359,7 +359,7 @@ old three-grade assessments must be rerun. The model rows stay compatible:
 and `implement_backup_2` supplies the single Luna quota fallback.
 
 AGY must advertise the requested model in `agy models`, and its live footer
-must confirm the model and High level before receiving the prompt. Unknown
+must confirm the model and requested level before receiving the prompt. Unknown
 model slugs can silently fall back inside AGY; the adapter now refuses that
 behavior. A successful catalog proving the requested model absent now selects
 Codex `gpt-6-luna/max` directly, skipping Flash. This separate availability
@@ -504,12 +504,12 @@ with:
 
 ```text
 implement        -> Antigravity CLI / claude-sonnet-5-5-high / default
-implement_backup -> Antigravity CLI / gemini-3.8-flash-high / default
+implement_backup -> Antigravity CLI / gemini-3.8-flash-medium / default
 implement_backup_2 -> Codex CLI / gpt-6-luna / max
 review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override each pin independently. Ordinary implementation dispatch launches AGY with the Sonnet High model. Only an explicit Sonnet provider quota uses `dely dispatch --phase implement --fallback quota --fallback-stage 1` to launch AGY Flash High/default. Only an explicit Flash provider quota advances to `dely dispatch --phase implement --fallback quota --fallback-stage 2` after confirming the prior attempt is inactive and released when required. Stage 2 launches native Codex Luna/max, waits for `tui-idle`, and attaches the worker to that same terminal. Dely waits within a bounded deadline for fresh live working evidence or a visibly unsubmitted prompt; it sends one bare Enter only for the latter, then verifies fresh live working evidence. Authentication, timeout, unknown failures, and stage 2 do not advance the chain.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. A project can override each pin independently. Ordinary implementation dispatch launches AGY with the Sonnet High model. Only an explicit Sonnet provider quota uses `dely dispatch --phase implement --fallback quota --fallback-stage 1` to launch AGY Flash Medium/default. Only an explicit Flash provider quota advances to `dely dispatch --phase implement --fallback quota --fallback-stage 2` after confirming the prior attempt is inactive and released when required. Stage 2 launches native Codex Luna/max, waits for `tui-idle`, and attaches the worker to that same terminal. Dely waits within a bounded deadline for fresh live working evidence or a visibly unsubmitted prompt; it sends one bare Enter only for the latter, then verifies fresh live working evidence. Authentication, timeout, unknown failures, and stage 2 do not advance the chain.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
@@ -577,4 +577,9 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 ### Worker model
 
-AGY is the primary worker, pinned to `claude-sonnet-5-5-high` with default effort. Explicit Sonnet quota advances to AGY `gemini-3.8-flash-high` at stage 1; only explicit Flash quota advances to Codex `gpt-6-luna` at max effort in stage 2. Separately, a successful AGY catalog proving a requested Sonnet or Flash model absent goes directly to Luna/max. Dely keeps the existing native idle and fresh live-working startup checks; auth/timeout/unverified catalog and an unapplied footer stop.
+Easy and Medium- use `gemini-3.8-flash-medium` with default effort. Medium+ keeps `claude-sonnet-5-5-high` with default effort. Every delegated grade has one explicit quota fallback to Codex `gpt-6-luna` at max effort. A successful nonempty AGY catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unusable catalog, or an unapplied requested model/level footer stops dispatch.
+
+Prefer Dely for reversible bounded internal work. The six risk flags describe
+actual consequential changes, rather than a topic or repository name. Apply
+[the task risk policy](docs/task-risk-policy.md) before setting them; ordinary
+Dely dispatch is not a routing-policy change. Unknown effects remain unevaluated.

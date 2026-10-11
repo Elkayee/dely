@@ -103,9 +103,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.24.8
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.24.8
-test "$(jq -r .version package.json)" = 0.24.8
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.24.9
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.24.9
+test "$(jq -r .version package.json)" = 0.24.9
 ```
 
 ```bash
@@ -169,8 +169,8 @@ every delegated `dely dispatch`, including quota fallbacks. Pass both
 
 | Difficulty | Primary | Explicit quota fallback | Workflow |
 | --- | --- | --- | --- |
-| Easy | AGY Gemini 3.8 Flash High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
-| Medium- | AGY Gemini 3.8 Flash High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Easy | AGY Gemini 3.8 Flash Medium/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Medium- | AGY Gemini 3.8 Flash Medium/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
 | Medium+ | AGY Sonnet 5.5 High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
 | Hard | Codex gpt-6.1-sol/xhigh | None | Direct implementation and verification; no Dely |
 
@@ -185,6 +185,11 @@ The context contains `scope`, `coupling`, `acceptance`, and source `evidence`,
 `requirements_confirmed: true`, and explicit boolean `risks` for `security`,
 `data`, `public_contract`, `architecture`, `production`, and `routing`.
 Missing facts stay `NOT_EVALUATED`; a known Hard risk cannot be downgraded.
+The booleans describe actual consequential effects in the scoped change,
+not task topics. Prefer Dely for reversible bounded internal work. Apply
+[docs/task-risk-policy.md](docs/task-risk-policy.md) and record the concrete
+effect behind every true flag. Ordinary dispatch is not a routing-policy
+change; working in a data/auth/production repository is not itself Hard.
 Jev reads `TYPESAFE_API_KEY` from the process, workspace/package `.env`, or
 Windows User/Machine environment and proposes a difficulty. Control reviews every
 result; no confidence cutoff is assumed calibrated. If Jev is unavailable,
@@ -193,7 +198,7 @@ Jev evaluation. Never invent a Jev result or automatically default to AGY.
 The reviewed spec/context hashes must still match at dispatch.
 Before an AGY launch, its requested slug must be advertised by `agy models`.
 Before the prompt is dispatched, the live footer must confirm the requested
-model and High level. A successful catalog proving the requested model absent
+model and requested level. A successful catalog proving the requested model absent
 routes directly to Codex Luna/max, skipping Flash. Discovery/auth/timeout errors
 and an unapplied live footer still stop; model absence is not a quota stage.
 
@@ -215,7 +220,7 @@ starts no delivery run.
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |
 | `implement` | Antigravity CLI | claude-sonnet-5-5-high | default |
-| `implement_backup` | Antigravity CLI | gemini-3.8-flash-high | default |
+| `implement_backup` | Antigravity CLI | gemini-3.8-flash-medium | default |
 | `implement_backup_2` | Codex CLI | gpt-6-luna | max |
 
 Review is owned by Codex Control. Never dispatch a `review` phase to AGY.

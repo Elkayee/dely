@@ -13,7 +13,7 @@ an extensionless Linux NVM binary shadowing Node and opening the app picker.
 
 Run from the checkout, supplying the installed routing module and advisor:
 
-    rtk proxy node scripts/codex-compliance.js install --home C:/Users/Home33/.codex --routing C:/Users/Home33/.codex/plugins/cache/dely-orca-agy-global/dely/0.24.8/skills/delivery/scripts/task-routing.js --advisor D:/orca/scripts/jev_agent.js
+    rtk proxy node scripts/codex-compliance.js install --home C:/Users/Home33/.codex --routing C:/Users/Home33/.codex/plugins/cache/dely-orca-agy-global/dely/0.24.9/skills/delivery/scripts/task-routing.js --advisor D:/orca/scripts/jev_agent.js
 
 Repeat with Orca's actual CODEX_HOME. The installer preserves other hooks,
 backs up hooks.json and adds SessionStart, UserPromptSubmit, PreToolUse and
@@ -42,6 +42,12 @@ Jev context command and preserve every candidate and its provenance.
 
 Before implementation:
 
+Prefer Dely for reversible bounded internal work. The risk flags describe
+consequential changes, rather than task topics or the presence of data, APIs,
+authentication code or production code in a repository. Apply the
+[task risk policy](task-risk-policy.md), and record the actual effect that
+supports each Hard exclusion. Unknown effects remain unevaluated.
+
 1. Build a task JSON from the actual request and current session skill catalog.
    Supply complete descriptions and absolute SKILL.md paths. Include every
    mandatory or user-selected skill in required_skills.
@@ -65,6 +71,12 @@ Before implementation:
    existing risk exclusions and model selection; the hook checks the active
    model slug against the reviewed primary. Native events do not supply effort,
    so the existing harness model/effort checks still own that evidence.
+
+Preparation and review record assessment metadata in the configured opt-in
+journal, including calls through this adapter. They create no logging directory
+and record no prompts, context bodies, source text or credentials. Missing or
+unwritable logging never changes routing or admission. Tests use a private
+journal so their results do not inflate ordinary usage.
 
 File input keeps a large session skill catalog out of the Windows process
 command line. Relative paths resolve from the current working directory;

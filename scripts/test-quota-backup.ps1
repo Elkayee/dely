@@ -19,7 +19,7 @@ $globalAgents = Join-Path $homeRoot ".codex\AGENTS.md"
 $backupRow = '| `implement_backup` | Codex CLI | gpt-6-luna | max |'
 $tick = [string][char]96
 $primaryRow = "|" + $tick + "implement" + $tick + " | Antigravity CLI | claude-sonnet-5-5-high | default |"
-$flashRow = "|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | gemini-3.8-flash-high | default |"
+$flashRow = "|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | gemini-3.8-flash-medium | default |"
 $lunaRow = "|" + $tick + "implement_backup_2" + $tick + " | Codex CLI | gpt-6-luna | max |"
 $projectReviewRow = "|" + $tick + "review" + $tick + " | Codex CLI | gpt-6-luna | default |"
 $pass = 0
@@ -147,7 +147,7 @@ if (args[0] === "terminal" && args[1] === "create") {
   const promptVisible = codex && !entered && scenario !== "uncertain-no-prompt" && (scenario === "missing-sonnet-late-prompt" ? screenReads >= 40 : (!delayedCodex || screenReads >= 2));
   const created = records.filter((r) => r.args[0] === "terminal" && r.args[1] === "create").slice(-1)[0];
   const command = created ? created.args[created.args.indexOf("--command") + 1] : "";
-  const modelFooter = scenario === "wrong-live-model" ? "Gemini 3.8 Flash · medium" : command.includes("claude-sonnet-5-5-high") ? "Claude Sonnet 5.5 · high" : "Gemini 3.8 Flash · high";
+  const modelFooter = scenario === "wrong-live-model" ? "Gemini 3.8 Flash · high" : command.includes("claude-sonnet-5-5-high") ? "Claude Sonnet 5.5 · high" : "Gemini 3.8 Flash · medium";
   result = { terminal: { handle: value("--terminal"), status: "connected", tail: promptVisible ? ["[Pasted Content 5830 chars]"] : ["READY", modelFooter, ">"], latestCursor: 1 } };
 } else if (args[0] === "terminal" && args[1] === "send") {
   result = { submission: { accepted: true } };
@@ -237,9 +237,9 @@ cp.execFileSync = function(file, args, options) {
       const index = process.argv.indexOf("--repo");
       require("fs").appendFileSync(require("path").join(process.argv[index + 1], "spec.md"), " changed during model discovery");
     }
-    if (["missing-sonnet-model", "missing-sonnet-late-prompt", "missing-model-stale", "missing-model-bad-pin", "uncertain-visible-prompt", "uncertain-no-prompt", "preflight-missing-model", "preflight-bad-luna-pin"].includes(scenario) || scenario.includes("fast-completion")) return "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n";
+    if (["missing-sonnet-model", "missing-sonnet-late-prompt", "missing-model-stale", "missing-model-bad-pin", "uncertain-visible-prompt", "uncertain-no-prompt", "preflight-missing-model", "preflight-bad-luna-pin"].includes(scenario) || scenario.includes("fast-completion")) return "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n";
     if (scenario === "missing-flash-model") return "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n";
-    return "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\n";
+    return "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n";
   }
   return originalExec.call(this, file, args, options);
 };
@@ -264,7 +264,7 @@ cp.execFileSync = function(file, args, options) {
 
     $taskPreflight = Invoke-Raw "task-preflight-flash" @("preflight", "--repo", $repo, "--run", "quota-fixture-task-preflight-flash", "--assessment-file", "assessment.json", "--spec-file", "spec.md")
     $taskPreflightTerminal = @($taskPreflight.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
-    Assert-Case "task preflight checks the reviewed Easy Flash primary" ($taskPreflight.ExitCode -eq 0 -and (Read-Command $taskPreflightTerminal) -match '--model "gemini-3.8-flash-high"') $taskPreflight.Output
+    Assert-Case "task preflight checks the reviewed Easy Flash primary" ($taskPreflight.ExitCode -eq 0 -and (Read-Command $taskPreflightTerminal) -match '--model "gemini-3.8-flash-medium"') $taskPreflight.Output
     $partialPreflight = Invoke-Raw "task-preflight-partial" @("preflight", "--repo", $repo, "--run", "quota-fixture-task-preflight-partial", "--assessment-file", "assessment.json")
     Assert-Case "partial task preflight arguments are refused before launch" ($partialPreflight.ExitCode -ne 0 -and -not (Has-Launch $partialPreflight) -and $partialPreflight.Output -match "requires both") $partialPreflight.Output
 
@@ -272,8 +272,8 @@ cp.execFileSync = function(file, args, options) {
     $primaryTerminal = @($primary.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     $primaryCommand = if ($primaryTerminal) { Read-Command $primaryTerminal } else { "" }
     $primaryEvent = @($primary.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
-    $primaryPins = $primaryEvent -and $primaryEvent.pinPhase -eq "implement_backup" -and $null -eq $primaryEvent.fallbackStage -and $primaryEvent.launch.effective.agent -eq "antigravity" -and $primaryEvent.launch.effective.model -eq "gemini-3.8-flash-high" -and $primaryEvent.launch.effective.effort -eq "default"
-    Assert-Case "Easy starts AGY Flash High from its global model row" ($primary.ExitCode -eq 0 -and $primaryCommand -match 'agy(\.exe)?' -and $primaryCommand -match '--model "gemini-3.8-flash-high"' -and $primaryPins) ($primary.Output + " | command=$primaryCommand")
+    $primaryPins = $primaryEvent -and $primaryEvent.pinPhase -eq "implement_backup" -and $null -eq $primaryEvent.fallbackStage -and $primaryEvent.launch.effective.agent -eq "antigravity" -and $primaryEvent.launch.effective.model -eq "gemini-3.8-flash-medium" -and $primaryEvent.launch.effective.effort -eq "default"
+    Assert-Case "Easy starts AGY Flash Medium from its global model row" ($primary.ExitCode -eq 0 -and $primaryCommand -match 'agy(\.exe)?' -and $primaryCommand -match '--model "gemini-3.8-flash-medium"' -and $primaryPins) ($primary.Output + " | command=$primaryCommand")
 
     $stage1 = Invoke-Scenario "stage1" @("--fallback", "quota")
     $stage1Terminal = @($stage1.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
@@ -305,7 +305,7 @@ cp.execFileSync = function(file, args, options) {
     $nonWorkingEvidence = @($notWorking.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-show" -and $_.response.result.projection.stage.activity -ne "working" }).Count -gt 0
     Assert-Case "Luna rejects accepted input without fresh working evidence" ($notWorking.ExitCode -ne 0 -and $notWorkingEnter.Count -eq 1 -and $nonWorkingEvidence -and $notWorking.Output -match "no working Codex turn evidence") $notWorking.Output
 
-    $projectPrimary = "|" + $tick + "implement" + $tick + " | Antigravity CLI | gemini-3.8-flash-high | default |"
+    $projectPrimary = "|" + $tick + "implement" + $tick + " | Antigravity CLI | gemini-3.8-flash-medium | default |"
     $badProjectFlash = "|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | claude-sonnet-5-5-high | default |"
     Set-FixturePins $globalRows @($projectReviewRow, $badProjectFlash)
     $primaryOverride = Invoke-Scenario "primary-project-override" @()
@@ -315,9 +315,9 @@ cp.execFileSync = function(file, args, options) {
     $stage1Override = Invoke-Scenario "stage1-project-override" @()
     $stage1OverrideTerminal = @($stage1Override.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     $stage1OverrideEvent = @($stage1Override.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
-    Assert-Case "project Flash primary overrides a mismatched global row" ($stage1Override.ExitCode -eq 0 -and (Read-Command $stage1OverrideTerminal) -match '--model "gemini-3.8-flash-high"' -and $stage1OverrideEvent.pinPhase -eq "implement_backup" -and $null -eq $stage1OverrideEvent.fallbackStage) $stage1Override.Output
+    Assert-Case "project Flash primary overrides a mismatched global row" ($stage1Override.ExitCode -eq 0 -and (Read-Command $stage1OverrideTerminal) -match '--model "gemini-3.8-flash-medium"' -and $stage1OverrideEvent.pinPhase -eq "implement_backup" -and $null -eq $stage1OverrideEvent.fallbackStage) $stage1Override.Output
 
-    Set-FixturePins $globalRows @($projectReviewRow, ("|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | gemini-3.8-flash-high | high |"))
+    Set-FixturePins $globalRows @($projectReviewRow, ("|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | gemini-3.8-flash-medium | high |"))
     $badFlashEffort = Invoke-Scenario "bad-flash-effort" @()
     Assert-Case "Flash primary rejects non-default effort before launch" ($badFlashEffort.ExitCode -ne 0 -and -not (Has-Launch $badFlashEffort) -and $badFlashEffort.Output -match "reviewed difficulty route") $badFlashEffort.Output
 
@@ -359,7 +359,7 @@ cp.execFileSync = function(file, args, options) {
     Set-FixtureAssessment "medium_minus"
     $minus = Invoke-Scenario "medium-minus" @()
     $minusTerminal = @($minus.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
-    Assert-Case "Medium- starts AGY Flash High" ($minus.ExitCode -eq 0 -and (Read-Command $minusTerminal) -match '--model "gemini-3.8-flash-high"') $minus.Output
+    Assert-Case "Medium- starts AGY Flash Medium" ($minus.ExitCode -eq 0 -and (Read-Command $minusTerminal) -match '--model "gemini-3.8-flash-medium"') $minus.Output
     $minusQuota = Invoke-Scenario "medium-minus-quota" @("--fallback", "quota")
     $minusQuotaTerminal = @($minusQuota.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     Assert-Case "Medium- quota starts Luna/max" ($minusQuota.ExitCode -eq 0 -and (Read-Command $minusQuotaTerminal) -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"') $minusQuota.Output
@@ -389,7 +389,7 @@ cp.execFileSync = function(file, args, options) {
     Set-FixturePins @($projectPrimary, $flashRow, $lunaRow) @($projectReviewRow)
     $teamPins = Invoke-Scenario "team-pins" @()
     Assert-Case "modern team pins take precedence over a mismatched global row" ($teamPins.ExitCode -eq 0) $teamPins.Output
-    Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"gemini-3.8-flash-high","effort":"default"}}'
+    Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"gemini-3.8-flash-medium","effort":"default"}}'
     $localPins = Invoke-Scenario "local-pins" @()
     Assert-Case "modern personal pins take precedence and cannot evade route validation" ($localPins.ExitCode -ne 0 -and -not (Has-Launch $localPins) -and $localPins.Output -match "reviewed difficulty route") $localPins.Output
     Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"claude-sonnet-5-5-high","effort":"default"}}'
@@ -412,7 +412,7 @@ cp.execFileSync = function(file, args, options) {
     $missingFlash = Invoke-Scenario "missing-flash-model" @()
     $missingFlashTerminal = @($missingFlash.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     $missingFlashEvent = @($missingFlash.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
-    Assert-Case "verified Flash absence also launches Luna/max and records the requested Flash pin" ($missingFlash.ExitCode -eq 0 -and (Read-Command $missingFlashTerminal) -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $missingFlashEvent.fallbackReason -eq "model_unavailable" -and $missingFlashEvent.launch.requested.model -eq "gemini-3.8-flash-high") $missingFlash.Output
+    Assert-Case "verified Flash absence also launches Luna/max and records the requested Flash pin" ($missingFlash.ExitCode -eq 0 -and (Read-Command $missingFlashTerminal) -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $missingFlashEvent.fallbackReason -eq "model_unavailable" -and $missingFlashEvent.launch.requested.model -eq "gemini-3.8-flash-medium") $missingFlash.Output
     Set-FixtureAssessment "medium_plus"
     foreach ($catalogScenario in @("catalog-auth-error", "catalog-empty")) {
         $catalogFailure = Invoke-Scenario $catalogScenario @()

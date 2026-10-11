@@ -69,6 +69,8 @@ function context(event, home) {
     " --task-file '<path-to-task.json>'. " +
     "Inspect every item in Jev's suggestions array against the task, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
+    "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
+    "Easy/Medium- use AGY gemini-3.8-flash-medium/default; Medium+ keeps claude-sonnet-5-5-high/default with verified-absence or explicit-quota Luna/max fallback. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
     "Read-only inspection and Orca coordination remain available.";
@@ -280,6 +282,7 @@ async function prepare(options, home) {
   state.fingerprints = { ...fingerprints([skillInput, sessionRoster, sourceRoster, adviceFile,
     ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...catalogFingerprints };
   write(stateFile(home, options.session), state);
+  if (state.assessment) require(path.join(path.dirname(settings.routing), "usage.js")).recordTask(state.assessment, "assess", settings.journal);
   return { status: state.status, skill_advice: advice, assessment: state.assessment, task_directory: directory };
 }
 
@@ -344,6 +347,7 @@ function review(options, home) {
   state.skill_review = { by: "codex-control", reason: options["skill-reason"], evaluation_status: advice.status, selected };
   state.fingerprints = { ...state.fingerprints, ...fingerprints(loaded.map((skill) => skill.path)) };
   write(file, state);
+  if (state.assessment) require(path.join(path.dirname(settings.routing), "usage.js")).recordTask(state.assessment, "review", settings.journal);
   return { status: state.status, route: state.assessment && state.assessment.route,
     skill_review: state.skill_review, loaded_skills: loaded };
 }
@@ -392,13 +396,15 @@ function install(options, home) {
     "hooks-before-" + Date.now() + "-" + crypto.randomBytes(4).toString("hex") + ".json"));
   fs.copyFileSync(__filename, script);
   fs.copyFileSync(guide, path.join(directory, "guide.md"));
+  const riskGuide = path.resolve(__dirname, "../docs/task-risk-policy.md");
+  if (fs.existsSync(riskGuide)) fs.copyFileSync(riskGuide, path.join(directory, "task-risk-policy.md"));
   const adviceGuide = path.resolve(__dirname, "../docs/jev-skill-advice.md");
   if (fs.existsSync(adviceGuide)) fs.copyFileSync(adviceGuide, path.join(directory, "jev-skill-advice.md"));
   // Freeze advice code without moving its credential search root or copying any key.
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
   write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely,
-    dependencies: fingerprints([routing, frozenAdvisor, dely]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
+    dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
   if (!preserveHooks) write(manifestFile, manifest);
   return { home, script, script_sha256: hashFile(script), configured_events: 4,
     trust: preserveHooks ? "UNCHANGED_REQUIRES_EXISTING_NATIVE_TRUST" : "REQUIRES_NATIVE_HOOK_REVIEW" };
