@@ -318,6 +318,93 @@ The following Orca POC notes describe the local adapter and installed environmen
 
 ## Dely + Orca POC
 
+### Agent advice in this checkout
+
+`scripts/jev_agent.js` reuses task difficulty assessment and adds context
+ranking and skill suggestions. Use `--repo` to select the target workspace;
+relative inputs and outputs resolve there. The skill roster comes from the
+agent's current session catalog and is supplied as JSON; the CLI does not
+scan directories or load skills.
+
+See [the agent advice guide](docs/agent-advice.md) for all three commands,
+provenance handling and error states. Run
+`node --test scripts/test-jev-agent.js scripts/test-task-routing.js` for
+advisor and existing routing checks. This is local checkout tooling; the
+portable skill and installed plugin are unchanged.
+
+### Local usage dashboard
+
+Run `node scripts/dely-monitor.js --enable-logging` and open
+`http://127.0.0.1:8787` to monitor recorded routing, effective implementation
+pins, separate Codex conversation models and current Orca worker outcomes.
+Missing classification/model evidence stays explicit. See the
+[usage monitor guide](docs/usage-monitor.md) for denominators and source limits.
+
+### Jev task routing
+
+Version `0.24.7` assesses implementation tasks before Dely creates a Run.
+Easy and Medium- use AGY Gemini 3.8 Flash High/default. Medium+ uses AGY
+Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback:
+Codex Luna/max at stage 1.
+Hard runs directly in Codex Sol/xhigh without Dely. Codex Control reviews
+delegated work. Project or personal pins that contradict the reviewed route
+are rejected before a worker starts.
+
+Medium- is bounded internal work with known ownership, low coupling and
+focused acceptance. Medium+ coordinates known internal components with
+integrated acceptance. Existing Hard risk exclusions take precedence.
+The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`;
+old three-grade assessments must be rerun. The model rows stay compatible:
+`implement` supplies Sonnet, `implement_backup` supplies Flash as a primary,
+and `implement_backup_2` supplies the single Luna quota fallback.
+
+AGY must advertise the requested model in `agy models`, and its live footer
+must confirm the model and High level before receiving the prompt. Unknown
+model slugs can silently fall back inside AGY; the adapter now refuses that
+behavior. A successful catalog proving the requested model absent now selects
+Codex `gpt-6-luna/max` directly, skipping Flash. This separate availability
+branch applies to dispatch and implementation preflight; it is not a quota
+stage. Auth/timeout/unusable catalog and an unapplied
+live footer still stop. Both the original requested pin and the effective
+Luna pin are recorded; the reviewed spec/context is rechecked before launch.
+
+Write the spec and a context JSON inside the workspace. The context has
+`scope`, `coupling`, `acceptance`, and `evidence` strings, confirmed
+`requirements_confirmed`, and explicit boolean `risks` for `security`, `data`,
+`public_contract`, `architecture`, `production`, and `routing`. Missing facts
+stay unknown. Set a risk to `true` when the task changes that surface.
+
+From the package root:
+
+```powershell
+node skills/delivery/scripts/task-routing.js assess --repo D:\project --spec-file spec.md --context-file context.json --out assessment.json
+node skills/delivery/scripts/task-routing.js review --assessment-file assessment.json --difficulty medium_minus --reason "Bounded internal scope and focused acceptance verified" --out assessment.json
+```
+
+Pass `--assessment-file assessment.json --spec-file spec.md` together to
+`dely preflight` so it checks the reviewed task's primary model.
+
+Jev evaluates five narrow questions using `jev-1.13.0`. Control must review
+the evidence; no confidence threshold is treated as calibrated. Pass the
+reviewed file to `dely dispatch --assessment-file assessment.json`, including
+fallback dispatches. A changed spec or context invalidates the assessment.
+Medium's quota fallback is `--fallback quota --fallback-stage 1` and selects
+Luna/max; it never launches Flash. Hard is refused by the dispatcher.
+
+Get a TypeSafe key from the [official console](https://console.typesafe.ai/).
+Put `TYPESAFE_API_KEY=your-key` in the workspace `.env`; `.env.example` shows
+the format. The actual `.env` is ignored by Git. The client reads the process
+environment first, then the workspace `.env`, the installed package's `.env`,
+and Windows User/Machine environment scopes. It uses Node's native env parser
+and does not load unrelated `.env` variables. It makes one bounded HTTPS request to
+`https://api.typesafe.ai/v1/systemone`; it does not install an SDK dependency.
+Without a key or a usable answer, Jev remains `NOT_EVALUATED`. Control can
+explicitly review complete source evidence without inventing a Jev result.
+
+Run `node --test scripts/test-task-routing.js` for HTTP and admission checks,
+and `scripts/test-quota-backup.ps1 -HelperPath <helper>` for actual adapter
+argv/readiness/fallback checks against the Orca fixture.
+
 POC architecture:
 
 ```text
@@ -456,13 +543,15 @@ Preflight:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orca/scripts/poc-preflight.ps1
 ```
 
-Expected:
+When the verified AGY catalog lacks the requested model, expect:
 
 ```text
-PREFLIGHT implement antigravity PASS ...
+MODEL_UNAVAILABLE claude-sonnet-5-5-high -> Codex gpt-6-luna/max
+PREFLIGHT implement codex PASS ...
 ```
 
-Preflight checks only the Antigravity `implement` pin. Review is not a Dely worker phase.
+When the requested model is available, the implementation healthcheck remains
+`PREFLIGHT implement antigravity PASS`. Review is owned by Codex Control.
 
 Full proof:
 
@@ -488,4 +577,4 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 ### Worker model
 
-AGY is the primary worker, pinned to `claude-sonnet-5-5-high` with default effort. Explicit Sonnet quota advances to AGY `gemini-3.8-flash-high` at stage 1; only explicit Flash quota advances to Codex `gpt-6-luna` at max effort in stage 2. Dely passes the selected AGY model to its native CLI and sets the Codex model and reasoning effort in the native terminal command; stage 2 keeps the existing idle and live-working startup checks.
+AGY is the primary worker, pinned to `claude-sonnet-5-5-high` with default effort. Explicit Sonnet quota advances to AGY `gemini-3.8-flash-high` at stage 1; only explicit Flash quota advances to Codex `gpt-6-luna` at max effort in stage 2. Separately, a successful AGY catalog proving a requested Sonnet or Flash model absent goes directly to Luna/max. Dely keeps the existing native idle and fresh live-working startup checks; auth/timeout/unverified catalog and an unapplied footer stop.

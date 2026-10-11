@@ -9,10 +9,14 @@ $utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 if (Test-Path $globalRoot) {
-    Remove-Item $globalRoot -Recurse -Force
+    throw "Existing global install preserved. Update its task-owned files rather than deleting or recloning it."
 }
 
-git clone --config core.autocrlf=false --depth 1 https://github.com/hieuphung97/dely.git $globalRoot
+git clone --no-checkout --config core.autocrlf=false --depth 1 https://github.com/hieuphung97/dely.git $globalRoot
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+git -C $globalRoot fetch --depth 1 origin ce7a29cc0edb351c256162e8f5076f42ba69234f
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+git -C $globalRoot checkout --detach ce7a29cc0edb351c256162e8f5076f42ba69234f
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $patchForApply = Join-Path ([System.IO.Path]::GetTempPath()) ("dely-agy-" + [guid]::NewGuid().ToString("N") + ".patch")
@@ -69,7 +73,7 @@ if (-not (Select-String -Path $delyScript -Pattern 'review is owned by Codex Con
     throw "Global Dely copy does not enforce Codex-owned review."
 }
 if (-not (Select-String -Path $delyScript -Pattern 'function startCodexQuotaTerminal' -Quiet)) {
-    throw "Global Dely copy does not contain the quota-only Codex terminal path."
+    throw "Global Dely copy does not contain the native Codex fallback terminal path."
 }
 if (-not (Select-String -Path $delyScript -Pattern 'unknown fallback reason' -Quiet)) {
     throw "Global Dely copy does not reject unknown fallback reasons."
@@ -115,7 +119,13 @@ Default delivery routing for all workspaces. A project-level Dely table override
 | `implement_backup_2` | Codex CLI | gpt-6-luna | max |
 
 Review is performed directly by Codex Control. Never dispatch review work to AGY.
-For explicit primary Sonnet quota, route to `--fallback quota --fallback-stage 1`; only explicit Flash quota advances to `--fallback quota --fallback-stage 2` after the prior attempt is inactive and released when required. Authentication, timeout, unknown errors, and the final stage do not advance.
+Assess before creating a Dely Run with the installed `skills/delivery/scripts/task-routing.js`, then record Codex Control review. Every dispatch requires `--assessment-file`; its spec/context hashes must still match.
+Easy and Medium- (medium_minus) use AGY Gemini 3.8 Flash High/default; Medium+ (medium_plus) uses AGY Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback to Codex Luna/max at stage 1. Hard is handled directly by Codex gpt-6.1-sol/xhigh without Dely.
+Medium- is bounded internal work with known ownership, low coupling and focused acceptance. Medium+ coordinates known internal components and integrated acceptance. Consequential risk still selects Hard; old assessments must be rerun under the four-tier policy.
+The implement row supplies Sonnet, implement_backup supplies Flash even as a primary, and implement_backup_2 supplies the single Luna fallback. Pass --assessment-file and --spec-file together on task preflight so it checks the reviewed primary.
+Only explicit provider quota advances the selected chain after the prior attempt is inactive and released when required. Authentication, timeout, unknown errors, and the final stage do not advance.
+A successful AGY model catalog proving the requested model absent selects Codex gpt-6-luna/max directly, skipping Flash. Discovery/auth/timeout errors and an unapplied live footer still stop. Model absence is not a quota stage.
+Jev reads `TYPESAFE_API_KEY`; no confidence cutoff is assumed calibrated. Missing facts stay `NOT_EVALUATED`. If Jev is unavailable, Control may explicitly review complete source evidence while leaving Jev unevaluated; never automatically default to AGY.
 
 ### Bounded Control
 

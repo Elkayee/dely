@@ -23,11 +23,25 @@ Claude Code, Codex CLI, and Cursor Agent CLI.
 
 Repository artifacts are written in English.
 
+## Jev agent advice
+
+Use `scripts/jev_agent.js` with `--repo <target-workspace>` for the three
+advisory steps in [agent-advice.md](docs/agent-advice.md): difficulty before
+implementation, context ranking after Context Engine returns multiple
+candidates, and skill suggestion when the session's skill catalog has
+competing candidates. It reuses this checkout's task-routing policy.
+
+Control reviews every result. Keep required instructions and all context
+provenance; a skill suggestion does not override an explicit skill request.
+Missing keys or unusable replies stay `NOT_EVALUATED`. The companion
+workspace installation remains available and is not removed by this change.
+
 ## Workflow
 
 - Default branch: `main`.
-- Bounded or Architectural work invokes the `delivery` skill; a Spike is
-  investigation only and starts no delivery run.
+- Classify first using the Jev task-routing procedure below. Hard work is
+  handled directly by Codex Sol/xhigh without Dely. Easy, Medium- or Medium+ Bounded
+  or Architectural work invokes `delivery`; a Spike starts no delivery run.
 - Durable decisions live in `docs/decisions.md`; transient plans live in
   `docs/_plans/`.
 - Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`
@@ -54,8 +68,9 @@ Name the model and reasoning effort on every dispatch.
 The local Orca POC instructions below take precedence for phase routing and
 review ownership. The upstream package pins remain in `.dely/pins.json`.
 
-Bounded or Architectural work invokes `dely:delivery`; Spike starts no
-delivery run.
+Assess first. Hard work runs directly in Codex Sol/xhigh without Dely.
+Easy/Medium-/Medium+ Bounded or Architectural work invokes `dely:delivery`; a Spike
+starts no delivery run.
 
 `.dely/pins.json` is this repository's deployment selection, not the portable
 protocol. Per-harness facts — status, Control wake, trust, discovery,
@@ -88,9 +103,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.24.1
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.24.1
-test "$(jq -r .version package.json)" = 0.24.1
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.24.8
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.24.8
+test "$(jq -r .version package.json)" = 0.24.8
 ```
 
 ```bash
@@ -143,6 +158,45 @@ is not a proof of non-disclosure.
 
 Codex is the interactive Control and reviewer. Orca is the execution plane. Antigravity CLI (`agy`) is implementation-only worker.
 
+## Jev task routing
+
+Assess before creating a Dely Run. Use `node skills/delivery/scripts/task-routing.js
+assess --repo <workspace> --spec-file <spec> --context-file <context> --out
+<assessment>` from this package, then review the evidence with the `review`
+command shown by `--help`. Pass the reviewed file as `--assessment-file` on
+every delegated `dely dispatch`, including quota fallbacks. Pass both
+`--assessment-file` and `--spec-file` on task preflight too.
+
+| Difficulty | Primary | Explicit quota fallback | Workflow |
+| --- | --- | --- | --- |
+| Easy | AGY Gemini 3.8 Flash High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Medium- | AGY Gemini 3.8 Flash High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Medium+ | AGY Sonnet 5.5 High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Hard | Codex gpt-6.1-sol/xhigh | None | Direct implementation and verification; no Dely |
+
+CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`. Medium- is
+bounded internal work with known ownership and low coupling; Medium+ coordinates
+known internal components and integrated acceptance. Hard risk flags take
+precedence. Old assessments must be rerun under the new policy.
+`implement` supplies Sonnet, `implement_backup` supplies Flash even as a primary,
+and `implement_backup_2` supplies the single Luna quota fallback for every grade.
+
+The context contains `scope`, `coupling`, `acceptance`, and source `evidence`,
+`requirements_confirmed: true`, and explicit boolean `risks` for `security`,
+`data`, `public_contract`, `architecture`, `production`, and `routing`.
+Missing facts stay `NOT_EVALUATED`; a known Hard risk cannot be downgraded.
+Jev reads `TYPESAFE_API_KEY` from the process, workspace/package `.env`, or
+Windows User/Machine environment and proposes a difficulty. Control reviews every
+result; no confidence cutoff is assumed calibrated. If Jev is unavailable,
+Control may explicitly review complete source evidence, retaining the missing
+Jev evaluation. Never invent a Jev result or automatically default to AGY.
+The reviewed spec/context hashes must still match at dispatch.
+Before an AGY launch, its requested slug must be advertised by `agy models`.
+Before the prompt is dispatched, the live footer must confirm the requested
+model and High level. A successful catalog proving the requested model absent
+routes directly to Codex Luna/max, skipping Flash. Discovery/auth/timeout errors
+and an unapplied live footer still stop; model absence is not a quota stage.
+
 ## Bounded Control
 
 - Treat `LOOP_GUARD` as a hard stop and report the current result instead of retrying autonomously.
@@ -154,8 +208,9 @@ Codex is the interactive Control and reviewer. Orca is the execution plane. Anti
 <!-- dely:begin -->
 ## Dely
 
-Bounded or Architectural work invokes `dely:delivery`; Spike starts no
-delivery run.
+Assess first. Hard work runs directly in Codex Sol/xhigh without Dely.
+Easy/Medium-/Medium+ Bounded or Architectural work invokes `dely:delivery`; a Spike
+starts no delivery run.
 
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |

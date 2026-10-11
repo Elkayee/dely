@@ -3,11 +3,156 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-05.
+Last updated 2026-10-09.
 
 ---
 
 ## Settled
+
+### 2026-10-09 — Local usage UI and opt-in assessment observation
+
+The owner preferred a UI for Dely/model usage. Version 0.24.8 adds a local
+loopback dashboard and sanitized assessment/review observations in the existing
+opt-in machine log. The routing policy, model pins and worker launch remain
+unchanged. Dely never creates the log directory; the monitor's explicit
+enable-logging flag opts the machine into logging.
+
+Task adoption uses unique approved eligible repo/spec/context revisions.
+Implementation launch models and Codex conversation models use separate
+denominators. Missing grades/models, incomplete pagination and unavailable
+sources remain explicit. No fixed aggregate model share is imposed on Hard
+risk classification. The API excludes raw prompts, source snapshots and
+credentials and rejects non-local Host headers and write requests.
+
+The monitor is checkout tooling with no new dependency. Both Codex profiles
+are enabled at 0.24.8, and the shared cache's older versions remain byte-identical.
+The focused tests and responsive UI evidence are recorded in
+docs/_plans/2026-10-09-usage-monitor.md.
+
+### 2026-10-09 — Flash handles Easy and Medium- in a four-tier policy
+
+The owner split difficulty into Easy, Medium-, Medium+, and Hard and assigned
+Medium- and easier tasks to Gemini Flash. Version 0.24.7 uses AGY
+gemini-3.8-flash-high/default for Easy and Medium-, retains AGY
+claude-sonnet-5-5-high/default for Medium+, and retains direct Codex
+gpt-6.1-sol/xhigh for Hard. Every delegated grade has one explicit primary
+quota fallback to Codex gpt-6-luna/max. Proven model absence still selects
+Luna through the separate availability branch. Unknown/auth/timeout failures
+and an unapplied live footer still stop.
+
+Medium- is bounded internal work with known ownership, low coupling and
+focused acceptance. Medium+ coordinates known internal components and
+integrated acceptance. Consequential risk exclusions remain Hard, regardless
+of edit size. This is an owner-selected routing policy, not a claim about
+measured comparative model capability.
+
+The machine labels are easy, medium_minus, medium_plus and hard. The new
+policy identifier rejects old three-grade assessments; no old Medium record
+is silently assigned to Flash. Flash uses the existing implement_backup
+model row as a primary, Sonnet uses implement, and the single Luna quota
+fallback uses implement_backup_2. Task preflight accepts the reviewed
+assessment/spec pair and checks the same primary as dispatch.
+
+Implementation and verification are recorded in
+docs/_plans/2026-10-09-flash-tier-routing.md. Previous routing decisions below
+remain historical evidence and are superseded by this allocation.
+
+### 2026-10-08 — Verified missing model goes directly to Luna/max
+
+The owner now authorizes an availability exception to the quota-only chain:
+when a successful AGY catalog proves the requested implementation model
+absent, Dely automatically selects Codex gpt-6-luna/max and skips Flash.
+This applies to a missing primary or Flash quota model. It is not a quota
+stage and does not change the existing Easy/Medium quota chains.
+
+Version 0.24.5 records this option in the reviewed route. Old reviewed routes
+must be reviewed again before dispatch. Discovery/auth/timeout failures, an
+empty or unusable catalog, footer mismatch, Hard/stale assessment and wrong
+Luna effort do not permit this exception. The dispatcher revalidates the
+assessment after discovery and records requested/effective pins. It reuses
+the native Luna startup and Run-owned cleanup path.
+
+Version 0.24.6 applies the same verified-absence exception to the implementation
+preflight healthcheck. Previously preflight stopped before dispatch could
+select Luna. Both entry points now require the exact Luna/max fallback pin;
+discovery/authentication failures still stop without launching a worker.
+An exact worker's durable succeeded completion also proves startup when the
+healthcheck finishes before a working frame is observed. Accepted input,
+another dispatch, failed completion or nondurable evidence remains insufficient.
+
+The Hard implementation is direct Codex Control work. Focused fixtures,
+an independent archived-candidate probe and current installed hashes are
+recorded in docs/_plans/2026-10-08-missing-model-luna.md.
+The preflight regression and archived-candidate verification are recorded in
+docs/_plans/2026-10-08-preflight-missing-model.md.
+
+### 2026-10-08 — Jev agent advice retained in both locations
+
+The owner clarified that agent advice belongs in this Orca checkout and
+explicitly requested retaining the companion workspace installation too.
+The local CLI in `scripts/jev_agent.js` therefore implements the same three
+advisory steps and calls this checkout's existing task-routing module.
+The companion implementation remains untouched.
+
+An explicit `--repo` selects the target workspace for credentials, spec/context,
+relative inputs and outputs, and review ownership. Context ranking retains
+every record and its provenance. Skill selection uses the session-supplied
+roster, suggests at most one item or none, and never loads a skill itself.
+Control retains review and source authority. No confidence threshold is
+assumed calibrated. No worker launch or quota behavior changes.
+
+The CLI and tests live outside `skills/`; this change does not update the
+portable protocol, package version or installed plugin. Verification and
+the focused execution envelope are kept under
+`.tmp-dely/jev-agent-orca-20261008/`.
+
+
+### 2026-10-08 — Jev assessment and user-confirmed difficulty routing
+
+The owner approved Easy -> AGY Sonnet High -> Flash High -> Codex Luna/max;
+Medium -> AGY Sonnet 5.5 High -> Codex Luna/max directly; and Hard -> direct
+Codex Sol/xhigh without Dely. Only explicit provider quota advances delegated
+chains. The latest clarification allows AGY for Medium as well as Easy.
+
+`task-routing.js` proposes a difficulty with five typed Jev questions, retains
+unknown evidence, and requires Codex Control review before AGY admission.
+Known security/data/public-contract/architecture/production/routing risk cannot
+be downgraded. Reviewed assessments bind the exact spec and context hashes.
+Missing credentials and model errors do not produce a fabricated classification
+or automatically select AGY. Explicit Control review of complete evidence is
+available while retaining Jev as unevaluated. No confidence cutoff is claimed
+calibrated.
+
+The local checkout reuses the installed AGY adapter to preserve staged prompts,
+native Codex Luna/max startup, fresh working evidence, and Run-owned cleanup.
+Modern project/personal `.dely` pins retain precedence for the implementation
+phase; local/global AGENTS quota rows supply fallback phases. Every selected pin
+must match the reviewed difficulty route. This is a local deployment policy,
+not evidence of a comparative model capability or a replacement for the
+portable protocol's upstream deployment choices.
+
+The POC patch is built against frozen upstream commit
+`ce7a29cc0edb351c256162e8f5076f42ba69234f`. New setup explicitly selects that
+base before applying the patch. Existing installs are updated without deleting
+or recloning them; the previous plugin cache remains available to already
+running plans. Jev's remote accuracy and calibration remain unevaluated until
+the owner supplies a TypeSafe key.
+
+The independent live probe against the initial `0.24.2` candidate completed
+its isolated sentinel but displayed Gemini Flash/medium instead of requested
+Sonnet High. No provider quota occurred. The live catalog exposed Sonnet 4.6
+and omitted `claude-sonnet-5-5-high`. Version `0.24.3` therefore checks exact
+catalog availability before opening an AGY terminal and the actual model/High
+footer before dispatching any prompt. Unsupported or unapplied pins stop and
+cannot be treated as quota. A successful task result does not repair a model
+identity failure.
+
+Version 0.24.4 adds native `.env` parsing for the workspace and installed package
+without a dotenv dependency. Process values retain precedence; unrelated file
+variables are not applied. The actual `.env` is ignored by Git. After the owner
+supplied the key, real Jev calls proposed Easy and Medium for two explicit
+synthetic cases and retained `REVIEW_REQUIRED`. This is a connectivity check,
+not a calibration or comparative model benchmark.
 
 ### 2026-10-05 — Pins live in `.dely/`, with a personal file that overrides the team's per phase
 

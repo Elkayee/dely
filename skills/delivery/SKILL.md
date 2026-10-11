@@ -5,6 +5,46 @@ description: Deliver a change through an approved design contract, sequential im
 
 # Delivery
 
+## Local task assessment before delivery
+
+This deployment classifies implementation work before starting a Dely Run.
+Run `node scripts/task-routing.js assess --repo <workspace> --spec-file <spec>
+--context-file <context> --out <assessment>` relative to this skill. The context
+records scope, coupling, acceptance, source evidence, confirmed requirements,
+and explicit risk flags; see the repository's Jev task-routing section.
+Use the script's `review` command to record Codex Control's evidence-based
+decision, then pass `--assessment-file <assessment>` on every dispatch.
+
+- Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash High/default.
+- Medium+ (`medium_plus`): AGY Sonnet 5.5 High/default.
+- Every delegated grade has one explicit primary-quota fallback: Codex
+  Luna/max at stage 1. There is no second quota stage.
+- A successful AGY catalog that lacks the requested model routes directly to
+  Codex Luna/max. This also applies to a missing Flash primary model and
+  the implementation preflight healthcheck. Discovery/auth/timeout
+  errors and an unapplied footer still stop.
+- Hard: Codex Sol/xhigh handles design, implementation, and verification
+  directly. Do not start a Dely Run or dispatch a worker for that task. This
+  explicit user instruction takes precedence over the delivery rules below.
+
+Jev proposes narrow judgments; Control reviews every decision. Unknown context,
+Jev errors, and uncalibrated confidence never automatically permit AGY. An
+explicit Control review may use complete source evidence while leaving Jev
+unevaluated. Spec and context hashes must still match at dispatch. The remaining
+delivery rules apply to delegated Easy/Medium-/Medium+ work.
+
+Medium- is bounded internal work with known ownership, low coupling and
+focused acceptance. Medium+ coordinates known internal components and
+integrated acceptance. Consequential risk still promotes either grade to Hard.
+The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
+Reassess old policy records; the undivided `medium` label is not accepted.
+
+The existing model rows remain: `implement` supplies Sonnet,
+`implement_backup` supplies Flash, and `implement_backup_2` supplies Luna.
+Flash's row is selected for an Easy/Medium- primary without a quota reason.
+Pass `--assessment-file` and `--spec-file` together on a task's `dely preflight`
+so its healthcheck uses the same reviewed primary as dispatch.
+
 Dely accepts a request that may still be vague, brings it to an approved
 design contract, then automates sequential implementation, independent
 review, and pull-request preparation. It is a thin control protocol, not an
@@ -25,8 +65,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
 ## The control session
 
 The current interactive session is Control. It owns the approval invariant,
-task boundaries, exception handling, dispatch supervision, and release. It
-does not implement or review the candidate, and does not prescribe question
+task boundaries, exception handling, dispatch supervision, review, and release.
+It does not implement a delegated candidate, and does not prescribe question
 count, order, format, or skill-selection precedence. Native Plan Mode and
 active design skills govern their own surfaces under the harness's
 precedence; neither bypasses approval. Before mutation, Control obtains
