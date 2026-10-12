@@ -49,9 +49,17 @@ block is no longer read.
 #### Consequences
 
 - An off-machine repository still carrying the block is no longer stopped: the
-  block is ignored. If that repository also lacks `.dely/pins.json` the helper
-  still errors naming `dely:setup`, so nothing falls silently to an unpinned
-  default.
+  block is ignored. If that repository also lacks `.dely/pins.json`, what
+  happens next depends on whether Control's harness is known. Outside an Orca
+  terminal, or where Orca cannot name the caller's harness, the helper still
+  errors naming `dely:setup`. Inside an Orca terminal whose harness Orca
+  reports, the existing Control fallback answers both phases with that
+  harness's defaults, `source: control` — the documented fallback the
+  pin-resolution stub requires, printed in the envelope, which the skill
+  already flags as an unpinned environment. Found at review: the first
+  version of this bullet claimed the error fires unconditionally, which a
+  fixture with a known Control harness disproves (exit 0, both phases
+  `source: control`).
 - This changes `skills/`, so the version advances to 0.27.0 in both plugin
   manifests, `package.json` and the `AGENTS.md` gate within this delivery. A
   compatibility surface is removed, so the minor advances rather than the
