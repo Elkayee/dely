@@ -70,6 +70,12 @@ and verifies current source in the relevant IDE.
 
 ## Skill suggestion
 
+Codex uses native skill discovery and Control selection by default. Compliance
+preparation performs no skill-advice call and no whole-home catalog scan.
+Consult this CLI when requested, when relevant candidates compete or when
+targeted native discovery demonstrably misses a needed workflow. Task assessment
+and Context Engine ranking retain their separate contracts.
+
 The agent builds the roster from the skills exposed in its current session.
 Each item has `name`, absolute `path` to SKILL.md, and full `description`.
 This CLI does not scan skill directories or automatically load a skill.
@@ -93,9 +99,16 @@ plugin skills; only the supplied roster can be selected.
 rtk proxy node scripts/jev_agent.js skill --repo D:/project --input skills.json --out skill_advice.json
 ```
 
-The result suggests at most one supplied item or none. Explicit user-selected
-skills and mandatory skill rules retain precedence. Control checks fit and
-reads the selected SKILL.md. An empty roster needs no model call.
+Read every direct/supporting item in `suggestions[]`; `suggestion` is a legacy
+leading-item alias. Operational callers supply only task-relevant candidates,
+excluding disabled and unrequested explicit-only sources after local policy
+checks. Keep applicable required/explicit records and their unchanged policy.
+An explicit request to inspect a full catalog may still supply every enabled
+record. The public advisor evaluates all enabled supplied records, with no top-k
+cut. Explicit and mandatory skills retain precedence. Control reviews every
+suggestion; independent native admission still checks policy and execution
+evidence. An empty roster needs no model call. A failed optional call stays
+`NOT_EVALUATED` without invalidating a correctly reviewed native task.
 
 ## Evidence and limits
 
@@ -107,7 +120,9 @@ refused; use a fresh run directory.
 Advice remains REVIEW_REQUIRED. Missing keys, HTTP failures, invalid replies,
 timeouts and oversized snapshots remain NOT_EVALUATED (exit 3). Invalid
 arguments/input return exit 2. No automatic retries or confidence threshold
-are assumed. Requests are bounded to 64 KB, 32 context candidates or 254 skills.
+are assumed. Context requests retain the 64 KB and 32-candidate guards. Skill
+packets use 60,000-byte total and 30,000-byte shared-State-plus-question guards;
+these measure UTF-8 transport bytes, not tokens. There is no skill-count cutoff.
 
 ```powershell
 rtk proxy node --test scripts/test-jev-agent.js scripts/test-task-routing.js

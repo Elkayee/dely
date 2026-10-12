@@ -1,7 +1,8 @@
 # Codex task compliance
 
-This local adapter makes Codex request Jev advice and record Control review
-before supported tool mutations. It preserves the existing Dely routes.
+This local adapter validates native skill selection and records task assessment
+and Control review before supported tool mutations. Jev skill advice is optional;
+task-difficulty assessment and the existing Dely routes remain required.
 Install it in every Codex home used on this machine, including Orca's
 CODEX_HOME. It needs Node 24, an installed Dely task-routing module and the
 existing Jev advisor. Node 24 must be on the hook process PATH. It adds no
@@ -60,12 +61,18 @@ supports each Hard exclusion. Unknown effects remain unevaluated.
 1. Build a task JSON from the actual request and current session skill catalog.
    Supply complete descriptions and absolute SKILL.md paths. Include every
    mandatory or user-selected skill in required_skills.
-2. Save the complete task JSON as UTF-8 through the approved preparation
-   surface. Invoke the installed script's prepare command with --session,
+2. Read the exact input path printed by the current UserPromptSubmit hook.
+   Use `apply_patch` to add that one UTF-8 JSON file. Its path is inside the
+   effective hook home's `dely-compliance/inputs/`, with a filename bound to
+   the session and turn. This narrow preparation exception accepts one complete
+   JSON task, never a second file, an update, an existing file, a directory link
+   or an escaping path. It grants no implementation permission. Invoke the
+   installed script's prepare command with --session,
    --turn, --repo, the explicit --home from the hook's guidance, and --task-file
-   <path>. It writes isolated inputs and calls the existing
-   Jev skill advisor and task assessment; it does not approve their results.
-3. Inspect both results. Invoke review with the same IDs, --difficulty,
+   <path>. It freezes the native roster and task inputs and runs the existing
+   task assessment. It neither scans the home catalog nor calls skill advice.
+3. Inspect the assessment and choose skills from the actual native session
+   roster. Invoke review with the same IDs, --difficulty,
    --reason, --skills and --skill-reason. The skills argument is a JSON array
    of supplied names, or exact catalog paths when names collide. Review loads the full selected instructions into its
    output and checks that required skills were retained.
@@ -122,22 +129,25 @@ The task JSON shape is:
       "required_skills": ["The actual catalog name"]
     }
 
-Use mode advice for skill advice without implementation; omit spec/context.
-Jev skill advice evaluates the union of the complete supplied session roster
-and discovered `.agents/skills` catalog, including available system/plugin Dely
-skills. Canonical sources are evaluated once; every original identity remains
-available to Control. Invocation/configuration policies remain restrictive across
-aliases. The exact session roster is preserved separately for mandatory skills.
-Inspect the complete `suggestions[]` list and choose every skill the task needs,
-alongside mandatory/user-selected skills. The singular `suggestion` field is a
-legacy alias; a task is not limited to that one entry. Detailed evaluations are
-saved in the advice file printed by `prepare`.
-Explicit-only suggestions include `requires_explicit_invocation: true`. They
-are advice until the exact skill is present in the actual session roster and
-`required_skills` records an explicit user request or mandatory workflow.
-Review rejects unrequired explicit-only and disabled records before loading
-their instructions. See [home skill advice](jev-skill-advice.md) for packet
-limits and selection.
+Use mode advice for local skill review without implementation; omit spec/context.
+Preparation reports `skill_selection.source: native-session` and
+`advice_status: NOT_REQUESTED`. A deliberate skipped advice call is neither a
+successful provider evaluation nor a provider failure. The complete supplied
+roster stays local; there is no automatic whole-home expansion. If a mandatory
+skill is missing, discover that exact source, include its complete metadata in
+the native roster and prepare/review again. A missing or ambiguous source cannot
+be silently omitted. Exact original paths disambiguate colliding names.
+
+Review retains every required skill, checks current source and configuration
+policy, and loads admitted instructions. Aliases retain the most restrictive
+native metadata and local policy. Disabled skills and unrequired explicit-only
+skills are rejected before their instructions appear in the review output.
+An explicit-only skill must be required by the user's request or a mandatory
+workflow in the actual session roster. Optional recommendations cannot grant
+that authority. See [optional skill advice](jev-skill-advice.md) for consultation
+when requested, when candidates compete or when targeted native discovery misses
+a needed workflow. Its failures remain honestly `NOT_EVALUATED` and do not add
+a denial to independently valid native admission.
 That review does not authorize mutations. Questions requiring no tools do
 not need a delivery assessment. A new user turn invalidates the previous
 turn's authorization; prepare and explicitly review the current task again.
@@ -148,10 +158,18 @@ the gate does not require replaying an already delivered prompt.
 NOT_EVALUATED remains recorded when Jev is unavailable. Control must explain
 the chosen skills and may use the routing module's existing evidence-based
 review; no confidence threshold or automatic model fallback is introduced.
-NOT_APPLICABLE is reserved for an empty skill roster.
+Optional advice with an empty supplied candidate set is `NOT_APPLICABLE` and
+makes no provider call.
 
-The hook checks task inputs, advice, loaded skill hashes, AGENTS.md snapshots
-and installed dependency hashes again before mutations. Update this adapter
+The hook freezes the complete task, native metadata, required skills at prepare,
+selected sources at review, both alias and canonical invocation policies
+(including absence), path bindings, AGENTS.md and installed dependencies.
+It retains the conservative active-config fingerprint. Unrelated, nonrequired
+skill bodies are outside admission; changing a selected body, policy or alias
+invalidates review. Selected bytes and bindings must be stable while loaded.
+Optional advice files are independent of this execution evidence.
+Legacy task states require fresh prepare/review; historical records are not
+rewritten or silently promoted. Update this adapter
 and its dependencies between tasks. Changes require fresh native hook review
 when Codex marks a definition modified.
 
@@ -159,7 +177,10 @@ when Codex marks a definition modified.
 
 PreToolUse checks apply_patch, known file/notebook MCP mutation names and
 shell calls. Simple read commands, this adapter's preparation/review and Orca
-coordination remain available. Unknown shell commands require review.
+coordination and the exact current-turn JSON input add remain available.
+Unknown shell commands require review. A reviewed Node flag command is an
+ordinary command; only an existing exact Dely script path can be coordination.
+Repeated accepted tools do not rewrite an unchanged session state.
 Delegated evidence comes from the existing opt-in ~/.dely/log.jsonl; absence,
 malformed data or a journal larger than 16 MiB cannot prove a dispatch.
 The adapter does not create ~/.dely or enable logging silently.
@@ -187,7 +208,7 @@ those limits in [Hooks](https://learn.chatgpt.com/docs/hooks).
     rtk proxy node --test scripts/test-codex-compliance.js
 
 Verify a fresh native session rejects a write with no preparation, preserves
-read-only inspection, and allows a write after real advice and explicit
+read-only inspection, and allows a write after task assessment and explicit
 Control review. Verify the hook's trust status through /hooks.
 
 Backups are inside each Codex home's dely-compliance directory. To remove the

@@ -1,31 +1,41 @@
-# Complete session and home skill advice for Codex
+# Native skills and optional Jev advice for Codex
 
-Codex compliance preparation combines the complete supplied session roster with
-the user's `~/.agents/skills` catalog. Session entries include available system,
-plugin, repository and `.codex/skills` skills, including Dely's delivery skill.
-It reads each home `SKILL.md` name and description,
-`agents/openai.yaml` invocation policy, and disabled paths in the active Codex
-home's `config.toml`. Nested skill folders and directory links are supported;
-ancestor links cannot create an infinite scan. Unsupported metadata fails
-closed rather than silently dropping skills.
+Codex's native session roster and Control selection are the default. Compliance
+`prepare` does not call the skill advisor or merge the whole home catalog.
+It records `native-session` provenance and `NOT_REQUESTED` advice status while
+preserving independent task assessment and reviewed execution requirements.
+Missing optional advice is not missing execution evidence. Native discovery's
+explicit and implicit invocation behavior is described in OpenAI's
+[Build skills](https://learn.chatgpt.com/docs/build-skills) documentation.
 
 The exact supplied session roster remains in `session-skills.json` for mandatory
 and explicit Control selections. `skill-sources.json` retains every original
-session/home name, path, description, policy and source. `skills.json` contains
-one record per canonical source, preferring the session name/path/description.
+native name, path, description and source. `skills.json` preserves supplied
+metadata without sending it to a provider. Required sources are frozen at
+prepare and selected sources at review. Unrelated skill bodies are not read
+for selection or added to admission fingerprints.
 Aliases retain the most restrictive supplied, source and configuration policy,
 including YAML at both the supplied path and the canonical target directory.
 Skill instruction bodies are never sent to Jev.
 
-The snapshots, advice, all catalog source files, invocation policies and active
+The task/native metadata snapshots, selected and required sources, policies and active
 configuration are fingerprinted, including both alias and canonical YAML paths
 even when either policy file is absent. Original path bindings are checked separately,
-so retargeting an alias invalidates admission even with identical source bytes.
+so retargeting a selected or required alias invalidates admission even with identical source bytes.
 Absent policy/configuration files are recorded explicitly; creating one or
-changing a source during an API request requires fresh preparation and review.
+changing a protected source during assessment or local loading requires fresh preparation and review.
 Each Control selector must identify exactly one original record.
 
-Every enabled combined skill enters advisory evaluation, including explicit-only
+Optional skill advice uses the existing `jev_agent.js skill --repo ... --input
+... --out ...` command when requested, when relevant candidates compete, or
+when targeted native discovery misses a needed workflow. Operational callers
+choose relevant metadata first, use the existing `combineSkills` policy helper
+on those supplied records, and exclude disabled and unrequested explicit-only
+sources. An explicit full-catalog inspection can still use `discoverSkills`
+and `combineSkills`; nested folders and links retain their existing behavior.
+No automatic home scan, policy rewrite or top-k limit is introduced.
+
+Every enabled supplied skill enters public advisory evaluation, including explicit-only
 records. Useful explicit-only suggestions retain their policy and include
 `requires_explicit_invocation: true`. Their suitability does not authorize
 automatic invocation. Disabled records remain local with a `NOT_EVALUATED`
@@ -72,10 +82,9 @@ loss, invalid values and mismatched chosen labels still fail validation.
 Provider confidence is retained unchanged and has no approval cutoff. Context
 advice retains its existing strict validation and behavior.
 
-Codex preparation prints every suggested name/path, explicit-invocation flags,
-selection counts and the
-complete advice file path. Full metadata/evaluations remain in that file to
-keep the CLI response compact. Control reviews all recommendations against
+The standalone advisor prints every suggested name/path, explicit-invocation
+flags and the complete advice file path. Full metadata/evaluations remain in
+that file. Control reviews all optional recommendations against
 the actual task, combines accepted records with mandatory/user-selected skills,
 and passes all chosen names or unambiguous paths to `review --skills`. Review
 rejects disabled records and unrequired explicit-only records before reading
@@ -83,9 +92,12 @@ their instruction bodies. To use an explicit-only skill, the actual session
 roster must contain that exact name/path and `required_skills` must record the
 user's explicit request or an applicable mandatory workflow. Merely accepting
 a Jev suggestion in `--skills` is insufficient. Review loads admitted instruction
-bodies; recommendations alone grant no authority.
+bodies; recommendations alone grant no authority. Native preparation creates no
+advice file and reports local selection provenance. Failed optional HTTP calls,
+timeouts or invalid responses remain `NOT_EVALUATED`, and a changed or missing
+optional advice file adds no denial to independently valid admission.
 
-`selection.catalog_count` counts all discovered records; `eligible_count` counts
+For optional advice, `selection.catalog_count` counts supplied records; `eligible_count` counts
 enabled records sent for evaluation; `explicit_count` counts their explicit-only
 subset; `disabled_count` counts excluded records. `evaluated_count` records actual
 provider coverage, and `requests` records the HTTP call count.
@@ -98,7 +110,7 @@ Tests cover complete 106, 500 and 1,000-entry catalogs, 30 late recommendations
 without a top-k cut, complementary workflows, uncertainty, provider rounding,
 policy restrictions, home discovery, session-only policy enforcement, aliases,
 failures, mandatory Control selections and immutable snapshots. An integration
-check combines a session Dely skill recommendation with eligible route selection
+check combines native session skill selection with independent eligible route assessment
 and verifies that mutation still requires a matching dispatch. CLI routing tests resolve the existing installed
 routing/usage modules when an isolated checkout lacks those machine-local files.
 
@@ -106,8 +118,10 @@ Install the adapter with the existing compliance installer and this checkout's
 `scripts/jev_agent.js` as its advisor source in both Codex homes. Reinstallation
 retains the existing credential search root and copies no API key. Preserve
 trusted hook wiring, then prepare and explicitly review the current task again
-under the new frozen fingerprints. Final acceptance requires a real provider
-multi-skill advice consumed by the deployed Codex prepare/review flow.
+under the new frozen fingerprints. Existing records are not silently migrated.
+Final acceptance checks zero default skill-advice calls, mandatory skill loading,
+selected-policy/alias integrity, and unchanged direct/Dely/worker admission.
+Deployment follows the plan's comparative and native-session release gates.
 
 Provider references: [Choice](https://docs.typesafe.ai/primitives/choice),
 [models and context limits](https://docs.typesafe.ai/models), and

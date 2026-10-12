@@ -24,6 +24,8 @@ const write = (file, value) => {
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
 const settingsFile = (home) => path.join(root(home), "settings.json");
+const NATIVE_SCHEMA = "native-skills-v1";
+const inputFile = (home, session, turn) => path.join(root(home), "inputs", digest(session + "\0" + turn) + ".json");
 const fingerprints = (files) => Object.fromEntries(files.map((file) =>
   [fs.existsSync(file) ? canonical(file) : path.resolve(file), fs.existsSync(file) ? hashFile(file) : null]));
 const unchanged = (file, hash) => (fs.existsSync(file) ? hashFile(file) : null) === hash;
@@ -37,6 +39,60 @@ const checkCatalogPaths = (state) => {
 const psQuote = (value) => "'" + value.replace(/'/g, "''") + "'";
 const nodeCommand = (script) => process.platform === "win32" ?
   "& " + psQuote(process.execPath) + " " + psQuote(script) : 'node "' + script + '"';
+
+function taskInputWrite(event, state, home) {
+  if (event.tool_name !== "apply_patch" || !event.turn_id || state.session !== event.session_id ||
+      state.turn !== event.turn_id) return false;
+  try {
+    if (!samePath(state.repo, event.cwd)) return false;
+    const payload = event.tool_input;
+    const patch = typeof payload === "string" ? payload :
+      payload && Object.keys(payload).length === 1 ? payload.input ?? payload.patch ?? payload.command : null;
+    if (typeof patch !== "string" || Buffer.byteLength(patch, "utf8") > 256 * 1024) return false;
+    const lines = patch.trimEnd().replace(/\r\n/g, "\n").split("\n");
+    if (lines[0] !== "*** Begin Patch" || !lines[1]?.startsWith("*** Add File: ") ||
+        lines.at(-1) !== "*** End Patch" || !lines.slice(2, -1).every((line) => line.startsWith("+"))) return false;
+    const file = path.resolve(lines[1].slice("*** Add File: ".length));
+    const expected = inputFile(home, event.session_id, event.turn_id);
+    const normalize = (value) => process.platform === "win32" ? value.toLowerCase() : value;
+    if (normalize(file) !== normalize(path.resolve(expected))) return false;
+    for (let entry = file; ; entry = path.dirname(entry)) {
+      const stat = fs.lstatSync(entry, { throwIfNoEntry: false });
+      if (stat?.isSymbolicLink() || (entry === file && stat)) return false;
+      if (normalize(entry) === normalize(path.resolve(root(home)))) break;
+      if (entry === path.dirname(entry)) return false;
+    }
+    const task = JSON.parse(lines.slice(2, -1).map((line) => line.slice(1)).join("\n"));
+    if (!["implement", "advice"].includes(task.mode) || typeof task.request !== "string" || !task.request.trim() ||
+        !Array.isArray(task.skills) || !Array.isArray(task.required_skills) ||
+        task.skills.some((skill) => !skill || typeof skill.name !== "string" || !skill.name.trim() ||
+          typeof skill.description !== "string" || !skill.description.trim() || !path.isAbsolute(skill.path)) ||
+        task.required_skills.some((id) => !task.skills.some((skill) => skill.name === id || skill.path === id))) return false;
+    return task.mode === "advice" || (typeof task.spec === "string" && task.spec.trim() &&
+      task.context?.requirements_confirmed === true && ["scope", "coupling", "acceptance", "evidence"]
+        .every((key) => typeof task.context[key] === "string" && task.context[key].trim()) &&
+      ["security", "data", "public_contract", "architecture", "production", "routing"]
+        .every((key) => typeof task.context.risks?.[key] === "boolean"));
+  } catch (_) { return false; }
+}
+
+function skillSnapshot(roster, selected, advisor, home) {
+  const keys = new Set(selected.map((skill) => advisor.skillKey(skill.path)));
+  const sources = roster.filter((skill) => keys.has(advisor.skillKey(skill.path)));
+  const files = [...sources.flatMap((skill) => [skill.path, canonical(skill.path), ...advisor.skillPolicyPaths(skill.path)]),
+    path.join(home, "config.toml")];
+  const snapshot = { fingerprints: fingerprints(files), catalog_paths: pathBindings(files) };
+  snapshot.skills = advisor.combineSkills(sources, [], home).skills;
+  checkSnapshot(snapshot);
+  return snapshot;
+}
+
+function checkSnapshot(snapshot) {
+  checkCatalogPaths(snapshot);
+  if (Object.entries(snapshot.fingerprints).some(([file, hash]) => !unchanged(file, hash))) {
+    throw Error("Selected skill sources or policies changed; prepare and review again.");
+  }
+}
 
 function instructions(cwd, home) {
   const files = new Set();
@@ -66,8 +122,10 @@ function context(event, home) {
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
-    " --task-file '<path-to-task.json>'. " +
-    "Inspect every item in Jev's suggestions array against the task, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
+    " --task-file \"" + inputFile(home, event.session_id, event.turn_id).replace(/\\/g, "/") + "\". " +
+    "Use apply_patch to add only that current-turn JSON input file before review; it grants no implementation authority. " +
+    "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
+    "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
     "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
     "Easy/Medium- use AGY gemini-3.8-flash-medium/default; Medium+ keeps claude-sonnet-5-5-high/default with verified-absence or explicit-quota Luna/max fallback. " +
@@ -151,6 +209,7 @@ function validate(state, event, home, requireDispatch = true) {
       !samePath(state.repo, event.cwd) || state.status !== "REVIEWED") {
     throw Error("Current task has no reviewed Jev/skill evidence. Run prepare, inspect results, then review.");
   }
+  if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
   const settings = checkedSettings(home);
   checkCatalogPaths(state);
   for (const [file, hash] of Object.entries(state.fingerprints)) {
@@ -190,6 +249,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
   if (type !== "PreToolUse" && type !== "Stop") return {};
   if (type === "PreToolUse" && !needsReview(event, script)) return {};
   const state = fs.existsSync(file) ? read(file) : {};
+  if (type === "PreToolUse" && taskInputWrite(event, state, home)) return {};
   try {
     if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) return {};
   } catch (_) { /* unknown worker identity never exempts a tool call */ }
@@ -207,12 +267,15 @@ function hook(event, home, workerCheck = verifiedWorker) {
       const unquoted = command.replace(/'(?:[^']|'')*'|"(?:\x60.|[^"\x60])*"/g, "");
       const settings = checkedSettings(home);
       coordinating = !/[;|><\r\n]|\&\&|\$\(/.test(unquoted) &&
-        path.basename(words[0] || "").replace(/\.exe$/i, "") === "node" && words[1] &&
+        path.basename(words[0] || "").replace(/\.exe$/i, "") === "node" && words[1] && !words[1].startsWith("-") &&
+        fs.existsSync(words[1]) &&
         samePath(words[1], settings.dely) &&
         ["preflight", "dispatch", "wait", "wait-bg", "cleanup", "notify"].includes(words[2]);
     }
     validate(state, event, home, !coordinating);
-    if (type === "PreToolUse" && !coordinating) write(file, { ...state, attempted: true, stop_reported: false });
+    if (type === "PreToolUse" && !coordinating && (!state.attempted || state.stop_reported)) {
+      write(file, { ...state, attempted: true, stop_reported: false });
+    }
     return {};
   } catch (error) {
     const reason = error.message + " " + context(event, home);
@@ -243,30 +306,29 @@ async function prepare(options, home) {
   const skillInput = path.join(directory, "skills.json");
   const sessionRoster = path.join(directory, "session-skills.json");
   const sourceRoster = path.join(directory, "skill-sources.json");
-  const adviceFile = path.join(directory, "skill-advice.json");
+  const taskInput = path.join(directory, "task.json");
   const advisor = require(settings.advisor);
-  if (["discoverSkills", "combineSkills", "skillPolicyPaths", "skillKey"].some((name) => typeof advisor[name] !== "function")) throw Error("Reinstall the complete-catalog skill advisor before preparing this task.");
-  const homeSkills = advisor.discoverSkills(path.join(os.homedir(), ".agents", "skills"), home);
-  const { skills, sources } = advisor.combineSkills(task.skills, homeSkills, home);
-  const catalogSources = sources.flatMap((skill) => [skill.path, canonical(skill.path), ...advisor.skillPolicyPaths(skill.path)]);
-  const catalogFingerprints = fingerprints([...catalogSources, path.join(home, "config.toml")]);
-  const catalogPaths = pathBindings(catalogSources);
-  write(sessionRoster, { request: task.request, skills: task.skills });
-  write(sourceRoster, { request: task.request, skills: sources });
-  write(skillInput, { request: task.request, skills });
-  const advice = await advisor.advise(read(skillInput), "skill", { repo });
-  if (Object.entries(catalogFingerprints).some(([file, hash]) => !unchanged(file, hash)) ||
-      JSON.stringify(pathBindings(catalogSources)) !== JSON.stringify(catalogPaths)) throw Error("Skill catalog sources changed during advice; prepare again.");
-  write(adviceFile, advice);
-  const state = {
-    session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
-    prepared_at: new Date().toISOString(), skill_input: skillInput, session_roster: sessionRoster, skill_advice: adviceFile,
-    source_roster: sourceRoster, catalog_paths: catalogPaths,
-    required_skills: task.required_skills || [], instructions: instructions(repo, home),
-  };
-  if (!Array.isArray(state.required_skills) || state.required_skills.some((name) => !task.skills.some((skill) => skill.name === name))) {
+  if (["combineSkills", "skillPolicyPaths", "skillKey"].some((name) => typeof advisor[name] !== "function")) throw Error("Reinstall the local skill policy helpers before preparing this task.");
+  advisor.validateInput({ request: task.request, skills: task.skills }, "skill");
+  const required = task.required_skills || [];
+  if (!Array.isArray(required) || required.some((id) => !task.skills.some((skill) => skill.name === id || skill.path === id))) {
     throw Error("Every required skill must be in the supplied session roster.");
   }
+  const selected = task.skills.filter((skill) => required.includes(skill.name) || required.includes(skill.path));
+  const snapshot = skillSnapshot(task.skills, selected, advisor, home);
+  const sources = task.skills.map((skill) => ({ ...skill, source: "session" }));
+  write(taskInput, task);
+  write(sessionRoster, { request: task.request, skills: task.skills });
+  write(sourceRoster, { request: task.request, skills: sources });
+  write(skillInput, { request: task.request, skills: task.skills });
+  const state = {
+    schema: NATIVE_SCHEMA,
+    session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
+    prepared_at: new Date().toISOString(), task_input: taskInput, skill_input: skillInput, session_roster: sessionRoster,
+    source_roster: sourceRoster, catalog_paths: snapshot.catalog_paths,
+    skill_selection: { source: "native-session", advice_status: "NOT_REQUESTED" },
+    required_skills: required, instructions: instructions(repo, home),
+  };
   if (task.mode === "implement") {
     if (typeof task.spec !== "string" || !task.context) throw Error("Implementation needs a spec and complete routing context.");
     const specFile = path.join(directory, "spec.md");
@@ -279,11 +341,13 @@ async function prepare(options, home) {
     state.assessment = await routing.assess(loadedTask, { credentialRoot: settings.credential_root });
     write(path.join(directory, "assessment.json"), state.assessment);
   }
-  state.fingerprints = { ...fingerprints([skillInput, sessionRoster, sourceRoster, adviceFile,
-    ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...catalogFingerprints };
+  checkSnapshot(snapshot);
+  if (JSON.stringify(instructions(repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during preparation.");
+  state.fingerprints = { ...fingerprints([taskInput, skillInput, sessionRoster, sourceRoster,
+    ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...snapshot.fingerprints };
   write(stateFile(home, options.session), state);
   if (state.assessment) require(path.join(path.dirname(settings.routing), "usage.js")).recordTask(state.assessment, "assess", settings.journal);
-  return { status: state.status, skill_advice: advice, assessment: state.assessment, task_directory: directory };
+  return { status: state.status, skill_selection: state.skill_selection, assessment: state.assessment, task_directory: directory };
 }
 
 function review(options, home) {
@@ -291,22 +355,19 @@ function review(options, home) {
   const settings = checkedSettings(home);
   const file = stateFile(home, options.session);
   const state = read(file);
+  if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
   if (state.turn !== options.turn || state.status !== "PREPARED") throw Error("Prepare this turn before reviewing.");
   checkCatalogPaths(state);
   for (const [p, hash] of Object.entries(state.fingerprints)) if (!unchanged(p, hash)) throw Error("Prepared inputs changed.");
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed.");
   const input = read(state.skill_input);
   const roster = state.session_roster ? read(state.session_roster) : input;
-  const key = require(settings.advisor).skillKey;
-  const policyBySource = new Map(input.skills.map((skill) => [key(skill.path), skill]));
+  const advisor = require(settings.advisor);
+  const key = advisor.skillKey;
   const originals = state.source_roster ? read(state.source_roster).skills : [...roster.skills, ...input.skills];
   const catalog = [...new Map(originals.map((skill) => {
-    const policy = policyBySource.get(key(skill.path));
-    const merged = { ...skill, ...(policy ? { enabled: policy.enabled,
-      allow_implicit_invocation: policy.allow_implicit_invocation } : {}) };
-    return [skill.name + "\0" + (process.platform === "win32" ? path.resolve(skill.path).toLowerCase() : path.resolve(skill.path)), merged];
+    return [skill.name + "\0" + (process.platform === "win32" ? path.resolve(skill.path).toLowerCase() : path.resolve(skill.path)), skill];
   })).values()];
-  const advice = read(state.skill_advice);
   const selected = JSON.parse(options.skills || "[]");
   if (!Array.isArray(selected) || selected.some((id) => !catalog.some((skill) => skill.name === id || skill.path === id))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
@@ -316,21 +377,27 @@ function review(options, home) {
     if (matches.length !== 1) throw Error("Duplicate or ambiguous skill selectors require an exact catalog path or name matching one original record.");
     return matches[0];
   }))];
-  if (state.required_skills.some((name) => !selectedSkills.some((skill) => skill.name === name))) {
+  if (state.required_skills.some((id) => !selectedSkills.some((skill) => skill.name === id || skill.path === id))) {
     throw Error("Select supplied skills and retain every mandatory skill.");
   }
+  const snapshot = skillSnapshot(roster.skills, selectedSkills, advisor, home);
+  const policies = new Map(snapshot.skills.map((skill) => [key(skill.path), skill]));
   for (const skill of selectedSkills) {
-    if (skill.enabled === false) throw Error("Disabled skills cannot be loaded.");
-    if (skill.allow_implicit_invocation === false && !roster.skills.some((record) =>
-      record.name === skill.name && samePath(record.path, skill.path) && state.required_skills.includes(record.name))) {
+    const policy = policies.get(key(skill.path));
+    if (policy.enabled === false) throw Error("Disabled skills cannot be loaded.");
+    if (policy.allow_implicit_invocation === false && !roster.skills.some((record) =>
+      record.name === skill.name && samePath(record.path, skill.path) &&
+        (state.required_skills.includes(record.name) || state.required_skills.includes(record.path)))) {
       throw Error("Explicit-only skills must be required by the user's instruction or a mandatory workflow in the session roster.");
     }
   }
-  if (!["REVIEW_REQUIRED", "NOT_EVALUATED", "NOT_APPLICABLE"].includes(advice.status)) throw Error("Invalid skill advice status.");
-  if (advice.status !== "NOT_APPLICABLE" && advice.input_sha256 !== digest(JSON.stringify(input))) throw Error("Advice is for different input.");
-  const loaded = selectedSkills.map((skill) => ({
-    name: skill.name, path: canonical(skill.path), text: fs.readFileSync(skill.path, "utf8"),
-  }));
+  const loaded = selectedSkills.map((skill) => {
+    const file = snapshot.catalog_paths[path.resolve(skill.path)];
+    const bytes = fs.readFileSync(file);
+    if (digest(bytes) !== snapshot.fingerprints[file]) throw Error("Loaded skill source changed during review.");
+    return { name: skill.name, path: file, text: bytes.toString("utf8") };
+  });
+  checkSnapshot(snapshot);
   if (state.mode === "implement") {
     const routing = require(settings.routing);
     state.assessment = routing.review(state.assessment, options.difficulty, options.reason);
@@ -344,8 +411,10 @@ function review(options, home) {
     write(path.join(path.dirname(state.skill_input), "reviewed.json"), state.assessment);
   }
   state.status = "REVIEWED";
-  state.skill_review = { by: "codex-control", reason: options["skill-reason"], evaluation_status: advice.status, selected };
-  state.fingerprints = { ...state.fingerprints, ...fingerprints(loaded.map((skill) => skill.path)) };
+  state.skill_review = { by: "codex-control", reason: options["skill-reason"], source: "native-session",
+    evaluation_status: "NOT_REQUESTED", selected };
+  state.catalog_paths = { ...state.catalog_paths, ...snapshot.catalog_paths };
+  state.fingerprints = { ...state.fingerprints, ...snapshot.fingerprints };
   write(file, state);
   if (state.assessment) require(path.join(path.dirname(settings.routing), "usage.js")).recordTask(state.assessment, "review", settings.journal);
   return { status: state.status, route: state.assessment && state.assessment.route,
@@ -425,19 +494,13 @@ async function main(argv = process.argv.slice(2)) {
   } else if (command === "status") result = checkedSettings(home);
   else throw Error("Use install, prepare, review, status or hook; see docs/codex-compliance.md.");
   if (command === "prepare") {
-    const advice = { ...result.skill_advice, file: path.join(result.task_directory, "skill-advice.json") };
-    const compactSkill = (skill) => ({ name: skill.name, path: skill.path,
-      ...(skill.allow_implicit_invocation === false ? { requires_explicit_invocation: true } : {}) });
-    delete advice.evaluations;
-    if (Array.isArray(advice.suggestions)) advice.suggestions = advice.suggestions.map(compactSkill);
-    if (advice.suggestion) advice.suggestion = compactSkill(advice.suggestion);
-    result = { status: result.status, task_directory: result.task_directory, skill_advice: advice,
+    result = { status: result.status, task_directory: result.task_directory, skill_selection: result.skill_selection,
       ...(result.assessment ? { assessment: result.assessment } : {}) };
   }
   process.stdout.write(JSON.stringify(result) + "\n");
 }
 
-module.exports = { digest, fingerprints, stateFile, settingsFile, instructions, needsReview, logRecords,
+module.exports = { digest, fingerprints, stateFile, settingsFile, inputFile, taskInputWrite, instructions, needsReview, logRecords,
   dispatchEvidence, verifiedWorker, validate, hook, prepare, review, install };
 if (require.main === module) main().catch(() => {
   console.error("Compliance check failed. Inspect the task inputs and installed hook guide; no source write was authorized.");

@@ -9,7 +9,7 @@ const { spawnSync } = require("child_process");
 const guard = require("./codex-compliance.js");
 const routingPath = process.env.COMPLIANCE_ROUTING || path.join(os.homedir(),
   ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.10/skills/delivery/scripts/task-routing.js");
-const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths});\n';
+const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths,validateInput}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths,validateInput});\n';
 
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-compliance-test-"));
@@ -53,6 +53,165 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+for (const kind of ["http", "timeout", "invalid"]) {
+  test("optional " + kind + " advice failures remain independent of native admission", async (t) => {
+    const f = fixture(t);
+    await f.prepare();
+    f.review();
+    const advisor = require("./jev_agent.js");
+    const result = await advisor.advise({ request: f.task.request, skills: [f.task.skills[0]] }, "skill", {
+      apiKey: "TEST_KEY", fetch: async () => {
+        if (kind === "timeout") throw Error("Timeout");
+        return kind === "http" ? { ok: false, status: 503 } : { ok: true, json: async () => ({ model: "invalid" }) };
+      },
+    });
+    assert.equal(result.status, "NOT_EVALUATED");
+    const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+    const file = path.join(path.dirname(state.skill_input), "optional-advice.json");
+    fs.writeFileSync(file, JSON.stringify(result));
+    assert.deepEqual(guard.hook(f.event, f.home), {});
+    fs.writeFileSync(file, "Invalid optional advice");
+    assert.deepEqual(guard.hook(f.event, f.home), {});
+    assert.equal(guard.hook({ ...f.event, model: "wrong" }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
+test("operational advice callers filter disabled and unrequested explicit-only candidates", async (t) => {
+  const f = fixture(t);
+  const advisor = require("./jev_agent.js");
+  const explicit = { ...f.task.skills[0], name: "explicit", allow_implicit_invocation: false };
+  const disabled = { ...f.task.skills[1], name: "disabled", path: path.join(f.repo, "disabled.md"), enabled: false };
+  const normal = { ...f.task.skills[1], name: "normal", path: path.join(f.repo, "normal.md") };
+  fs.writeFileSync(disabled.path, "Disabled instructions.");
+  fs.writeFileSync(normal.path, "Normal instructions.");
+  const candidates = [explicit, disabled, normal];
+  const { skills } = advisor.combineSkills(candidates, [], f.home);
+  assert.deepEqual(skills.filter((skill) => skill.enabled && skill.allow_implicit_invocation).map((skill) => skill.name), ["normal"]);
+  const required = new Set([advisor.skillKey(explicit.path)]);
+  assert.deepEqual(skills.filter((skill) => skill.enabled &&
+    (skill.allow_implicit_invocation || required.has(advisor.skillKey(skill.path)))).map((skill) => skill.name), ["explicit", "normal"]);
+  let calls = 0;
+  const empty = await advisor.advise({ request: f.task.request, skills: [] }, "skill", {
+    apiKey: "TEST_KEY", fetch: () => { calls++; throw Error("No request expected"); },
+  });
+  assert.equal(empty.status, "NOT_APPLICABLE");
+  assert.deepEqual(empty.suggestions, []);
+  assert.equal(calls, 0);
+});
+
+test("task input staging rejects links, escaping paths and multiple file writes", (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit" }, f.home);
+  const file = guard.inputFile(f.home, "session", "turn");
+  const patch = (target) => "*** Begin Patch\n*** Add File: " + target + "\n+" +
+    JSON.stringify(f.task) + "\n*** End Patch";
+  const event = { ...f.event, tool_input: { input: patch(file) } };
+  for (const target of [file + "/../outside.json", path.join(path.dirname(file), "other.json"), path.join(f.repo, "task.json")]) {
+    assert.equal(guard.hook({ ...event, tool_input: { input: patch(target) } }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  }
+  const outside = path.join(f.repo, "outside");
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.dirname(file), "junction");
+  assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("selected policy mutation during loading cannot produce reviewed admission", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  const mock = require(f.settings.advisor);
+  const combine = mock.combineSkills;
+  mock.combineSkills = (...args) => {
+    const result = combine(...args);
+    fs.appendFileSync(f.skill, " Changed during local policy loading.");
+    return result;
+  };
+  assert.throws(f.review, /changed/);
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("once attempted, identical accepted tools do not rewrite session state", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  const file = guard.stateFile(f.home, "session");
+  const before = fs.statSync(file).mtimeMs;
+  for (let i = 0; i < 10; i++) assert.deepEqual(guard.hook(f.event, f.home), {});
+  assert.equal(fs.statSync(file).mtimeMs, before);
+});
+
+
+test("default native preparation never discovers home skills or calls skill advice", async (t) => {
+  const f = fixture(t);
+  const mock = require(f.settings.advisor);
+  mock.discoverSkills = () => { throw Error("UNEXPECTED_HOME_SCAN"); };
+  mock.advise = () => { throw Error("UNEXPECTED_SKILL_ADVICE"); };
+  const prepared = await f.prepare();
+  assert.equal(prepared.skill_selection.source, "native-session");
+  assert.equal(prepared.skill_selection.advice_status, "NOT_REQUESTED");
+  assert.equal(prepared.skill_advice, undefined);
+  assert.equal(f.review().skill_review.source, "native-session");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+test("unrelated native skill bodies do not invalidate reviewed admission", async (t) => {
+  const f = fixture(t);
+  const unused = path.join(f.repo, "unused.md");
+  fs.writeFileSync(unused, "Unrelated instructions.");
+  f.task.skills.push({ name: "unused", path: unused, description: "Unrelated skill" });
+  await f.prepare();
+  f.review();
+  fs.appendFileSync(unused, " Changed body.");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  fs.appendFileSync(f.skill, " Changed required body.");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("current-turn JSON input can be staged without authorizing source edits", (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit" }, f.home);
+  const input = path.join(f.home, "dely-compliance", "inputs", guard.digest("session\0turn") + ".json");
+  const patch = (file, content) => "*** Begin Patch\n*** Add File: " + file + "\n" +
+    content.split("\n").map((line) => "+" + line).join("\n") + "\n*** End Patch";
+  const event = { ...f.event, tool_input: { input: patch(input, JSON.stringify(f.task, null, 2)) } };
+  assert.deepEqual(guard.hook(event, f.home), {});
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  for (const bad of [
+    patch(path.join(f.repo, "source.js"), "{}"),
+    patch(input, "not JSON"),
+    patch(input, JSON.stringify({ mode: "implement", request: "incomplete", skills: [] })),
+    patch(input, JSON.stringify(f.task)) + "\n*** Add File: arbitrary.js\n+code",
+  ]) {
+    assert.equal(guard.hook({ ...event, tool_input: { input: bad } }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  }
+  assert.equal(guard.hook({ ...event, turn_id: "stale" }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  fs.mkdirSync(path.dirname(input), { recursive: true });
+  fs.writeFileSync(input, JSON.stringify(f.task));
+  assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("reviewed Node flag commands do not treat the flag as a script path", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  const event = { ...f.event, tool_name: "Bash",
+    tool_input: { command: "rtk proxy node --test scripts/test-codex-compliance.js" } };
+  assert.deepEqual(guard.hook(event, f.home), {});
+  assert.equal(guard.hook({ ...event, model: "wrong" }, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("legacy reviewed evidence requires fresh preparation under native semantics", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  const file = guard.stateFile(f.home, "session");
+  const state = JSON.parse(fs.readFileSync(file, "utf8"));
+  delete state.schema;
+  fs.writeFileSync(file, JSON.stringify(state));
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+
 test("task assessment retains the same original credential root as skill advice", async (t) => {
   const f = fixture(t);
   const routing = require(routingPath);
@@ -92,7 +251,7 @@ test("absent logging directories are not created and never change admission", as
   assert.equal(fs.existsSync(path.dirname(f.settings.journal)), false);
 });
 
-test("prepare evaluates session and home skills while retaining the exact mandatory roster", async (t) => {
+test("native preparation retains the exact session roster without expanding it from home", async (t) => {
   const f = fixture(t);
   const homeSkill = path.join(f.repo, "home-skill", "SKILL.md");
   const policy = path.join(f.repo, "home-skill", "agents", "openai.yaml");
@@ -101,18 +260,17 @@ test("prepare evaluates session and home skills while retaining the exact mandat
   fs.writeFileSync(policy, "policy:\n  allow_implicit_invocation: true\n");
   const record = { name: "home-skill", path: homeSkill, description: "Home-only advice", enabled: true, allow_implicit_invocation: true };
   const mock = require(f.settings.advisor);
-  mock.discoverSkills = (root, home) => { assert.equal(root, path.join(os.homedir(), ".agents", "skills")); assert.equal(home, f.home); return [record]; };
-  mock.advise = async (input) => {
-    assert.deepEqual(input.skills.map((skill) => skill.name), ["required", "dely:delivery", "home-skill"]);
-    assert.ok(!JSON.stringify(input).includes("PRIVATE_LOCAL_BODY"));
-    return { status: "REVIEW_REQUIRED", input_sha256: guard.digest(JSON.stringify(input)), suggestion: record };
-  };
+  mock.discoverSkills = () => { throw Error("Whole-home discovery is outside native admission"); };
+  mock.advise = () => { throw Error("Skill advice is optional"); };
   const prepared = await f.prepare();
-  assert.equal(prepared.skill_advice.suggestion.name, "home-skill");
+  assert.equal(prepared.skill_selection.advice_status, "NOT_REQUESTED");
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   assert.deepEqual(JSON.parse(fs.readFileSync(state.session_roster, "utf8")).skills, f.task.skills);
   assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")).skills.map((skill) => skill.name),
-    ["required", "dely:delivery", "home-skill"]);
+    ["required", "dely:delivery"]);
+  assert.throws(() => f.review({ skills: '["required","home-skill"]' }), /supplied skills/);
+  f.task.skills.push(record);
+  await f.prepare();
   const reviewed = f.review({ skills: '["required","home-skill"]' });
   assert.equal(reviewed.status, "REVIEWED");
   assert.deepEqual(reviewed.loaded_skills.map((s) => s.name), ["required", "home-skill"]);
@@ -140,19 +298,18 @@ for (const policy of ["explicit-only", "disabled"]) {
   });
 }
 
-test("canonical aliases are evaluated once without relaxing home invocation policy", async (t) => {
+test("native canonical aliases retain the strictest supplied invocation policy", async (t) => {
   const f = fixture(t);
   const alias = path.join(f.repo, "skill-link");
   fs.symlinkSync(path.dirname(f.skill), alias, "junction");
   f.task.skills[0].path = path.join(alias, "SKILL.md");
   f.task.required_skills = [];
-  require(f.settings.advisor).discoverSkills = () => [{ name: "home-alias", path: f.skill,
-    description: "Same source", allow_implicit_invocation: false }];
+  f.task.skills.push({ name: "native-alias", path: f.skill,
+    description: "Same source", allow_implicit_invocation: false });
   await f.prepare();
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const input = JSON.parse(fs.readFileSync(state.skill_input, "utf8"));
-  assert.deepEqual(input.skills.map((s) => s.name), ["required", "dely:delivery"]);
-  assert.equal(input.skills[0].allow_implicit_invocation, false);
+  assert.deepEqual(input.skills.map((s) => s.name), ["required", "dely:delivery", "native-alias"]);
   assert.throws(f.review, /Explicit-only skills/);
   f.task.required_skills = ["required"];
   await f.prepare();
@@ -214,7 +371,7 @@ test("file aliases retain canonical and alias-local policy with both YAML locati
   assert.throws(() => f.review({ skills: '["required","file-alias"]' }), /Explicit-only skills/);
 });
 
-test("unselected session skills remain protected after admission", async (t) => {
+test("unselected and nonrequired native bodies are outside admission fingerprints", async (t) => {
   const f = fixture(t);
   const unused = path.join(f.repo, "unused.md");
   fs.writeFileSync(unused, "Unselected system instructions.\n");
@@ -222,7 +379,7 @@ test("unselected session skills remain protected after admission", async (t) => 
   await f.prepare();
   f.review();
   fs.appendFileSync(unused, "Changed source.\n");
-  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
 });
 
 test("native preparation guidance names the configured hook home explicitly", (t) => {
@@ -245,7 +402,7 @@ test("preserving hooks refuses missing admission handlers before replacing insta
   assert.equal(fs.readFileSync(file, "utf8"), JSON.stringify(manifest));
 });
 
-test("Jev recommends a session delivery skill and eligible route while dispatch admission stays mandatory", async (t) => {
+test("native skill selection preserves independent Jev routing and mandatory dispatch admission", async (t) => {
   const f = fixture(t);
   f.task.context.risks.routing = false;
   f.task.required_skills.push("dely:delivery");
@@ -256,19 +413,15 @@ test("Jev recommends a session delivery skill and eligible route while dispatch 
     json: async () => ({ model: routing.MODEL, answers: Object.fromEntries(Object.keys(routing.questions()).map((id) => [id,
       { type: "choice", choice: "medium_minus", confidence: 1, probabilities: {
         easy: 0, medium_minus: 1, medium_plus: 0, hard: 0, insufficient_evidence: 0 } }])) }) }) });
-  const advisor = require("./jev_agent.js");
-  require(f.settings.advisor).advise = (input) => advisor.advise(input, "skill", { apiKey: "TEST_KEY",
-    fetch: async (_, options) => ({ ok: true, json: async () => ({ model: advisor.MODEL,
-      answers: Object.fromEntries(Object.keys(JSON.parse(options.body).questions).map((id) => [id,
-        { type: "choice", choice: "direct", confidence: 1, probabilities: { direct: 1, supporting: 0, unrelated: 0, unknown: 0 } }])) }) }) });
+  require(f.settings.advisor).advise = () => { throw Error("Unexpected skill advice"); };
   const prepared = await f.prepare();
-  assert.ok(prepared.skill_advice.suggestions.some((skill) => skill.name === "dely:delivery"));
+  assert.equal(prepared.skill_selection.advice_status, "NOT_REQUESTED");
   assert.equal(prepared.assessment.difficulty, "medium_minus");
   assert.equal(prepared.assessment.route.workflow, "dely");
   assert.equal(prepared.assessment.route.primary.model, "gemini-3.8-flash-medium");
   assert.throws(() => f.review({ difficulty: "medium_minus" }), /mandatory skill/);
   const reviewed = f.review({ difficulty: "medium_minus", skills: '["required","dely:delivery"]', run: "test-route" });
-  assert.equal(reviewed.skill_review.evaluation_status, "REVIEW_REQUIRED");
+  assert.equal(reviewed.skill_review.evaluation_status, "NOT_REQUESTED");
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
@@ -351,22 +504,22 @@ test("installed guide's home-advice documentation link resolves locally", (t) =>
   assert.ok(fs.existsSync(path.join(f.home, "dely-compliance", "jev-skill-advice.md")));
 });
 
-test("a policy created while advice is running cannot produce a prepared snapshot", async (t) => {
+test("a required policy changed during task assessment cannot produce a prepared snapshot", async (t) => {
   const f = fixture(t);
-  const mock = require(f.settings.advisor);
-  mock.discoverSkills = () => [{ name: "home-only", path: f.skill, description: "Home record" }];
-  const advise = mock.advise;
-  mock.advise = async (input) => {
+  const routing = require(routingPath);
+  const assess = routing.assess;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = async (input, options) => {
     const policy = path.join(path.dirname(f.skill), "agents", "openai.yaml");
     fs.mkdirSync(path.dirname(policy), { recursive: true });
     fs.writeFileSync(policy, "policy:\n  allow_implicit_invocation: false\n");
-    return advise(input);
+    return assess(input, options);
   };
-  await assert.rejects(() => f.prepare(), /changed during advice/);
+  await assert.rejects(() => f.prepare(), /changed/);
   assert.ok(!fs.existsSync(guard.stateFile(f.home, "session")));
 });
 
-test("native prepare CLI delivers all suggestions compactly and points to complete evaluations", (t) => {
+test("native prepare CLI reports local provenance without fabricating remote suggestions", (t) => {
   const f = fixture(t);
   const records = Array.from({ length: 3 }, (_, i) => ({ name: "recommended-" + i, path: f.skill, description: ("Complete metadata " + i).repeat(1000) }));
   records[0].allow_implicit_invocation = false;
@@ -382,15 +535,12 @@ test("native prepare CLI delivers all suggestions compactly and points to comple
     "--repo", f.repo, "--task-file", taskFile], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout);
-  assert.deepEqual(result.skill_advice.suggestions, records.map((s) => ({ name: s.name, path: s.path,
-    ...(s.allow_implicit_invocation === false ? { requires_explicit_invocation: true } : {}) })));
-  assert.deepEqual(result.skill_advice.suggestion, { name: records[0].name, path: records[0].path, requires_explicit_invocation: true });
+  assert.equal(result.skill_advice, undefined);
+  assert.deepEqual(result.skill_selection, { source: "native-session", advice_status: "NOT_REQUESTED" });
   assert.ok(run.stdout.length < 12000, "large descriptions stay in the advice file rather than bloating the native CLI response");
   assert.ok(!run.stdout.includes("COMPLETE_EVALUATION_MARKER"));
   assert.equal(Object.keys(result)[1], "task_directory", "file pointer appears before potentially large lists");
-  const full = JSON.parse(fs.readFileSync(result.skill_advice.file, "utf8"));
-  assert.deepEqual(full.suggestions, records);
-  assert.equal(full.evaluations[0].internal, "COMPLETE_EVALUATION_MARKER");
+  assert.equal(fs.existsSync(path.join(result.task_directory, "skill-advice.json")), false);
 });
 
 for (const kind of ["explicit-only", "disabled"]) {
@@ -400,8 +550,7 @@ for (const kind of ["explicit-only", "disabled"]) {
       description: "A recommended workflow", enabled: kind !== "disabled", allow_implicit_invocation: kind !== "explicit-only" };
     fs.mkdirSync(path.dirname(record.path));
     fs.writeFileSync(record.path, "Instructions require policy admission first.\n");
-    const advisor = require(f.settings.advisor);
-    advisor.discoverSkills = () => [record];
+    f.task.skills.push(record);
     await f.prepare();
     assert.throws(() => f.review({ skills: '["required","recommended"]' }),
       kind === "disabled" ? /Disabled skills cannot be loaded/ : /Explicit-only skills must be required/);
@@ -412,8 +561,7 @@ for (const kind of ["explicit-only", "disabled"]) {
 test("Control loads a required explicit-only skill but cannot load a required disabled skill", async (t) => {
   const f = fixture(t);
   const record = { ...f.task.skills[0], enabled: true, allow_implicit_invocation: false };
-  const advisor = require(f.settings.advisor);
-  advisor.discoverSkills = () => [record];
+  f.task.skills[0] = record;
   await f.prepare();
   assert.equal(f.review().loaded_skills[0].name, "required");
   record.enabled = false;
@@ -461,14 +609,14 @@ test("read-only preflight coordination stops without Jev while conditional disco
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
-test("real routing review permits Hard; failed Jev advice remains explicit and skills are loaded", async (t) => {
+test("real routing review permits Hard with native skill provenance and loaded instructions", async (t) => {
   const f = fixture(t);
   const prepared = await f.prepare();
-  assert.equal(prepared.skill_advice.status, "NOT_EVALUATED");
+  assert.equal(prepared.skill_selection.advice_status, "NOT_REQUESTED");
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
   const reviewed = f.review();
   assert.equal(reviewed.route.workflow, "direct");
-  assert.equal(reviewed.skill_review.evaluation_status, "NOT_EVALUATED");
+  assert.equal(reviewed.skill_review.evaluation_status, "NOT_REQUESTED");
   assert.equal(reviewed.loaded_skills[0].text, fs.readFileSync(f.skill, "utf8"));
   assert.deepEqual(guard.hook(f.event, f.home), {});
   assert.equal(guard.hook({ ...f.event, model: "wrong-model" }, f.home).hookSpecificOutput.permissionDecision, "deny");
@@ -494,13 +642,13 @@ test("colliding catalog names require an exact path and load only the selected s
   assert.equal(result.loaded_skills[0].path, fs.realpathSync(f.skill));
 });
 
-for (const target of ["spec", "advice", "skill", "instructions", "dependency"]) {
+for (const target of ["spec", "task", "skill", "instructions", "dependency"]) {
   test("changed " + target + " invalidates authorization before a write", async (t) => {
     const f = fixture(t);
     await f.prepare();
     f.review();
     const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
-    const file = { spec: state.assessment.task.spec_file, advice: state.skill_advice,
+    const file = { spec: state.assessment.task.spec_file, task: state.task_input,
       skill: f.skill, instructions: path.join(f.repo, "AGENTS.md"), dependency: f.settings.advisor }[target];
     fs.appendFileSync(file, "\nchanged");
     assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
@@ -578,7 +726,7 @@ test("editing the advisor checkout preserves the frozen advice used by the activ
   f.review();
   fs.appendFileSync(f.advisor, "\nthrow Error('candidate code must not run');\n");
   assert.deepEqual(guard.hook(f.event, f.home), {});
-  assert.equal((await f.prepare()).skill_advice.reason, "TEST_UNAVAILABLE");
+  assert.equal((await f.prepare()).skill_selection.advice_status, "NOT_REQUESTED");
 });
 
 test("Windows hooks bypass shadowed Node and execute through the actual PowerShell seam", { skip: process.platform !== "win32" }, (t) => {
