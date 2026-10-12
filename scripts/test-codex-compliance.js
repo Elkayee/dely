@@ -53,6 +53,41 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+for (const phase of ["assessment", "review"]) {
+  test("same-turn prompt reset during " + phase + " cannot restore stale authority", async (t) => {
+    const f = fixture(t);
+    const reset = () => guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "New request" }, f.home);
+    reset();
+    if (phase === "assessment") {
+      const routing = require(routingPath), assess = routing.assess;
+      t.after(() => { routing.assess = assess; });
+      routing.assess = async (...args) => { const result = await assess(...args); reset(); return result; };
+      await assert.rejects(f.prepare, /prompt changed/i);
+    } else {
+      await f.prepare();
+      const mock = require(f.settings.advisor), combine = mock.combineSkills;
+      mock.combineSkills = (...args) => { const result = combine(...args); reset(); return result; };
+      assert.throws(f.review, /prompt changed/i);
+    }
+    const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+    assert.equal(state.status, "PENDING");
+    assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
+test("independent prompt marker rejects stale reviewed state restored after steering", async (t) => {
+  const f = fixture(t);
+  const reset = () => guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit" }, f.home);
+  reset();
+  await f.prepare();
+  f.review();
+  const file = guard.stateFile(f.home, "session"), stale = fs.readFileSync(file);
+  reset();
+  fs.writeFileSync(file, stale);
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+
 test("same-turn steering allocates a fresh task input without overwriting prior evidence", (t) => {
   const f = fixture(t);
   const prompt = { ...f.event, hook_event_name: "UserPromptSubmit" };

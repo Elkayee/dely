@@ -24,7 +24,8 @@ const write = (file, value) => {
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
 const settingsFile = (home) => path.join(root(home), "settings.json");
-const NATIVE_SCHEMA = "native-skills-v2";
+const NATIVE_SCHEMA = "native-skills-v3";
+const promptFile = (home, session) => path.join(root(home), "prompts", digest(session) + ".json");
 const inputFile = (home, session, turn, nonce = "") => path.join(root(home), "inputs", digest(session + "\0" + turn + "\0" + nonce) + ".json");
 const fingerprints = (files) => Object.fromEntries(files.map((file) =>
   [fs.existsSync(file) ? canonical(file) : path.resolve(file), fs.existsSync(file) ? hashFile(file) : null]));
@@ -45,6 +46,7 @@ function taskInputWrite(event, state, home) {
       state.turn !== event.turn_id || (!/^[a-f0-9]{24}$/.test(state.input_nonce || "") &&
         !(state.status === "PENDING" && state.input_nonce === undefined))) return false;
   try {
+    checkPrompt(state, home);
     if (!samePath(state.repo, event.cwd)) return false;
     const payload = event.tool_input;
     const patch = typeof payload === "string" ? payload :
@@ -75,6 +77,15 @@ function taskInputWrite(event, state, home) {
       ["security", "data", "public_contract", "architecture", "production", "routing"]
         .every((key) => typeof task.context.risks?.[key] === "boolean"));
   } catch (_) { return false; }
+}
+
+function checkPrompt(state, home) {
+  const file = promptFile(home, state.session);
+  if (!fs.existsSync(file)) return;
+  const prompt = read(file);
+  if (prompt.turn !== state.turn || prompt.input_nonce !== state.input_nonce || !samePath(prompt.repo, state.repo)) {
+    throw Error("User prompt changed; prepare and review the current request.");
+  }
 }
 
 function skillSnapshot(roster, selected, advisor, home) {
@@ -214,6 +225,7 @@ function validate(state, event, home, requireDispatch = true) {
     throw Error("Current task has no reviewed native task and routing evidence. Run prepare, inspect results, then review.");
   }
   if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
+  checkPrompt(state, home);
   const settings = checkedSettings(home);
   checkCatalogPaths(state);
   for (const [file, hash] of Object.entries(state.fingerprints)) {
@@ -249,6 +261,8 @@ function hook(event, home, workerCheck = verifiedWorker) {
     const state = { session: event.session_id, turn: event.turn_id, repo: canonical(event.cwd), status: "PENDING",
       input_nonce: crypto.randomBytes(12).toString("hex"),
       worker_claim: { receipts: prompt.match(/rcpt_[a-f0-9]{16}/g) || [], spec_sha256: staged && staged[1] } };
+    write(promptFile(home, event.session_id), { session: state.session, turn: state.turn,
+      repo: state.repo, input_nonce: state.input_nonce });
     write(file, state);
     return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, state) } };
   }
@@ -257,6 +271,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
   const state = fs.existsSync(file) ? read(file) : {};
   if (type === "PreToolUse" && taskInputWrite(event, state, home)) return {};
   try {
+    checkPrompt(state, home);
     if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) return {};
   } catch (_) { /* unknown worker identity never exempts a tool call */ }
   if (type === "Stop" && ((!state.attempted && state.mode !== "implement") || state.stop_reported)) return {};
@@ -337,10 +352,6 @@ async function prepare(options, home) {
     skill_selection: { source: "native-session", advice_status: "NOT_REQUESTED" },
     required_skills: required, instructions: instructions(repo, home),
   };
-  const latest = fs.existsSync(sessionFile) ? read(sessionFile) : {};
-  if (latest.turn !== pending.turn || latest.input_nonce !== pending.input_nonce) {
-    throw Error("User prompt changed during preparation; prepare and review the current request.");
-  }
   state.input_nonce = pending.turn === options.turn && /^[a-f0-9]{24}$/.test(pending.input_nonce || "") ?
     pending.input_nonce : crypto.randomBytes(12).toString("hex");
   if (task.mode === "implement") {
@@ -359,6 +370,11 @@ async function prepare(options, home) {
   if (JSON.stringify(instructions(repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during preparation.");
   state.fingerprints = { ...fingerprints([taskInput, skillInput, sessionRoster, sourceRoster,
     ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...snapshot.fingerprints };
+  const latest = fs.existsSync(sessionFile) ? read(sessionFile) : {};
+  if (latest.turn !== pending.turn || latest.input_nonce !== pending.input_nonce) {
+    throw Error("User prompt changed during preparation; prepare and review the current request.");
+  }
+  checkPrompt(state, home);
   write(stateFile(home, options.session), state);
   if (state.assessment) require(path.join(path.dirname(settings.routing), "usage.js")).recordTask(state.assessment, "assess", settings.journal);
   return { status: state.status, skill_selection: state.skill_selection, assessment: state.assessment, task_directory: directory };
@@ -432,6 +448,9 @@ function review(options, home) {
     evaluation_status: "NOT_REQUESTED", selected };
   state.catalog_paths = { ...state.catalog_paths, ...snapshot.catalog_paths };
   state.fingerprints = { ...state.fingerprints, ...snapshot.fingerprints };
+  const latest = read(file);
+  if (latest.turn !== state.turn || latest.input_nonce !== state.input_nonce) throw Error("User prompt changed during review.");
+  checkPrompt(state, home);
   write(file, state);
   if (state.assessment) require(path.join(path.dirname(settings.routing), "usage.js")).recordTask(state.assessment, "review", settings.journal);
   return { status: state.status, route: state.assessment && state.assessment.route,
