@@ -3,7 +3,7 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-11.
+Last updated 2026-10-12.
 
 ---
 
