@@ -864,6 +864,15 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   assert.deepEqual(guard.hook(event, f.home), {});
   await f.prepare();
   assert.deepEqual(guard.hook(event, f.home), {});
+  const command = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"))
+    .hooks.PreToolUse[0].hooks[0].command;
+  const native = process.platform === "win32" ?
+    spawnSync("powershell.exe", ["-NoProfile", "-Command", command],
+      { input: JSON.stringify(event), encoding: "utf8" }) :
+    spawnSync(process.execPath, [path.join(f.home, "dely-compliance", "codex-compliance.js"), "hook", "--home", f.home],
+      { input: JSON.stringify(event), encoding: "utf8" });
+  assert.equal(native.status, 0, native.stderr);
+  assert.deepEqual(JSON.parse(native.stdout), {});
   assert.equal(guard.hook({ ...event, model: "wrong-model" }, f.home).hookSpecificOutput.permissionDecision, "deny");
   delete process.env.ORCA_TERMINAL_HANDLE;
   assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
