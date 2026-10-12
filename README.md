@@ -276,8 +276,8 @@ each phase's harness, model, effort and source (`local`, `team` or `control`).
 ### Upgrading from 0.23
 
 Version 0.23 kept the pins in a `<!-- dely:begin -->` block in `AGENTS.md`.
-Dely now stops while that block is there. Run `dely:setup`. It offers to move
-the table to `.dely/pins.json` and leave one routing line in `AGENTS.md`.
+Dely no longer reads that block. Run `dely:setup` to move the table to
+`.dely/pins.json` and replace the block with one routing line in `AGENTS.md`.
 
 ## Log
 

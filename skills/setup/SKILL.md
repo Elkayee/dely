@@ -77,8 +77,8 @@ Then make sure `AGENTS.md` carries the routing line. If it has no
 > Bounded or Architectural work invokes `dely:delivery`; Spike starts no
 > delivery run.
 
-If `AGENTS.md` contains an old `<!-- dely:begin -->` block, the helper stops
-until it is gone. Offer to replace the block, from its begin marker through its
+If `AGENTS.md` contains an old `<!-- dely:begin -->` block, the helper no
+longer reads it. Offer to replace the block, from its begin marker through its
 end marker, with the routing line, and carry its table over to
 `.dely/pins.json` as the proposed team pins. Change `AGENTS.md` only on a yes.
 Prose outside the block is never touched.

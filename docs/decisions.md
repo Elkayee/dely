@@ -9,6 +9,86 @@ Last updated 2026-10-11.
 
 ## Settled
 
+### 2026-10-12 — The dely:begin migration shim is removed; AGENTS.md is no longer read for pins
+
+#### Context
+
+The 2026-10-05 record "Pins live in `.dely/`…" moved pins out of the managed
+block in `AGENTS.md`. To keep an upgrade from silently moving a project's
+workers to Control's harness, `resolvePins` read `AGENTS.md` and stopped,
+naming `dely:setup`, while an old `<!-- dely:begin -->` block remained. The
+pin-resolution stub in `probe/checklist.md` covered that refusal with a
+requirement row and a `block-ignored` wrong copy, and the launch fixture
+carried a comment that its table held no `dely:begin` marker so the candidate
+would not refuse it.
+
+The migration window is closed. Measured 2026-10-12 by enumeration: every
+repository on this machine carrying a `.dely/` folder (five) has an
+`AGENTS.md` with zero `dely:begin` matches. The only reason `resolvePins` read
+`AGENTS.md` was this shim.
+
+#### Decision
+
+`resolvePins` no longer reads `AGENTS.md`. The `OLD_BLOCK` constant and the
+read-and-refuse code are deleted, and an old block is inert prose. The stub's
+requirement row for the refusal, its `checks` function and the `block-ignored`
+wrong copy are deleted, the remaining rows renumbered, and the fixture comment
+no longer claims a refusal. `dely:setup` keeps the assisted, human-gated
+replacement of a block it finds: begin marker through end marker, replaced by
+the routing line, the table carried to `.dely/pins.json` as proposed team
+pins, `AGENTS.md` changed only on a yes. The README's upgrade note says the
+block is no longer read.
+
+#### Alternatives considered
+
+- Keep the shim indefinitely. Rejected: it enforces a migration window that is
+  measured closed, and carries a stub row and a fixture caveat forever.
+- Delete setup's migration offer too. Rejected: it still serves an upgrade
+  from 0.23 outside this machine and costs no helper code.
+
+#### Consequences
+
+- An off-machine repository still carrying the block is no longer stopped: the
+  block is ignored. If that repository also lacks `.dely/pins.json` the helper
+  still errors naming `dely:setup`, so nothing falls silently to an unpinned
+  default.
+- This changes `skills/`, so the version advances to 0.27.0 in both plugin
+  manifests, `package.json` and the `AGENTS.md` gate within this delivery. A
+  compatibility surface is removed, so the minor advances rather than the
+  patch.
+
+#### Verification, 2026-10-12
+
+Each measurement names its tree. "Pre-edit working tree" is the working tree
+before any edit of this delivery; `git diff --stat` over every path this
+delivery owns printed nothing then, so it equals the committed baseline
+`87ddc4c` for those paths. "Candidate" is the edited working tree.
+
+- Fixture: a fresh temp directory with a git root, an `AGENTS.md` holding a
+  `<!-- dely:begin -->` block, and a valid `.dely/pins.json` naming harness
+  `claude` for both phases. `skills/delivery/scripts/dely pins --repo <fixture>`
+  on the pre-edit working tree: exit 9, `ERROR …/AGENTS.md still has a
+  dely:begin block; pins moved to .dely/pins.json…` (red). On the candidate:
+  exit 0, both phases printed with source `team` (green).
+- `git grep -cE 'OLD_BLOCK|dely:begin' -- skills/delivery/scripts/dely.js`:
+  3 matches on the pre-edit working tree; no output and exit 1 on the
+  candidate. This row alone rejects a copy whose guard became `if (false)`,
+  which passes the fixture like the correct removal.
+- The updated stub row, run only against a snapshot of the candidate (it was
+  not run against the baseline): eight mutants each printed RED for its own
+  row — `first-file-only` row 1; `worktree-only` and `main-wins` row 2;
+  `control-throws` and `control-claude` row 3; `typo-ignored` row 4;
+  `dispatch-agents-md` and `preflight-agents-md` row 5 — then GREEN for rows
+  1 to 5 on the candidate.
+- `git grep -n '0\.26\.3'` over both plugin manifests, `package.json` and
+  `AGENTS.md`: finds nothing on the candidate (all four held it on the
+  pre-edit working tree). `grep -c 'helper stops' skills/setup/SKILL.md`: 1 on
+  the pre-edit working tree, 0 on the candidate.
+
+These instruments prove the shim is gone and the neighbouring resolver
+behaviour survives. They do not prove the setup and README prose reads well;
+the reviewer reads it.
+
 ### 2026-10-12 — The original party in remediation is defined by pin and briefing, not by session
 
 #### Context
