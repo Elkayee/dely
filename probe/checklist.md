@@ -318,8 +318,7 @@ function add(arr, line) {
 function launch(file, h, other, mode, verb) {
   const pin = pinOf(h, other, mode);
   // Each helper reads its own form: the 0.23.1 release reads this table in
-  // AGENTS.md, the candidate reads .dely/pins.json. The table carries no
-  // dely:begin marker, which the candidate would refuse.
+  // AGENTS.md, the candidate reads .dely/pins.json.
   fs.writeFileSync(path.join(root, 'repo/AGENTS.md'),
     '| Phase | Harness | Model | Effort |\n| --- | --- | --- | --- |\n' +
     '| `implement` | ' + h.name + ' | ' + pin.model + ' | ' + pin.effort + ' |\n' +
@@ -596,7 +595,7 @@ For other harnesses, record the available source or say unobservable.
 Run this when the pin resolver in `dely.js`, the `.dely/` file format, or the
 text of `dely pins` changes. It runs from the observer shell with `snap` set to
 the candidate snapshot, against a fake Orca executable and an isolated home;
-it creates no real Run or worker. It checks six requirements, each against a
+it creates no real Run or worker. It checks five requirements, each against a
 deliberately wrong copy of the candidate before the candidate itself:
 
 | Row | Requirement | Mutant that must turn it RED |
@@ -604,9 +603,8 @@ deliberately wrong copy of the candidate before the candidate itself:
 | 1 | the personal file overrides per phase | `first-file-only`: the first file found answers both phases, so `implement` falls to Control |
 | 2 | worktree, then main checkout | `worktree-only`: reads only `<repo>/.dely/local`; `main-wins`: the main checkout's file beats the worktree's own |
 | 3 | Control fallback | `control-throws`: no Control harness is an error as in 0.23.1; `control-claude`: hard-codes `claude` |
-| 4 | an old `dely:begin` block stops the helper | `block-ignored`: the block is skipped and Control answers |
-| 5 | strict format | `typo-ignored`: an unknown key such as `reveiw` is skipped and the team pin is used |
-| 6 | `dispatch` and `preflight` use the resolver | `dispatch-agents-md`, `preflight-agents-md`: each still parses the `AGENTS.md` table |
+| 4 | strict format | `typo-ignored`: an unknown key such as `reveiw` is skipped and the team pin is used |
+| 5 | `dispatch` and `preflight` use the resolver | `dispatch-agents-md`, `preflight-agents-md`: each still parses the `AGENTS.md` table |
 
 ```bash
 stub=$(mktemp -d "$HOME/dely-probe/pins.XXXXXX")
@@ -711,11 +709,6 @@ const rows = {
     return r.status === 0 && same(r.json, {implement: side, review: side}) ? null : 'status ' + r.status + ' ' + r.out;
   },
   4(tree) {
-    const dir = repo({}, '# x\n<!-- dely:begin -->\n| `implement` | Claude Code | m | e |\n<!-- dely:end -->\n');
-    const r = pins(tree, dir, 'codex');
-    return r.status !== 0 && r.out.includes('.dely/pins.json') && !r.json ? null : 'status ' + r.status + ' ' + r.out;
-  },
-  5(tree) {
     const ok = {implement: P('claude', 'a'), review: P('codex', 'b')};
     const cases = {
       'typo key': {...ok, reveiw: P('cursor')},
@@ -731,7 +724,7 @@ const rows = {
     }
     return null;
   },
-  6(tree) {
+  5(tree) {
     const table = '| Phase | Harness | Model | Effort |\n| --- | --- | --- | --- |\n' +
       '| `implement` | Claude Code | old-model | low |\n| `review` | Claude Code | old-model | low |\n';
     const dir = repo({'.dely/pins.json': {implement: P('claude', 'a'), review: P('claude', 'b')},
@@ -778,11 +771,10 @@ const mutants = [
   ['main-wins', 2, [['if (fs.existsSync(own)) return own;', 'if (fs.existsSync(own) && !mainCheckout(repo)) return own;']]],
   ['control-throws', 3, [['const id = selfHarness();', 'const id = null;']]],
   ['control-claude', 3, [['const id = selfHarness();', 'const id = "claude";']]],
-  ['block-ignored', 4, [['if (agents.includes(OLD_BLOCK)) {', 'if (false) {']]],
-  ['typo-ignored', 5, [['if (!PHASES.includes(k)) fail(', 'if (false) fail(']]],
-  ['dispatch-agents-md', 6, [['const p = pin(f.repo, f.phase);',
+  ['typo-ignored', 4, [['if (!PHASES.includes(k)) fail(', 'if (false) fail(']]],
+  ['dispatch-agents-md', 5, [['const p = pin(f.repo, f.phase);',
     'const p = (() => ' + agentsTable('f.phase') + ')();']]],
-  ['preflight-agents-md', 6, [['const pins = PHASES.map((ph) => resolved[ph]);',
+  ['preflight-agents-md', 5, [['const pins = PHASES.map((ph) => resolved[ph]);',
     'const pins = PHASES.map((ph) => (() => ' + agentsTable('ph') + ')());']]],
 ];
 const redRows = new Set();
@@ -793,8 +785,8 @@ for (const [name, row, edits] of mutants) {
   redRows.add(row);
   console.log('RED: mutant ' + name + ' fails row ' + row + ': ' + String(why).split('\n')[0].slice(0, 150));
 }
-for (const r of [1, 2, 3, 4, 5, 6]) assert(redRows.has(r), 'no mutant turned row ' + r + ' RED');
-for (const r of [1, 2, 3, 4, 5, 6]) {
+for (const r of [1, 2, 3, 4, 5]) assert(redRows.has(r), 'no mutant turned row ' + r + ' RED');
+for (const r of [1, 2, 3, 4, 5]) {
   const why = rows[r](snap);
   assert.equal(why, null, 'candidate fails row ' + r + ': ' + why);
   console.log('GREEN: row ' + r);
@@ -805,7 +797,7 @@ node "$stub/check.cjs" "$snap" "$stub"
 ```
 
 **Pass:** every mutant prints RED for the row it is named for, and the candidate
-prints GREEN for rows 1 to 6. If a mutation assert fires, update that needle;
+prints GREEN for rows 1 to 5. If a mutation assert fires, update that needle;
 it is not a candidate failure. A GREEN candidate with a row that no mutant
 turned RED proves nothing, and the script refuses it. Keep the fixture
 directory and output with the probe report; remove it after recording the

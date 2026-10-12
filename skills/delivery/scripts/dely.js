@@ -93,7 +93,6 @@ function harnessById(id) {
 
 const PHASES = ["implement", "review"];
 const PIN_FIELDS = ["harness", "model", "effort"];
-const OLD_BLOCK = "<!-- dely:begin -->";
 
 function readPinsFile(file) {
   let data;
@@ -151,18 +150,6 @@ function personalPinsFile(repo) {
 // Per phase: personal file, team file, Control's own harness with defaults.
 function resolvePins(repo) {
   repo = path.resolve(repo);
-  let agents = "";
-  try {
-    agents = fs.readFileSync(path.join(repo, "AGENTS.md"), "utf8");
-  } catch (_) {
-    /* no instructions file */
-  }
-  if (agents.includes(OLD_BLOCK)) {
-    fail(
-      path.join(repo, "AGENTS.md") +
-        " still has a dely:begin block; pins moved to .dely/pins.json. Run dely:setup to write them and replace the block"
-    );
-  }
   const team = path.join(repo, ".dely", "pins.json");
   const sources = [];
   const personal = personalPinsFile(repo);
