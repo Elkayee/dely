@@ -314,21 +314,31 @@ deterministic checks already prove the contract.
 
 ### Remediation
 
-One pass is one remediation pass per finding, not per review. For an
-in-contract `CHANGES_REQUESTED` finding, the **original implementer**
-verifies it, fixes the root cause, reruns the affected instruments and
-closure gates, and writes a separate remediation commit — this is the
-single original-party remediation. Control owns the plan and the decision
-record for the whole run, including remediating findings inside them.
-Amending them is not implementing the candidate. The **reviewer that raised
-the finding** checks its reproduction and the fix-only diff, and
-scope-checks a Control amendment the same way. If that scoped re-review
-does not accept, Control routes to `REPLAN_OR_SPLIT` — it does not start
-another repair loop. `BLOCKED` preserves the candidate and escalates the
-unresolved dependency or authority question to Control separately from a
-failed worker process; it is not remediated by the original implementer. A
-fresh replacement reviewer is used only when the original reviewer is
-unavailable or contested, and for the Architectural integration review.
+One pass is one remediation pass per finding, not per review. The original
+parties are defined by pin and briefing, not by session: the helper releases
+every worker at settlement, so remediation and re-review are fresh
+dispatches briefed from the Run's folder.
+
+For an in-contract `CHANGES_REQUESTED` finding, remediation is a fresh
+dispatch on the implement pin whose prompt names the original task prompt,
+the implement handoff, and the finding as the reviewer wrote it. That worker
+is the original implementer for every rule here: it verifies the finding,
+fixes the root cause, reruns the affected instruments and closure gates, and
+writes a separate remediation commit. Control owns the plan and the decision
+record for the whole run, including remediating findings inside them;
+amending them is not implementing the candidate.
+
+The scoped re-review is a fresh dispatch on the review pin whose prompt
+names the original review prompt, the raised finding's handoff unedited, the
+fix-only diff, and the full candidate diff for context; a re-review not
+briefed with that handoff is not the scoped re-review. It checks the
+finding's reproduction, the fix, and any defect the fix introduced, and
+scope-checks a Control amendment the same way. If it does not accept,
+Control routes to `REPLAN_OR_SPLIT` — it does not start another repair loop.
+`BLOCKED` preserves the candidate and escalates the unresolved dependency or
+authority question to Control separately from a failed worker process; it is
+not remediated. The Architectural integration review is always a fresh
+reviewer.
 
 ## Release
 

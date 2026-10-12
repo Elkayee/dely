@@ -9,6 +9,91 @@ Last updated 2026-10-11.
 
 ## Settled
 
+### 2026-10-12 — The original party in remediation is defined by pin and briefing, not by session
+
+#### Context
+
+The `#### Friction, 2026-10-12` subsection of the 2026-10-10 record "The
+helper releases settled workers" states the conflict. The helper releases
+every accepted `worker_done` at settlement, before Control reads the verdict
+the batch carries. The Remediation clause of `SKILL.md` routed the fix to the
+original implementer with no replacement path, and allowed a replacement
+reviewer only when the original was "unavailable or contested" — a condition
+release-at-settlement makes true on every remediation.
+
+The same-session reading was already unimplementable. Since 2026-09-11 every
+dispatch is a fresh `worker-start` through `dely dispatch`, and reuse of a
+settled terminal is forbidden on a measured failure: input accepted but never
+submitted, in a session that had switched its own model. A Bounded delivery in
+a consuming repository (machine-local log Run `run_89d9feaa48fa`) improvised
+fresh same-pin workers briefed from the Run's folder. That worked, but it was
+outside the written protocol.
+
+#### Decision
+
+The Remediation section defines the original parties by pin and briefing, not
+by session. Remediation is a fresh dispatch on the implement pin, briefed with
+the original task prompt, the implement handoff, and the finding as the
+reviewer wrote it. The scoped re-review is a fresh dispatch on the review pin,
+briefed with the original review prompt, the raised finding's handoff
+unedited, the fix-only diff, and the full candidate diff for context.
+
+The anti-shopping guard moves from forbidding a replacement to fixing the
+briefing: a re-review not briefed with the raised finding's handoff is not the
+scoped re-review. The briefing files are in the Run's folder, so the briefing
+is checkable afterwards. The "unavailable or contested" clause is deleted. The
+helper does not change: release at settlement stands.
+
+#### Alternatives considered
+
+- Retain the worker until the downstream review settles, by reusing its
+  terminal or by `worker-retain`. Rejected: the one measured reuse of a
+  settled terminal failed (2026-09-11), retention reopens the open-tab and
+  `user_takeover` exposure the 2026-10-10 decision closed, and an aging
+  session can change its own model silently. A future Spike may re-measure
+  follow-up dispatch for the reviewer role only.
+- Have the helper echo each released worker's `worker_done` outcome under
+  `release`. Deferred: it is an observation-only convenience and the route is
+  well-defined without it.
+
+#### Consequences
+
+- Every remediation has a defined route under release-at-settlement.
+- The protocol text shrinks by one special case.
+- The procedure the measured delivery improvised becomes the written one.
+- This is a `skills/` change, so the version advances to 0.26.3 in both
+  plugin manifests, `package.json`, and the `AGENTS.md` gate within this
+  delivery.
+
+#### Verification, 2026-10-12
+
+Lexical instruments, each run on the baseline `ff2155d` before the edit and
+on the candidate after it:
+
+- `git grep -c 'unavailable or contested' -- skills/delivery/SKILL.md`: one
+  match on the baseline, no output and exit 1 on the candidate.
+- `grep -c` of `defined by pin and briefing`, `on the implement pin` and `on
+  the review pin` in `skills/delivery/SKILL.md`: 0, 0, 0 on the baseline; 1,
+  1, 1 on the candidate.
+- The three `AGENTS.md` version gate lines at 0.26.3 fail on the baseline
+  (exit 1) and pass on the candidate, and `git grep -n '0\.26\.2'` over both
+  plugin manifests, `package.json` and `AGENTS.md` finds nothing.
+- `grep -c '^### 2026-10-12 ' docs/decisions.md`: 0 on the baseline, 1 on
+  the candidate.
+- `grep -c '^Open\. Trigger:' docs/decisions.md`: 0 on the baseline and 0 on
+  the candidate — the committed baseline never held the friction subsection,
+  which entered the working tree uncommitted from the approved Spike. The
+  `Open. Trigger:` paragraph existed only in that pre-edit working tree,
+  where the count was 1, so this sub-instrument discriminates against the
+  working tree it edited, not against `ff2155d`; the row's baseline-red
+  rests on the heading count above. Found at review: the first version of
+  this subsection claimed 1 on the baseline, a measurement exact Git history
+  contradicts.
+
+These instruments are lexical. They reject a rewrite that keeps the escape
+clause or defines only one side, but not wording that is present and wrong:
+the reviewer reads the section against the approved text.
+
 ### 2026-10-11 — The wait deadline drops to 55 minutes, and OMP's Control wake becomes `background`
 
 #### Context
@@ -206,6 +291,37 @@ already released every worker; a non-empty sweep, `releaseError`, and a live
 `retained`/`user_takeover` answer are covered only by the stub row. Not run,
 because launch, pins, attention and stall did not change: the live worker
 rows, the pin-resolution stub, rows 4–7, and every OMP and Pi row.
+
+#### Friction, 2026-10-12
+
+A Bounded delivery in a consuming repository (Orca 1.4.224, Claude Code
+Control; machine-local log Run `run_89d9feaa48fa`) hit a conflict this record
+did not reconcile. The reviewer returned `CHANGES_REQUESTED` with two
+in-contract documentation findings, one Important and one Minor, and the
+helper had already released both the implementer and that reviewer at their
+`SETTLED` batches — the release runs on every accepted `worker_done` before
+Control reads the verdict the batch carries. `SKILL.md`'s remediation clause
+routes the fix to the original implementer and the re-review to the reviewer
+that raised the finding, allows a fresh replacement reviewer "only when the
+original reviewer is unavailable or contested", and names no replacement path
+for the implementer at all. Control improvised: a fresh implementer and a
+fresh reviewer on the same pins, briefed from the Run's folder with the
+earlier prompt, the handoff and the findings. The remediation was accepted in
+one pass; the procedure was outside the written protocol.
+
+The conflict predates this record in part. Since the 2026-09-11 decision,
+every dispatch is a fresh `worker-start` through `dely dispatch`, which can
+address no existing terminal, and reuse of a settled terminal is forbidden on
+a measured failure (input accepted but never submitted; the session had
+switched its own model). Release-at-settlement removed the last informal
+route — a live, unreleased tab — and forecloses the orchestration guide's
+other two completion options (follow-up dispatch into the proven terminal,
+`worker-retain`) before Control can see the verdict, so the replacement
+clause's condition "unavailable" is now met by every remediation.
+
+Resolved by the 2026-10-12 record "The original party in remediation is
+defined by pin and briefing, not by session", above: the original parties
+are defined by pin and briefing, and release at settlement stands.
 
 ### 2026-10-10 — OMP is pinned by Orca's `--model` flag, with the effort joined to the model; the `spec` pin mode is deleted
 
