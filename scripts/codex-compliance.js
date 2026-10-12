@@ -133,7 +133,12 @@ function checkedSettings(home) {
 
 function context(event, home, state = {}) {
   const script = path.join(root(home), "codex-compliance.js").replace(/\\/g, "/");
+  const workerContext = state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length) ?
+    "Dely-dispatched Codex workers inherit Codex Control's reviewed admission only after current prompt, terminal, model, route, dispatch and owned-inventory checks pass. " +
+    "Read the supplied task spec and send its heartbeat receipt first. Do not prepare or review a task as a worker; report an admission denial to Control. " +
+    "The preparation procedure below is for Codex Control. " : "";
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
+    workerContext +
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
@@ -347,7 +352,8 @@ async function prepare(options, home) {
   const state = {
     schema: NATIVE_SCHEMA,
     session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
-    prepared_at: new Date().toISOString(), task_input: taskInput, skill_input: skillInput, session_roster: sessionRoster,
+    prepared_at: new Date().toISOString(), worker_claim: pending.worker_claim,
+    task_input: taskInput, skill_input: skillInput, session_roster: sessionRoster,
     source_roster: sourceRoster, catalog_paths: snapshot.catalog_paths,
     skill_selection: { source: "native-session", advice_status: "NOT_REQUESTED" },
     required_skills: required, instructions: instructions(repo, home),

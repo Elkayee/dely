@@ -195,6 +195,12 @@ terminal inventory match, and the current user turn carries that dispatch's
 receipt marker or staged spec hash. A later unrelated prompt loses the
 exception. Prompt text claiming a worker role is insufficient.
 This preserves the worker instruction to read only its supplied task spec.
+The native prompt guidance identifies this inherited path separately from
+Control preparation: workers read their supplied spec, send the receipt and
+report an admission denial to Control instead of reviewing themselves.
+If preparation nevertheless occurs, it retains only the current prompt's
+worker claim; the same dispatch/model/terminal/inventory checks still apply.
+An unrelated prompt resets that claim and cannot inherit the preceding task.
 
 Stop asks for missing evidence after an implementation attempt. It blocks
 once per unresolved state and then permits an honest limitation report,

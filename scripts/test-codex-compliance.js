@@ -839,6 +839,48 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   assert.equal(guard.verifiedWorker(event, f.settings, "another-terminal"), false);
 });
 
+test("preparation retains a dispatched worker's current prompt claim", async (t) => {
+  const f = fixture(t);
+  const run = "compliance_prepare_" + guard.digest(f.repo).slice(0, 12);
+  const inventory = path.join(os.tmpdir(), "dely-run-" + run + ".jsonl");
+  const handle = "prepared-worker", spec = guard.digest(f.task.spec);
+  const previous = process.env.ORCA_TERMINAL_HANDLE;
+  process.env.ORCA_TERMINAL_HANDLE = handle;
+  t.after(() => {
+    if (previous === undefined) delete process.env.ORCA_TERMINAL_HANDLE;
+    else process.env.ORCA_TERMINAL_HANDLE = previous;
+    if (fs.existsSync(inventory)) fs.unlinkSync(inventory);
+  });
+  const dispatch = { event: "dispatch", run, repo: f.repo, phase: "implement",
+    terminalHandle: handle, dispatchId: "prepared-dispatch", promptSha256: spec,
+    launch: { effective: { agent: "codex", model: "gpt-6-luna" } } };
+  fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run,
+    repo: f.repo, specSha256: spec }].map(JSON.stringify).join("\n") + "\n");
+  fs.writeFileSync(inventory, JSON.stringify({ owned: true, terminalHandle: handle,
+    dispatchId: dispatch.dispatchId }) + "\n");
+  const event = { ...f.event, model: "gpt-6-luna" };
+  guard.hook({ ...event, hook_event_name: "UserPromptSubmit",
+    prompt: "Task spec staged at task.txt (100 bytes, SHA-256: " + spec + ")." }, f.home);
+  assert.deepEqual(guard.hook(event, f.home), {});
+  await f.prepare();
+  assert.deepEqual(guard.hook(event, f.home), {});
+  assert.equal(guard.hook({ ...event, model: "wrong-model" }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  delete process.env.ORCA_TERMINAL_HANDLE;
+  assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  process.env.ORCA_TERMINAL_HANDLE = handle;
+  guard.hook({ ...event, hook_event_name: "UserPromptSubmit", prompt: "An unrelated task" }, f.home);
+  assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("worker prompt guidance distinguishes inherited admission from Control review", (t) => {
+  const f = fixture(t);
+  const result = guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit",
+    prompt: "Task spec staged at task.txt (100 bytes, SHA-256: " + guard.digest(f.task.spec) + ")." }, f.home);
+  assert.match(result.hookSpecificOutput.additionalContext, /workers inherit.*Control/i);
+  assert.match(result.hookSpecificOutput.additionalContext, /Do not prepare or review.*worker/i);
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
 test("unconfirmed or incomplete implementation evidence cannot produce authorization", async (t) => {
   const f = fixture(t);
   f.task.context.requirements_confirmed = false;
