@@ -78,9 +78,17 @@ on the candidate after it:
 - The three `AGENTS.md` version gate lines at 0.26.3 fail on the baseline
   (exit 1) and pass on the candidate, and `git grep -n '0\.26\.2'` over both
   plugin manifests, `package.json` and `AGENTS.md` finds nothing.
-- `grep -c '^### 2026-10-12 ' docs/decisions.md` and `grep -c '^Open\.
-  Trigger:' docs/decisions.md`: 0 and 1 on the baseline; 1 and 0 on the
-  candidate.
+- `grep -c '^### 2026-10-12 ' docs/decisions.md`: 0 on the baseline, 1 on
+  the candidate.
+- `grep -c '^Open\. Trigger:' docs/decisions.md`: 0 on the baseline and 0 on
+  the candidate — the committed baseline never held the friction subsection,
+  which entered the working tree uncommitted from the approved Spike. The
+  `Open. Trigger:` paragraph existed only in that pre-edit working tree,
+  where the count was 1, so this sub-instrument discriminates against the
+  working tree it edited, not against `ff2155d`; the row's baseline-red
+  rests on the heading count above. Found at review: the first version of
+  this subsection claimed 1 on the baseline, a measurement exact Git history
+  contradicts.
 
 These instruments are lexical. They reject a rewrite that keeps the escape
 clause or defines only one side, but not wording that is present and wrong:
