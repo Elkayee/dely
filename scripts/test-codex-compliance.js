@@ -53,6 +53,57 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+test("an unselected disabled alias cannot retarget into a selected source", async (t) => {
+  const f = fixture(t);
+  const other = path.join(f.repo, "other-source");
+  const alias = path.join(f.repo, "unused-alias");
+  fs.mkdirSync(other);
+  fs.writeFileSync(path.join(other, "SKILL.md"), "Unrelated disabled source.");
+  fs.symlinkSync(other, alias, "junction");
+  f.task.skills.push({ name: "unused-alias", path: path.join(alias, "SKILL.md"),
+    description: "An unrelated alias", enabled: false });
+  await f.prepare();
+  f.review();
+  if (process.platform === "win32") fs.rmdirSync(alias);
+  else fs.unlinkSync(alias);
+  fs.symlinkSync(path.dirname(f.skill), alias, "junction");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+for (const kind of ["body", "alias"]) {
+  test("a required " + kind + " cannot be rebound after prepared validation", async (t) => {
+    const f = fixture(t);
+    let alias, replacement;
+    if (kind === "alias") {
+      alias = path.join(f.repo, "required-alias");
+      replacement = path.join(f.repo, "replacement");
+      fs.mkdirSync(replacement);
+      fs.copyFileSync(f.skill, path.join(replacement, "SKILL.md"));
+      fs.symlinkSync(path.dirname(f.skill), alias, "junction");
+      f.task.skills[0].path = path.join(alias, "SKILL.md");
+    }
+    await f.prepare();
+    const mock = require(f.settings.advisor);
+    const skillKey = mock.skillKey;
+    let changed = false;
+    mock.skillKey = (file) => {
+      if (!changed) {
+        changed = true;
+        if (kind === "body") fs.appendFileSync(f.skill, " Changed after prepared validation.");
+        else {
+          if (process.platform === "win32") fs.rmdirSync(alias);
+          else fs.unlinkSync(alias);
+          fs.symlinkSync(replacement, alias, "junction");
+        }
+      }
+      return skillKey(file);
+    };
+    assert.throws(f.review, /changed/);
+    assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
+
 for (const kind of ["http", "timeout", "invalid"]) {
   test("optional " + kind + " advice failures remain independent of native admission", async (t) => {
     const f = fixture(t);

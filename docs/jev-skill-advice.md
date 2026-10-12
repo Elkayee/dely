@@ -21,7 +21,9 @@ Skill instruction bodies are never sent to Jev.
 The task/native metadata snapshots, selected and required sources, policies and active
 configuration are fingerprinted, including both alias and canonical YAML paths
 even when either policy file is absent. Original path bindings are checked separately,
-so retargeting a selected or required alias invalidates admission even with identical source bytes.
+so retargeting any supplied roster alias invalidates admission even with identical
+source bytes. This also catches a previously unrelated restrictive alias joining
+a selected policy group, without hashing that unrelated skill's body.
 Absent policy/configuration files are recorded explicitly; creating one or
 changing a protected source during assessment or local loading requires fresh preparation and review.
 Each Control selector must identify exactly one original record.

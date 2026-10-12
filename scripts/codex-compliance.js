@@ -81,7 +81,9 @@ function skillSnapshot(roster, selected, advisor, home) {
   const sources = roster.filter((skill) => keys.has(advisor.skillKey(skill.path)));
   const files = [...sources.flatMap((skill) => [skill.path, canonical(skill.path), ...advisor.skillPolicyPaths(skill.path)]),
     path.join(home, "config.toml")];
-  const snapshot = { fingerprints: fingerprints(files), catalog_paths: pathBindings(files) };
+  // A currently unrelated alias may later join a selected source's policy group.
+  const snapshot = { fingerprints: fingerprints(files),
+    catalog_paths: pathBindings([...roster.map((skill) => skill.path), ...files]) };
   snapshot.skills = advisor.combineSkills(sources, [], home).skills;
   checkSnapshot(snapshot);
   return snapshot;
@@ -207,7 +209,7 @@ function verifiedWorker(event, settings, handle = process.env.ORCA_TERMINAL_HAND
 function validate(state, event, home, requireDispatch = true) {
   if (!state || state.session !== event.session_id || state.turn !== event.turn_id ||
       !samePath(state.repo, event.cwd) || state.status !== "REVIEWED") {
-    throw Error("Current task has no reviewed Jev/skill evidence. Run prepare, inspect results, then review.");
+    throw Error("Current task has no reviewed native task and routing evidence. Run prepare, inspect results, then review.");
   }
   if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
   const settings = checkedSettings(home);
@@ -308,7 +310,7 @@ async function prepare(options, home) {
   const sourceRoster = path.join(directory, "skill-sources.json");
   const taskInput = path.join(directory, "task.json");
   const advisor = require(settings.advisor);
-  if (["combineSkills", "skillPolicyPaths", "skillKey"].some((name) => typeof advisor[name] !== "function")) throw Error("Reinstall the local skill policy helpers before preparing this task.");
+  if (["combineSkills", "skillPolicyPaths", "skillKey", "validateInput"].some((name) => typeof advisor[name] !== "function")) throw Error("Reinstall the local skill policy helpers before preparing this task.");
   advisor.validateInput({ request: task.request, skills: task.skills }, "skill");
   const required = task.required_skills || [];
   if (!Array.isArray(required) || required.some((id) => !task.skills.some((skill) => skill.name === id || skill.path === id))) {
@@ -398,6 +400,9 @@ function review(options, home) {
     return { name: skill.name, path: file, text: bytes.toString("utf8") };
   });
   checkSnapshot(snapshot);
+  checkSnapshot(state);
+  checkedSettings(home);
+  if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during review.");
   if (state.mode === "implement") {
     const routing = require(settings.routing);
     state.assessment = routing.review(state.assessment, options.difficulty, options.reason);

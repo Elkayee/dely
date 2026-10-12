@@ -163,10 +163,13 @@ makes no provider call.
 
 The hook freezes the complete task, native metadata, required skills at prepare,
 selected sources at review, both alias and canonical invocation policies
-(including absence), path bindings, AGENTS.md and installed dependencies.
+(including absence), all supplied roster path bindings, AGENTS.md and installed dependencies.
 It retains the conservative active-config fingerprint. Unrelated, nonrequired
 skill bodies are outside admission; changing a selected body, policy or alias
-invalidates review. Selected bytes and bindings must be stable while loaded.
+invalidates review. Roster alias bindings prevent an unrelated disabled or
+explicit-only alias from silently joining a selected policy group. Selected
+bytes and bindings must be stable while loaded; prepared evidence is rechecked
+before new selected evidence is admitted.
 Optional advice files are independent of this execution evidence.
 Legacy task states require fresh prepare/review; historical records are not
 rewritten or silently promoted. Update this adapter
