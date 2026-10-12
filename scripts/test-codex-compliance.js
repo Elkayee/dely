@@ -53,6 +53,46 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+test("same-turn steering allocates a fresh task input without overwriting prior evidence", (t) => {
+  const f = fixture(t);
+  const prompt = { ...f.event, hook_event_name: "UserPromptSubmit" };
+  guard.hook(prompt, f.home);
+  const current = () => JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const first = guard.inputFile(f.home, "session", "turn", current().input_nonce);
+  fs.mkdirSync(path.dirname(first), { recursive: true });
+  fs.writeFileSync(first, JSON.stringify(f.task));
+  guard.hook(prompt, f.home);
+  const second = guard.inputFile(f.home, "session", "turn", current().input_nonce);
+  assert.notEqual(second, first);
+  const patch = file => "*** Begin Patch\n*** Add File: " + file + "\n+" + JSON.stringify(f.task) + "\n*** End Patch";
+  assert.deepEqual(guard.hook({ ...f.event, tool_input: { input: patch(second) } }, f.home), {});
+  assert.equal(guard.hook({ ...f.event, tool_input: { input: patch(first) } }, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("required alias drift during grouping cannot omit its prepared source snapshot", async (t) => {
+  const f = fixture(t);
+  const alias = path.join(f.repo, "grouping-alias"), replacement = path.join(f.repo, "grouping-replacement");
+  fs.mkdirSync(replacement);
+  fs.copyFileSync(f.skill, path.join(replacement, "SKILL.md"));
+  fs.symlinkSync(path.dirname(f.skill), alias, "junction");
+  const source = path.join(alias, "SKILL.md");
+  f.task.skills[0].path = source;
+  const mock = require(f.settings.advisor), key = mock.skillKey;
+  let changed = false;
+  mock.skillKey = file => {
+    const result = key(file);
+    if (file === source && !changed) {
+      changed = true;
+      if (process.platform === "win32") fs.rmdirSync(alias);
+      else fs.unlinkSync(alias);
+      fs.symlinkSync(replacement, alias, "junction");
+    }
+    return result;
+  };
+  await assert.rejects(f.prepare, /changed/);
+});
+
+
 test("an unselected disabled alias cannot retarget into a selected source", async (t) => {
   const f = fixture(t);
   const other = path.join(f.repo, "other-source");
@@ -153,7 +193,7 @@ test("operational advice callers filter disabled and unrequested explicit-only c
 test("task input staging rejects links, escaping paths and multiple file writes", (t) => {
   const f = fixture(t);
   guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit" }, f.home);
-  const file = guard.inputFile(f.home, "session", "turn");
+  const file = guard.inputFile(f.home, "session", "turn", JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8")).input_nonce);
   const patch = (target) => "*** Begin Patch\n*** Add File: " + target + "\n+" +
     JSON.stringify(f.task) + "\n*** End Patch";
   const event = { ...f.event, tool_input: { input: patch(file) } };
@@ -221,7 +261,7 @@ test("unrelated native skill bodies do not invalidate reviewed admission", async
 test("current-turn JSON input can be staged without authorizing source edits", (t) => {
   const f = fixture(t);
   guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit" }, f.home);
-  const input = path.join(f.home, "dely-compliance", "inputs", guard.digest("session\0turn") + ".json");
+  const input = guard.inputFile(f.home, "session", "turn", JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8")).input_nonce);
   const patch = (file, content) => "*** Begin Patch\n*** Add File: " + file + "\n" +
     content.split("\n").map((line) => "+" + line).join("\n") + "\n*** End Patch";
   const event = { ...f.event, tool_input: { input: patch(input, JSON.stringify(f.task, null, 2)) } };

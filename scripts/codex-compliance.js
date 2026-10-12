@@ -24,8 +24,8 @@ const write = (file, value) => {
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
 const settingsFile = (home) => path.join(root(home), "settings.json");
-const NATIVE_SCHEMA = "native-skills-v1";
-const inputFile = (home, session, turn) => path.join(root(home), "inputs", digest(session + "\0" + turn) + ".json");
+const NATIVE_SCHEMA = "native-skills-v2";
+const inputFile = (home, session, turn, nonce = "") => path.join(root(home), "inputs", digest(session + "\0" + turn + "\0" + nonce) + ".json");
 const fingerprints = (files) => Object.fromEntries(files.map((file) =>
   [fs.existsSync(file) ? canonical(file) : path.resolve(file), fs.existsSync(file) ? hashFile(file) : null]));
 const unchanged = (file, hash) => (fs.existsSync(file) ? hashFile(file) : null) === hash;
@@ -42,7 +42,8 @@ const nodeCommand = (script) => process.platform === "win32" ?
 
 function taskInputWrite(event, state, home) {
   if (event.tool_name !== "apply_patch" || !event.turn_id || state.session !== event.session_id ||
-      state.turn !== event.turn_id) return false;
+      state.turn !== event.turn_id || (!/^[a-f0-9]{24}$/.test(state.input_nonce || "") &&
+        !(state.status === "PENDING" && state.input_nonce === undefined))) return false;
   try {
     if (!samePath(state.repo, event.cwd)) return false;
     const payload = event.tool_input;
@@ -53,7 +54,7 @@ function taskInputWrite(event, state, home) {
     if (lines[0] !== "*** Begin Patch" || !lines[1]?.startsWith("*** Add File: ") ||
         lines.at(-1) !== "*** End Patch" || !lines.slice(2, -1).every((line) => line.startsWith("+"))) return false;
     const file = path.resolve(lines[1].slice("*** Add File: ".length));
-    const expected = inputFile(home, event.session_id, event.turn_id);
+    const expected = inputFile(home, event.session_id, event.turn_id, state.input_nonce);
     const normalize = (value) => process.platform === "win32" ? value.toLowerCase() : value;
     if (normalize(file) !== normalize(path.resolve(expected))) return false;
     for (let entry = file; ; entry = path.dirname(entry)) {
@@ -77,13 +78,14 @@ function taskInputWrite(event, state, home) {
 }
 
 function skillSnapshot(roster, selected, advisor, home) {
+  const originalBindings = pathBindings(roster.map((skill) => skill.path));
   const keys = new Set(selected.map((skill) => advisor.skillKey(skill.path)));
   const sources = roster.filter((skill) => keys.has(advisor.skillKey(skill.path)));
   const files = [...sources.flatMap((skill) => [skill.path, canonical(skill.path), ...advisor.skillPolicyPaths(skill.path)]),
     path.join(home, "config.toml")];
   // A currently unrelated alias may later join a selected source's policy group.
   const snapshot = { fingerprints: fingerprints(files),
-    catalog_paths: pathBindings([...roster.map((skill) => skill.path), ...files]) };
+    catalog_paths: { ...pathBindings(files), ...originalBindings } };
   snapshot.skills = advisor.combineSkills(sources, [], home).skills;
   checkSnapshot(snapshot);
   return snapshot;
@@ -118,13 +120,13 @@ function checkedSettings(home) {
   return settings;
 }
 
-function context(event, home) {
+function context(event, home, state = {}) {
   const script = path.join(root(home), "codex-compliance.js").replace(/\\/g, "/");
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
-    " --task-file \"" + inputFile(home, event.session_id, event.turn_id).replace(/\\/g, "/") + "\". " +
+    " --task-file \"" + inputFile(home, event.session_id, event.turn_id, state.input_nonce).replace(/\\/g, "/") + "\". " +
     "Use apply_patch to add only that current-turn JSON input file before review; it grants no implementation authority. " +
     "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
@@ -244,9 +246,11 @@ function hook(event, home, workerCheck = verifiedWorker) {
   if (type === "UserPromptSubmit") {
     const prompt = typeof event.prompt === "string" ? event.prompt : "";
     const staged = prompt.match(/Task spec staged at \S+ \(\d+ bytes, SHA-256: ([a-f0-9]{64})\)/);
-    write(file, { session: event.session_id, turn: event.turn_id, repo: canonical(event.cwd), status: "PENDING",
-      worker_claim: { receipts: prompt.match(/rcpt_[a-f0-9]{16}/g) || [], spec_sha256: staged && staged[1] } });
-    return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home) } };
+    const state = { session: event.session_id, turn: event.turn_id, repo: canonical(event.cwd), status: "PENDING",
+      input_nonce: crypto.randomBytes(12).toString("hex"),
+      worker_claim: { receipts: prompt.match(/rcpt_[a-f0-9]{16}/g) || [], spec_sha256: staged && staged[1] } };
+    write(file, state);
+    return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, state) } };
   }
   if (type !== "PreToolUse" && type !== "Stop") return {};
   if (type === "PreToolUse" && !needsReview(event, script)) return {};
@@ -280,7 +284,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
     }
     return {};
   } catch (error) {
-    const reason = error.message + " " + context(event, home);
+    const reason = error.message + " " + context(event, home, state);
     if (type === "Stop") {
       write(file, { ...state, stop_reported: true });
       return { decision: "block", reason: reason + " If blocked, report the limitation instead of claiming completion." };
@@ -292,6 +296,8 @@ function hook(event, home, workerCheck = verifiedWorker) {
 
 async function prepare(options, home) {
   const settings = checkedSettings(home);
+  const sessionFile = stateFile(home, options.session);
+  const pending = fs.existsSync(sessionFile) ? read(sessionFile) : {};
   const file = options["task-file"];
   if ((file !== undefined) === (options["task-json"] !== undefined)) {
     throw Error("Supply exactly one of --task-file or --task-json.");
@@ -331,6 +337,12 @@ async function prepare(options, home) {
     skill_selection: { source: "native-session", advice_status: "NOT_REQUESTED" },
     required_skills: required, instructions: instructions(repo, home),
   };
+  const latest = fs.existsSync(sessionFile) ? read(sessionFile) : {};
+  if (latest.turn !== pending.turn || latest.input_nonce !== pending.input_nonce) {
+    throw Error("User prompt changed during preparation; prepare and review the current request.");
+  }
+  state.input_nonce = pending.turn === options.turn && /^[a-f0-9]{24}$/.test(pending.input_nonce || "") ?
+    pending.input_nonce : crypto.randomBytes(12).toString("hex");
   if (task.mode === "implement") {
     if (typeof task.spec !== "string" || !task.context) throw Error("Implementation needs a spec and complete routing context.");
     const specFile = path.join(directory, "spec.md");

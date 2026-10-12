@@ -64,7 +64,8 @@ supports each Hard exclusion. Unknown effects remain unevaluated.
 2. Read the exact input path printed by the current UserPromptSubmit hook.
    Use `apply_patch` to add that one UTF-8 JSON file. Its path is inside the
    effective hook home's `dely-compliance/inputs/`, with a filename bound to
-   the session and turn. This narrow preparation exception accepts one complete
+   the session, turn and fresh UserPromptSubmit nonce. Steering within the same
+   turn gets a new path, so prior input remains intact. This exception accepts one complete
    JSON task, never a second file, an update, an existing file, a directory link
    or an escaping path. It grants no implementation permission. Invoke the
    installed script's prepare command with --session,
