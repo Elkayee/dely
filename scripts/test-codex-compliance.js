@@ -255,12 +255,13 @@ test("selected policy mutation during loading cannot produce reviewed admission"
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
-test("once attempted, identical accepted tools do not rewrite session state", async (t) => {
+test("once admitted, identical accepted tools do not rewrite session state", async (t) => {
   const f = fixture(t);
   await f.prepare();
   f.review();
   assert.deepEqual(guard.hook(f.event, f.home), {});
   const file = guard.stateFile(f.home, "session");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mutation_admitted, true);
   const before = fs.statSync(file).mtimeMs;
   for (let i = 0; i < 10; i++) assert.deepEqual(guard.hook(f.event, f.home), {});
   assert.equal(fs.statSync(file).mtimeMs, before);
@@ -923,7 +924,7 @@ test("editing the advisor checkout preserves the frozen advice used by the activ
   assert.equal((await f.prepare()).skill_selection.advice_status, "NOT_REQUESTED");
 });
 
-test("Windows hooks bypass shadowed Node and execute through the actual PowerShell seam", { skip: process.platform !== "win32" }, (t) => {
+test("Windows native hook seam denies compound reads and permits the first Stop", { skip: process.platform !== "win32" }, (t) => {
   const f = fixture(t);
   const manifest = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"));
   const command = manifest.hooks.PreToolUse[0].hooks[0].command;
@@ -932,11 +933,24 @@ test("Windows hooks bypass shadowed Node and execute through the actual PowerShe
   const shadow = path.join(path.dirname(f.repo), "shadow");
   fs.mkdirSync(shadow);
   fs.writeFileSync(path.join(shadow, "node"), Buffer.from([127, 69, 76, 70]));
-  const result = spawnSync("C:/Program Files/PowerShell/7/pwsh.exe", ["-NoProfile", "-Command", command],
-    { input: JSON.stringify(f.event), encoding: "utf8", windowsHide: true, timeout: 5000,
-      env: { ...process.env, PATH: shadow + path.delimiter + process.env.PATH } });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, "deny");
+  const invoke = (event) => {
+    const result = spawnSync("C:/Program Files/PowerShell/7/pwsh.exe", ["-NoProfile", "-Command", command],
+      { input: JSON.stringify(event), encoding: "utf8", windowsHide: true, timeout: 5000,
+        env: { ...process.env, PATH: shadow + path.delimiter + process.env.PATH } });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  assert.match(invoke({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Explain this hook" })
+    .hookSpecificOutput.additionalContext, /prepare --session/);
+  const read = { ...f.event, tool_name: "Bash", tool_input: { command: "Get-Content AGENTS.md; Get-Content README.md" } };
+  const denied = invoke(read).hookSpecificOutput;
+  assert.equal(denied.permissionDecision, "deny");
+  assert.match(denied.permissionDecisionReason, /one read command per tool call/);
+  assert.deepEqual(invoke({ ...read, tool_input: { command: "Get-Content AGENTS.md" } }), {});
+  const stop = { ...f.event, hook_event_name: "Stop" };
+  assert.deepEqual(invoke(stop), {});
+  assert.equal(invoke(f.event).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(invoke(stop), {});
 });
 
 test("file input prepares the complete oversized catalog through the native CLI", (t) => {
@@ -999,8 +1013,89 @@ test("invalid file inputs never produce a prepared task", async (t) => {
   });
 });
 
-test("advice-only review never authorizes edits; Stop permits an honest blocked report", async (t) => {
+test("advice-only review denies edits and permits the first honest blocked report", async (t) => {
   const f = fixture(t);
+  f.task.mode = "advice";
+  await f.prepare();
+  f.review();
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  const stop = { ...f.event, hook_event_name: "Stop" };
+  assert.equal(JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8")).mutation_admitted, false);
+  assert.deepEqual(guard.hook(stop, f.home), {});
+  assert.deepEqual(guard.hook(stop, f.home), {});
+});
+
+test("denied compound reads stay blocked but permit read-only completion", (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Explain the hook" }, f.home);
+  const event = { ...f.event, tool_name: "Bash",
+    tool_input: { command: "Get-Content AGENTS.md; Get-Content README.md" } };
+  const result = guard.hook(event, f.home).hookSpecificOutput;
+  assert.equal(result.permissionDecision, "deny");
+  assert.deepEqual(guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home), {});
+  assert.match(result.permissionDecisionReason, /one read command per tool call/);
+  assert.match(result.permissionDecisionReason, /guide\.md/);
+  assert.ok(result.permissionDecisionReason.length < 1000);
+  assert.doesNotMatch(result.permissionDecisionReason, /Dely compliance is active/);
+  const file = guard.stateFile(f.home, "session");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mutation_admitted, false);
+  assert.deepEqual(guard.hook({ ...event, tool_input: { command: "Get-Content AGENTS.md" } }, f.home), {});
+  assert.deepEqual(guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home), {});
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home), {});
+});
+
+test("prepared implementation without admitted tools permits a limitation report", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  const stop = { ...f.event, hook_event_name: "Stop" };
+  assert.deepEqual(guard.hook(stop, f.home), {});
+  const reason = guard.hook(f.event, f.home).hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /prepare.*review/i);
+  assert.ok(reason.length < 1000);
+  assert.deepEqual(guard.hook(stop, f.home), {});
+});
+
+test("Stop still checks admitted evidence and denied retries do not rearm it", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  const original = fs.readFileSync(f.skill);
+  fs.appendFileSync(f.skill, "Changed after admission.\n");
+  const stop = { ...f.event, hook_event_name: "Stop" };
+  assert.equal(guard.hook(stop, f.home).decision, "block");
+  assert.deepEqual(guard.hook(stop, f.home), {});
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(guard.hook(stop, f.home), {});
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.mutation_admitted, true);
+  assert.equal(state.stop_reported, true);
+  fs.writeFileSync(f.skill, original);
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  fs.appendFileSync(f.skill, "Changed after readmission.\n");
+  assert.equal(guard.hook(stop, f.home).decision, "block");
+});
+
+test("legacy attempted evidence remains conservative until a new prompt", (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Legacy task" }, f.home);
+  const file = guard.stateFile(f.home, "session");
+  const state = JSON.parse(fs.readFileSync(file, "utf8"));
+  delete state.mutation_admitted;
+  fs.writeFileSync(file, JSON.stringify({ ...state, attempted: true }));
+  const stop = { ...f.event, hook_event_name: "Stop" };
+  assert.equal(guard.hook(stop, f.home).decision, "block");
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "New advice task" }, f.home);
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(guard.hook(stop, f.home), {});
+});
+
+test("repreparing advice in the same turn retains an admitted mutation's Stop check", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  assert.deepEqual(guard.hook(f.event, f.home), {});
   f.task.mode = "advice";
   await f.prepare();
   f.review();
@@ -1008,6 +1103,16 @@ test("advice-only review never authorizes edits; Stop permits an honest blocked 
   const stop = { ...f.event, hook_event_name: "Stop" };
   assert.equal(guard.hook(stop, f.home).decision, "block");
   assert.deepEqual(guard.hook(stop, f.home), {});
+});
+
+test("denied Dely workers receive concise Control recovery guidance", (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit",
+    prompt: "Task spec staged at spec.md (1 bytes, SHA-256: " + "a".repeat(64) + ") rcpt_0123456789abcdef" }, f.home);
+  const reason = guard.hook(f.event, f.home, () => false).hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /report.*Control/i);
+  assert.match(reason, /Do not prepare or review/);
+  assert.ok(reason.length < 1000);
 });
 
 test("installer retains existing hooks and adds its own definitions once", (t) => {

@@ -160,6 +160,22 @@ function commandWords(command) {
   return words.map((word) => /^['"]/.test(word) ? word.slice(1, -1) : word);
 }
 
+function compoundCommand(command) {
+  const unquoted = command.replace(/'(?:[^']|'')*'|"(?:\x60.|[^"\x60])*"/g, "");
+  return /[;|><\r\n]|\&\&|\$\(/.test(unquoted);
+}
+
+function denialReason(error, event, home, state) {
+  const guide = 'See "' + path.join(root(home), "guide.md").replace(/\\/g, "/") + '".';
+  if (state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length)) {
+    return error.message + " Dely worker: report the denial to Control. Do not prepare or review a task as a worker. " + guide;
+  }
+  const command = String(event.tool_input && (event.tool_input.command || event.tool_input.cmd) || "");
+  const hint = event.tool_name === "Bash" && compoundCommand(command) ?
+    "Compound shell commands require review. For read-only inspection, use one read command per tool call. " : "";
+  return hint + error.message + " Before implementation, follow this turn's prepare/review instructions. " + guide;
+}
+
 function needsReview(event, script) {
   const name = event.tool_name || "";
   if (/^(?:apply_patch|Edit|Write)$/.test(name)) return true;
@@ -174,8 +190,7 @@ function needsReview(event, script) {
     if (words[0] === "proxy") words.shift();
   }
   const executable = path.basename(words[0] || "").toLowerCase().replace(/\.exe$/, "");
-  const unquoted = command.replace(/'(?:[^']|'')*'|"(?:\x60.|[^"\x60])*"/g, "");
-  const chained = /[;|><\r\n]|\&\&|\$\(/.test(unquoted) ||
+  const chained = compoundCommand(command) ||
     words.some((word) => /^--(?:output|ext-diff)(?:=|$)/.test(word));
   if (executable === "node" && words[1] && !chained) {
     try {
@@ -265,6 +280,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
     const prompt = typeof event.prompt === "string" ? event.prompt : "";
     const staged = prompt.match(/Task spec staged at \S+ \(\d+ bytes, SHA-256: ([a-f0-9]{64})\)/);
     const state = { session: event.session_id, turn: event.turn_id, repo: canonical(event.cwd), status: "PENDING",
+      mutation_admitted: false,
       input_nonce: crypto.randomBytes(12).toString("hex"),
       worker_claim: { receipts: prompt.match(/rcpt_[a-f0-9]{16}/g) || [], spec_sha256: staged && staged[1] } };
     write(promptFile(home, event.session_id), { session: state.session, turn: state.turn,
@@ -275,12 +291,14 @@ function hook(event, home, workerCheck = verifiedWorker) {
   if (type !== "PreToolUse" && type !== "Stop") return {};
   if (type === "PreToolUse" && !needsReview(event, script)) return {};
   const state = fs.existsSync(file) ? read(file) : {};
+  // Legacy attempted evidence is ambiguous; retain its Stop check until the next prompt.
+  const admitted = state.mutation_admitted ?? !!state.attempted;
   if (type === "PreToolUse" && taskInputWrite(event, state, home)) return {};
   try {
     checkPrompt(state, home);
     if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) return {};
   } catch (_) { /* unknown worker identity never exempts a tool call */ }
-  if (type === "Stop" && ((!state.attempted && state.mode !== "implement") || state.stop_reported)) return {};
+  if (type === "Stop" && (!admitted || state.stop_reported)) return {};
   try {
     let coordinating = false;
     if (type === "PreToolUse" && event.tool_name === "Bash") {
@@ -291,26 +309,25 @@ function hook(event, home, workerCheck = verifiedWorker) {
         words.shift();
         if (words[0] === "proxy") words.shift();
       }
-      const unquoted = command.replace(/'(?:[^']|'')*'|"(?:\x60.|[^"\x60])*"/g, "");
       const settings = checkedSettings(home);
-      coordinating = !/[;|><\r\n]|\&\&|\$\(/.test(unquoted) &&
+      coordinating = !compoundCommand(command) &&
         path.basename(words[0] || "").replace(/\.exe$/i, "") === "node" && words[1] && !words[1].startsWith("-") &&
         fs.existsSync(words[1]) &&
         samePath(words[1], settings.dely) &&
         ["preflight", "dispatch", "wait", "wait-bg", "cleanup", "notify"].includes(words[2]);
     }
     validate(state, event, home, !coordinating);
-    if (type === "PreToolUse" && !coordinating && (!state.attempted || state.stop_reported)) {
-      write(file, { ...state, attempted: true, stop_reported: false });
+    if (type === "PreToolUse" && !coordinating && (state.mutation_admitted !== true || state.stop_reported)) {
+      write(file, { ...state, mutation_admitted: true, stop_reported: false });
     }
     return {};
   } catch (error) {
-    const reason = error.message + " " + context(event, home, state);
+    const reason = denialReason(error, event, home, state);
     if (type === "Stop") {
       write(file, { ...state, stop_reported: true });
       return { decision: "block", reason: reason + " If blocked, report the limitation instead of claiming completion." };
     }
-    write(file, { ...state, attempted: true, stop_reported: false });
+    write(file, { ...state, mutation_admitted: admitted });
     return { hookSpecificOutput: { hookEventName: type, permissionDecision: "deny", permissionDecisionReason: reason } };
   }
 }
@@ -354,6 +371,9 @@ async function prepare(options, home) {
     schema: NATIVE_SCHEMA,
     session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
     prepared_at: new Date().toISOString(), worker_claim: pending.worker_claim,
+    mutation_admitted: pending.session === options.session && pending.turn === options.turn &&
+      (pending.mutation_admitted ?? !!pending.attempted),
+    stop_reported: pending.session === options.session && pending.turn === options.turn && !!pending.stop_reported,
     task_input: taskInput, skill_input: skillInput, session_roster: sessionRoster,
     source_roster: sourceRoster, catalog_paths: snapshot.catalog_paths,
     skill_selection: { source: "native-session", advice_status: "NOT_REQUESTED" },

@@ -42,9 +42,10 @@ the frozen software and guides without granting or changing native hook trust.
 SessionStart and each UserPromptSubmit supply the current session/turn IDs,
 the installed script and this guide. Read-only inspection can gather context
 before preparation. Keep mandatory instructions outside relevance ranking.
-Use simple read commands and the resolved Orca CLI directly. Shell conditionals,
-pipelines and wrappers remain subject to review; a denied command records an
-attempt and can require review at Stop. A preflight healthcheck performs only
+Use one read command per tool call and the resolved Orca CLI directly. Independent
+reads can use separate parallel tool calls. Shell conditionals, compound commands,
+pipelines, redirects and wrappers remain subject to review. A denied tool stays
+blocked and permits an honest limitation report at Stop. A preflight healthcheck performs only
 read-only instruction loading and Orca lifecycle calls, then stops without
 implementation or a separate Jev review.
 After Context Engine returns multiple optional candidates, use the existing
@@ -202,9 +203,19 @@ If preparation nevertheless occurs, it retains only the current prompt's
 worker claim; the same dispatch/model/terminal/inventory checks still apply.
 An unrelated prompt resets that claim and cannot inherit the preceding task.
 
-Stop asks for missing evidence after an implementation attempt. It blocks
-once per unresolved state and then permits an honest limitation report,
-avoiding an endless completion loop.
+Stop checks evidence only after a tool requiring implementation authority has
+passed PreToolUse validation. The `mutation_admitted` flag records admission,
+not execution or successful completion. Denied tools and preparation alone do
+not set it. Repreparing in the same turn preserves it; a new prompt resets it.
+Legacy `attempted` evidence retains its conservative Stop check until the next
+prompt because it cannot distinguish admitted tools from denials.
+
+After admission, Stop blocks once per unresolved evidence state and then permits
+an honest limitation report. Denied retries do not rearm that block; another
+admitted tool does. SessionStart and UserPromptSubmit retain the full preparation
+procedure. Denials give a concise cause and the installed guide path; compound
+shell commands also suggest separate read tool calls. Workers report admission
+denials to Control and never prepare or review their own task.
 
 This is an omission guardrail, not proof that a model understood or followed
 every instruction. Shell classification is conservative, not a security
@@ -220,6 +231,10 @@ those limits in [Hooks](https://learn.chatgpt.com/docs/hooks).
 Verify a fresh native session rejects a write with no preparation, preserves
 read-only inspection, and allows a write after task assessment and explicit
 Control review. Verify the hook's trust status through /hooks.
+Also verify a denied compound read followed by Stop permits the first final
+report while the compound command and an unreviewed write remain blocked.
+Set `COMPLIANCE_ROUTING` to the installed `task-routing.js` when the test
+fixture's default cache pin is unavailable.
 
 Backups are inside each Codex home's dely-compliance directory. To remove the
 adapter, remove only its four command handlers from hooks.json, preserving

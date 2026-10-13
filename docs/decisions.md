@@ -9,6 +9,23 @@ Last updated 2026-10-13.
 
 ## Settled
 
+### 2026-10-13 — Stop follows admitted mutations
+
+The local Codex compliance adapter records `mutation_admitted` only when a tool
+requiring implementation authority passes PreToolUse validation. A denied
+compound read or unreviewed write remains blocked and permits the first final
+limitation report. Previously, the shared `attempted` flag made those denials
+block Stop even though the tool had not been admitted.
+
+Stop still validates admitted evidence and blocks once when it is unresolved.
+Denied retries preserve that reported state; another admitted tool rearms it.
+Repreparing within a turn retains admission, and a new prompt resets it. Existing
+legacy attempted state retains conservative checks until the next prompt.
+Mutation routing, fingerprint checks and worker ownership remain enforced.
+Compound shell syntax stays subject to review; independent reads use separate
+tool calls. Denial text is concise and points to the installed guide, while
+prompt hooks retain complete preparation instructions.
+
 ### 2026-10-13 — Staged evidence integration and OMP closure
 
 The staged pointer and inherited worker admission use the delivered snapshot's
