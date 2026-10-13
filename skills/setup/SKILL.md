@@ -19,6 +19,7 @@ this package, from memory, or from `docs/`.
 .dely/pins.json            team pins, tracked
 .dely/local/pins.json      personal pins, never tracked
 .dely/local/.gitignore     contains *, so nothing under .dely/local is tracked
+.dely/local/runs/<run>/    prompts and handoffs of one Orca Run, written by delivery
 ```
 
 Each file is an object whose only keys are `implement` and `review`. Each
@@ -45,7 +46,7 @@ that harness's defaults for model and effort, written as the literal
 harnesses, models and effort levels and write what the human chooses. Where a
 harness exposes no way to pin a model or an effort, write the literal `default`
 for that cell and point to Orca's agent default arguments. An entry with
-`modelPin: spec` or `modelPin: spec-unchecked` can be pinned — offer its
+`effortInModel` or `modelPin: spec-unchecked` can be pinned — offer its
 discovered models and effort levels as for a flag harness, and write
 Effort `default` for a model whose effort field is `null`.
 
@@ -76,8 +77,8 @@ Then make sure `AGENTS.md` carries the routing line. If it has no
 > Bounded or Architectural work invokes `dely:delivery`; Spike starts no
 > delivery run.
 
-If `AGENTS.md` contains an old `<!-- dely:begin -->` block, the helper stops
-until it is gone. Offer to replace the block, from its begin marker through its
+If `AGENTS.md` contains an old `<!-- dely:begin -->` block, the helper no
+longer reads it. Offer to replace the block, from its begin marker through its
 end marker, with the routing line, and carry its table over to
 `.dely/pins.json` as the proposed team pins. Change `AGENTS.md` only on a yes.
 Prose outside the block is never touched.

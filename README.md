@@ -46,7 +46,7 @@ Dely here.
 **Reviewer** is a session Control starts to check the change independently
 before the pull request. The implementer and the reviewer are the workers.
 
-A Spike investigates only — no delivery run.
+A Spike investigates only — no delivery run. One that dispatches workers opens its own Orca Run and keeps their files in that Run's folder.
 
 ## Choose a harness for each role
 
@@ -66,8 +66,8 @@ question; Pi asks only when the project or a parent folder has `.pi/` or
 | Kiro CLI | ✗ | ✗ | ✗ | Workers never start in Orca. |
 | Cursor Agent CLI | ✓ | ✓ | ✓ | Choose the effort through the model name, for example cursor-grok-4.6-high. |
 | GitHub Copilot CLI | ✓ | ⚠ | ⚠ | At the first launch, answer No, thanks to the app prompt; until then a launch can leave the task unsent. Answer the folder trust question once in every project and choose to remember the folder; Orca does not see it, so a missed one shows as NO_ACK. As a worker, you cannot choose the model. |
-| OMP | ✓ | ⚠ | ⚠ | It never asks for trust, so use it only in repositories you trust. As a worker, use Orca 1.4.220 or newer, which does not show OMP's status (stablyai/orca#24436), so Dely reports a working OMP worker as needing attention. As a worker, to pin a model, install Dely in OMP, then check the model in OMP's session log. |
-| Pi | ⚠ | ⚠ | ⚠ | As Control, run Dely's commands with no time limit, and release leftover workers. As a worker, to pin a model, install Dely in Pi, then check the model in Pi's session log. |
+| OMP | ⚠ | ⚠ | ⚠ | It never asks for trust, so use it only in repositories you trust. As a worker, use Orca 1.4.224 or newer, which does not show OMP's status (stablyai/orca#24436), so Dely reports a working OMP worker as needing attention. As Control, run dely wait with your largest job timeout (3600 s); a shorter timeout kills the wait before it ends. |
+| Pi | ⚠ | ⚠ | ⚠ | As Control, run Dely's commands with no time limit. As a worker, to pin a model, install Dely in Pi, then check the model in Pi's session log. |
 
 Other agents Orca can launch may work too;
 [`harnesses.json`](harnesses.json) records what was measured.
@@ -95,7 +95,7 @@ On Linux, the binary is `orca-ide`.
 
 **Install Dely only in the harness you use as the Control session.** A harness
 used only as implementer or reviewer needs Orca and its own login. Workers
-read no Dely skill. **A pinned OMP or Pi worker also needs that harness's
+read no Dely skill. **A pinned Pi worker also needs that harness's
 Dely install below**, which loads `dely-pin.ts`.
 
 Have Node 18 or newer on PATH. Open Control in your project and ask for a
@@ -196,7 +196,7 @@ Use a dedicated clone or an unpacked snapshot; install links the source path.
 ```bash
 git clone https://github.com/hieuphung97/dely.git
 omp plugin install /path/to/dely
-omp plugin list --json                    # verify dely-pin.ts
+omp plugin list --json                    # verify the install (Control only; OMP workers need none)
 omp skill list --json                     # verify loaded skills
 omp plugin uninstall dely                 # remove; needs bun on PATH
 omp plugin disable dely                   # disable skills and extension
@@ -225,10 +225,10 @@ Update by installing the new tag. At startup, check that Skills names
 Invoke `/skill:delivery` or `/skill:setup`. Check a pinned worker's model in
 `~/.pi/agent/sessions/`.
 
-Checked versions (observations, not minimums): Orca 1.4.218, 1.4.220 (OMP worker); Claude Code
+Checked versions (observations, not minimums): Orca 1.4.218, 1.4.220, 1.4.224 (OMP and Pi worker); Claude Code
 2.1.286; Codex CLI 0.159.3; Cursor Agent CLI 2026.09.28-64d2043; Copilot CLI
 1.0.89; Antigravity CLI 1.2.13 (install), 1.2.14 (worker, Control); Grok
-Build 1.0.44; OMP 18.4.8 (Control), 18.6.1 (worker); Pi 0.99.1.
+Build 1.0.44; OMP 18.4.8 (Control), 18.6.1 (worker); Pi 0.99.1, 1.0.2.
 
 ## Configure a project
 
@@ -260,8 +260,15 @@ uses Control's harness and defaults.
 In another worktree of the same clone, Dely looks for your file in that
 worktree first, then in the main checkout.
 
-`.dely/local/` has its own `.gitignore`, so nothing in it shows in `git status`.
+`.dely/local/` has its own `.gitignore` holding `*`, so nothing in it shows in
+`git status`; `dely dispatch` writes it when absent and leaves an existing one alone.
 `git clean -fdx` deletes it, personal pins included.
+
+`.dely/local/runs/<run>/` holds every prompt and handoff of one Orca Run;
+`dely dispatch` refuses a prompt anywhere else. The files stay until the run
+closes, when Control deletes the folder and `dely log` records anything left
+there as `residue`; `null` with a `residueError` means part of the folder could
+not be read.
 
 To see what is in use, ask Control to run `dely pins --repo <path>`. It prints
 each phase's harness, model, effort and source (`local`, `team` or `control`).
@@ -269,8 +276,8 @@ each phase's harness, model, effort and source (`local`, `team` or `control`).
 ### Upgrading from 0.23
 
 Version 0.23 kept the pins in a `<!-- dely:begin -->` block in `AGENTS.md`.
-Dely now stops while that block is there. Run `dely:setup`. It offers to move
-the table to `.dely/pins.json` and leave one routing line in `AGENTS.md`.
+Dely no longer reads that block. Run `dely:setup` to move the table to
+`.dely/pins.json` and replace the block with one routing line in `AGENTS.md`.
 
 ## Log
 
@@ -295,6 +302,11 @@ harness printed.
   first launch also shows an app promo: answer No, thanks once;
   Antigravity can lose the prompt on a new path; retry once. Pi asks when
   the path or an ancestor has `.pi/` resources or `.agents/skills`.
+- **Worker tab stays open:** Dely releases each worker when its `worker_done`
+  settles and again at close. A tab you typed or pasted into is yours, so
+  Orca keeps it (`retained`, `user_takeover`); close it yourself. Answer a
+  harness dialog by opening that harness in the same path (as the trust
+  bullet says), not in the worker tab.
 - **Codex helper says "not inside an Orca terminal":** ask Control to look up
   its handle with `orca terminal list --worktree active --json` only when
   that worktree has one agent terminal, then prefix helper and `orca` commands

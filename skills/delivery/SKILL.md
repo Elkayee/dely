@@ -1,6 +1,6 @@
 ---
 name: delivery
-description: Deliver a change through an approved design contract, sequential implementation, independent review and exact-HEAD release. Use for any Bounded or Architectural change — including a small, one-line behavioral fix, which is the canonical Bounded case — so it gets design approval and independent review. Not for a Spike, which investigates and recommends without starting a delivery run.
+description: Deliver a change through an approved design contract, sequential implementation, independent review and exact-HEAD release. Use for any Bounded or Architectural change — including a small, one-line behavioral fix, which is the canonical Bounded case — so it gets design approval and independent review. Not for a Spike, which investigates and recommends without starting a delivery run; a Spike that dispatches workers still opens its own Run and keeps their files in its folder.
 ---
 
 # Delivery
@@ -163,14 +163,21 @@ and again after a `NO_ACK`; a delivery does not preflight before its first
 dispatch. Run `dely preflight` and `dely dispatch` with no tool timeout, or
 one of at least 300 s.
 
-Write the prompt to an untracked file **inside the worktree**. Never inline
-it in a shell argument: prompts carry backticks, quotes and newlines, and a
-shell argument mangles them. A path outside the workspace can trigger a
-second permission surface some harnesses still prompt for even when tool
-approval is skipped. Do not stage that file. After the worker returns,
-delete it: Control owns that dispatch artifact, not `git clean`. The handoff
-is a file in the worktree; its path travels as `payload.reportPath` and the
-message body stays short. `--spec` and `--body` are shell arguments, which
+Write the prompt to a file in the Run's folder,
+`<repo>/.dely/local/runs/<run>/`, where `<run>` is the Orca Run id; `dely
+dispatch` refuses a `--spec-file` anywhere else. It writes
+`.dely/local/.gitignore` containing `*` when that file is absent and leaves an
+existing one as it is, so the Run's files stay out of `git status` only while
+that file ignores them.
+Never inline it in a shell argument: prompts carry backticks, quotes and
+newlines, and a shell argument mangles them. A path outside the workspace can
+trigger a second permission surface some harnesses still prompt for even when
+tool approval is skipped. The handoff is a file in the same folder; its path
+travels as `payload.reportPath` and the message body stays short. Routing,
+review and remediation read earlier prompts and handoffs, so nothing in the
+folder is deleted when a worker returns; it is kept until the run closes. A
+Spike that dispatches workers opens its own Run, dispatches through `dely
+dispatch` the same way, and closes when it reports its recommendation. `--spec` and `--body` are shell arguments, which
 this skill already forbids for prompts.
 
 The dispatch prompt carries the task, its scope, and the evidence required.
@@ -191,10 +198,13 @@ did not pin.
 **Name the model and effort on every dispatch.** The helper passes
 `--model`/`--effort` when `../../harnesses.json` says that harness takes
 them, and omits a flag whose value is `default`. A harness whose entry
-names `modelPin: spec` or `modelPin: spec-unchecked` receives its pin as a
-spec line instead of flags, and the helper verifies the reported model
-only for `spec`; a pin such a harness cannot resolve stops the worker
-before its first request and surfaces as `NO_ACK`. A spec line must not start
+has `effortInModel` and `modelFlag` receives a pinned Effort joined to the
+Model by that string in `--model` (`selector:level`), never `--effort`; Effort
+`default` passes the Model alone, and a pinned Effort with Model `default` is
+refused. A harness whose entry names `modelPin: spec-unchecked` receives its
+pin as a spec line instead of flags, and the helper never verifies the
+reported model; a pin such a harness cannot resolve stops the worker before
+its first request and surfaces as `NO_ACK`. A spec line must not start
 `dely-pin:`. On a harness that takes neither flags nor a spec pin, a Model
 written there is silently not applied:
 write `default` and set the model in Orca's agent default arguments. A worker
@@ -213,12 +223,17 @@ last command, then ends the turn (a waker Control never runs `dely wait`);
 terminal it runs in and refuses a waker even when `--control` names another
 one, so `REFUSED … (called with --control …)` means use `wait-bg`.
 
-**Result handling.** `SETTLED`: process the batch, do the guide's completion
-accounting, and pass the settled `deliveryId` as `--ack` to the next
-`dely wait` or `wait-bg`, or run `orca orchestration check --ack` when no
-wait follows. When `wait` (or the `wait-bg` output) prints `ERROR` for
-`--ack`, run `orca orchestration check --ack <settled id>` and wait again
-without `--ack`; a waker Control waits again with `wait-bg`. `ATTENTION` has
+**Result handling.** `SETTLED`: the helper has already released each worker
+whose accepted `worker_done` is in the batch and lists Orca's answer under
+`release`; Control does not release those itself and never closes a worker
+terminal by hand (`terminal close`). `retained` with `user_takeover` means a
+human typed in that tab; Orca keeps it and the human closes it. Process the
+batch, do the guide's completion accounting, and pass the settled
+`deliveryId` as `--ack` to the next `dely wait` or `wait-bg`, or run
+`orca orchestration check --ack` when no wait follows. When `wait` (or the
+`wait-bg` output) prints `ERROR` for `--ack`, run
+`orca orchestration check --ack <settled id>` and wait again without `--ack`;
+a waker Control waits again with `wait-bg`. `ATTENTION` has
 two routes, and the difference is whether the plane can still see the
 worker. With `nextAction.kind` other than `none`, run the argv Orca printed
 and skip that id next time. With `nextAction: none` and
@@ -348,21 +363,31 @@ deterministic checks already prove the contract.
 
 ### Remediation
 
-One pass is one remediation pass per finding, not per review. For an
-in-contract `CHANGES_REQUESTED` finding, the **original implementer**
-verifies it, fixes the root cause, reruns the affected instruments and
-closure gates, and writes a separate remediation commit — this is the
-single original-party remediation. Control owns the plan and the decision
-record for the whole run, including remediating findings inside them.
-Amending them is not implementing the candidate. The **reviewer that raised
-the finding** checks its reproduction and the fix-only diff, and
-scope-checks a Control amendment the same way. If that scoped re-review
-does not accept, Control routes to `REPLAN_OR_SPLIT` — it does not start
-another repair loop. `BLOCKED` preserves the candidate and escalates the
-unresolved dependency or authority question to Control separately from a
-failed worker process; it is not remediated by the original implementer. A
-fresh replacement reviewer is used only when the original reviewer is
-unavailable or contested, and for the Architectural integration review.
+One pass is one remediation pass per finding, not per review. The original
+parties are defined by pin and briefing, not by session: the helper releases
+every worker at settlement, so remediation and re-review are fresh
+dispatches briefed from the Run's folder.
+
+For an in-contract `CHANGES_REQUESTED` finding, remediation is a fresh
+dispatch on the implement pin whose prompt names the original task prompt,
+the implement handoff, and the finding as the reviewer wrote it. That worker
+is the original implementer for every rule here: it verifies the finding,
+fixes the root cause, reruns the affected instruments and closure gates, and
+writes a separate remediation commit. Control owns the plan and the decision
+record for the whole run, including remediating findings inside them;
+amending them is not implementing the candidate.
+
+The scoped re-review is a fresh dispatch on the review pin whose prompt
+names the original review prompt, the raised finding's handoff unedited, the
+fix-only diff, and the full candidate diff for context; a re-review not
+briefed with that handoff is not the scoped re-review. It checks the
+finding's reproduction, the fix, and any defect the fix introduced, and
+scope-checks a Control amendment the same way. If it does not accept,
+Control routes to `REPLAN_OR_SPLIT` — it does not start another repair loop.
+`BLOCKED` preserves the candidate and escalates the unresolved dependency or
+authority question to Control separately from a failed worker process; it is
+not remediated. The Architectural integration review is always a fresh
+reviewer.
 
 ## Release
 
@@ -388,8 +413,15 @@ accepts.
 
 Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`. It
 stays opt-in on the presence of `~/.dely/` and is never created by Dely.
-Control closes a delivery with `dely log --run <run> --json '<object>'`,
-after release or when it stops early, rather than assembling a line by hand.
+At close, after release or when the run stops early, Control deletes the
+Run's folder `<repo>/.dely/local/runs/<run>/`, then runs
+`dely log --run <run> --repo <path> --json '<object>'` rather than
+assembling a line by hand. The log adds `residue`, the files still in that
+folder (`[]` when none, `null` when no repository is known or when part of
+the folder could not be read, which also adds `residueError`, the error code
+and the path it failed on); it deletes nothing. It also releases every worker
+Orca still lists as `reclaimable` for the Run and records each answer under
+`release` (`releaseError` when the listing failed).
 `dely` with no arguments prints which copy is running, and its usage.
 
 ## Failure and recovery

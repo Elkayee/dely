@@ -3,11 +3,25 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-11.
+Last updated 2026-10-13.
 
 ---
 
 ## Settled
+
+### 2026-10-13 — Remote main synchronized with the local POC
+
+The checkout incorporates remote `c1e733e` and retains the local four-tier
+routing, Control-owned review, admission hashes, model catalog/footer checks,
+quota fallback and Windows prompt receipts. Package versions and the closure
+gate follow upstream `0.27.0`; both histories and decision records are retained.
+
+The local POC continues to use its modern per-phase pins and explicit global
+quota rows. Its compliance adapter supplies assessed source prompts outside the
+Run folder, so Windows delivery keeps the owned `.tmp-dely` staging and cleanup
+contract. These local overrides take precedence over the portable upstream
+pin fallback and Run-folder admission rules. Upstream compound model/effort
+flags, settled-worker release, residue reporting and wake changes are retained.
 
 ### 2026-10-11 — Consequential risk criteria and Flash Medium
 
@@ -184,6 +198,729 @@ variables are not applied. The actual `.env` is ignored by Git. After the owner
 supplied the key, real Jev calls proposed Easy and Medium for two explicit
 synthetic cases and retained `REVIEW_REQUIRED`. This is a connectivity check,
 not a calibration or comparative model benchmark.
+
+### 2026-10-12 — The dely:begin migration shim is removed; AGENTS.md is no longer read for pins
+
+#### Context
+
+The 2026-10-05 record "Pins live in `.dely/`…" moved pins out of the managed
+block in `AGENTS.md`. To keep an upgrade from silently moving a project's
+workers to Control's harness, `resolvePins` read `AGENTS.md` and stopped,
+naming `dely:setup`, while an old `<!-- dely:begin -->` block remained. The
+pin-resolution stub in `probe/checklist.md` covered that refusal with a
+requirement row and a `block-ignored` wrong copy, and the launch fixture
+carried a comment that its table held no `dely:begin` marker so the candidate
+would not refuse it.
+
+The migration window is closed. Measured 2026-10-12 by enumeration: every
+repository on this machine carrying a `.dely/` folder (five) has an
+`AGENTS.md` with zero `dely:begin` matches. The only reason `resolvePins` read
+`AGENTS.md` was this shim.
+
+#### Decision
+
+`resolvePins` no longer reads `AGENTS.md`. The `OLD_BLOCK` constant and the
+read-and-refuse code are deleted, and an old block is inert prose. The stub's
+requirement row for the refusal, its `checks` function and the `block-ignored`
+wrong copy are deleted, the remaining rows renumbered, and the fixture comment
+no longer claims a refusal. `dely:setup` keeps the assisted, human-gated
+replacement of a block it finds: begin marker through end marker, replaced by
+the routing line, the table carried to `.dely/pins.json` as proposed team
+pins, `AGENTS.md` changed only on a yes. The README's upgrade note says the
+block is no longer read.
+
+#### Alternatives considered
+
+- Keep the shim indefinitely. Rejected: it enforces a migration window that is
+  measured closed, and carries a stub row and a fixture caveat forever.
+- Delete setup's migration offer too. Rejected: it still serves an upgrade
+  from 0.23 outside this machine and costs no helper code.
+
+#### Consequences
+
+- An off-machine repository still carrying the block is no longer stopped: the
+  block is ignored. If that repository also lacks `.dely/pins.json`, what
+  happens next depends on whether Control's harness is known. Outside an Orca
+  terminal, or where Orca cannot name the caller's harness, the helper still
+  errors naming `dely:setup`. Inside an Orca terminal whose harness Orca
+  reports, the existing Control fallback answers both phases with that
+  harness's defaults, `source: control` — the documented fallback the
+  pin-resolution stub requires, printed in the envelope, which the skill
+  already flags as an unpinned environment. Found at review: the first
+  version of this bullet claimed the error fires unconditionally, which a
+  fixture with a known Control harness disproves (exit 0, both phases
+  `source: control`).
+- This changes `skills/`, so the version advances to 0.27.0 in both plugin
+  manifests, `package.json` and the `AGENTS.md` gate within this delivery. A
+  compatibility surface is removed, so the minor advances rather than the
+  patch.
+
+#### Verification, 2026-10-12
+
+Each measurement names its tree. "Pre-edit working tree" is the working tree
+before any edit of this delivery; `git diff --stat` over every path this
+delivery owns printed nothing then, so it equals the committed baseline
+`87ddc4c` for those paths. "Candidate" is the edited working tree.
+
+- Fixture: a fresh temp directory with a git root, an `AGENTS.md` holding a
+  `<!-- dely:begin -->` block, and a valid `.dely/pins.json` naming harness
+  `claude` for both phases. `skills/delivery/scripts/dely pins --repo <fixture>`
+  on the pre-edit working tree: exit 9, `ERROR …/AGENTS.md still has a
+  dely:begin block; pins moved to .dely/pins.json…` (red). On the candidate:
+  exit 0, both phases printed with source `team` (green).
+- `git grep -cE 'OLD_BLOCK|dely:begin' -- skills/delivery/scripts/dely.js`:
+  3 matches on the pre-edit working tree; no output and exit 1 on the
+  candidate. This row alone rejects a copy whose guard became `if (false)`,
+  which passes the fixture like the correct removal.
+- The updated stub row, run only against a snapshot of the candidate (it was
+  not run against the baseline): eight mutants each printed RED for its own
+  row — `first-file-only` row 1; `worktree-only` and `main-wins` row 2;
+  `control-throws` and `control-claude` row 3; `typo-ignored` row 4;
+  `dispatch-agents-md` and `preflight-agents-md` row 5 — then GREEN for rows
+  1 to 5 on the candidate.
+- `git grep -n '0\.26\.3'` over both plugin manifests, `package.json` and
+  `AGENTS.md`: finds nothing on the candidate (all four held it on the
+  pre-edit working tree). `grep -c 'helper stops' skills/setup/SKILL.md`: 1 on
+  the pre-edit working tree, 0 on the candidate.
+
+These instruments prove the shim is gone and the neighbouring resolver
+behaviour survives. They do not prove the setup and README prose reads well;
+the reviewer reads it.
+
+### 2026-10-12 — The original party in remediation is defined by pin and briefing, not by session
+
+#### Context
+
+The `#### Friction, 2026-10-12` subsection of the 2026-10-10 record "The
+helper releases settled workers" states the conflict. The helper releases
+every accepted `worker_done` at settlement, before Control reads the verdict
+the batch carries. The Remediation clause of `SKILL.md` routed the fix to the
+original implementer with no replacement path, and allowed a replacement
+reviewer only when the original was "unavailable or contested" — a condition
+release-at-settlement makes true on every remediation.
+
+The same-session reading was already unimplementable. Since 2026-09-11 every
+dispatch is a fresh `worker-start` through `dely dispatch`, and reuse of a
+settled terminal is forbidden on a measured failure: input accepted but never
+submitted, in a session that had switched its own model. A Bounded delivery in
+a consuming repository (machine-local log Run `run_89d9feaa48fa`) improvised
+fresh same-pin workers briefed from the Run's folder. That worked, but it was
+outside the written protocol.
+
+#### Decision
+
+The Remediation section defines the original parties by pin and briefing, not
+by session. Remediation is a fresh dispatch on the implement pin, briefed with
+the original task prompt, the implement handoff, and the finding as the
+reviewer wrote it. The scoped re-review is a fresh dispatch on the review pin,
+briefed with the original review prompt, the raised finding's handoff
+unedited, the fix-only diff, and the full candidate diff for context.
+
+The anti-shopping guard moves from forbidding a replacement to fixing the
+briefing: a re-review not briefed with the raised finding's handoff is not the
+scoped re-review. The briefing files are in the Run's folder, so the briefing
+is checkable afterwards. The "unavailable or contested" clause is deleted. The
+helper does not change: release at settlement stands.
+
+#### Alternatives considered
+
+- Retain the worker until the downstream review settles, by reusing its
+  terminal or by `worker-retain`. Rejected: the one measured reuse of a
+  settled terminal failed (2026-09-11), retention reopens the open-tab and
+  `user_takeover` exposure the 2026-10-10 decision closed, and an aging
+  session can change its own model silently. A future Spike may re-measure
+  follow-up dispatch for the reviewer role only.
+- Have the helper echo each released worker's `worker_done` outcome under
+  `release`. Deferred: it is an observation-only convenience and the route is
+  well-defined without it.
+
+#### Consequences
+
+- Every remediation has a defined route under release-at-settlement.
+- The protocol text shrinks by one special case.
+- The procedure the measured delivery improvised becomes the written one.
+- This is a `skills/` change, so the version advances to 0.26.3 in both
+  plugin manifests, `package.json`, and the `AGENTS.md` gate within this
+  delivery.
+
+#### Verification, 2026-10-12
+
+Lexical instruments, each run on the baseline `ff2155d` before the edit and
+on the candidate after it:
+
+- `git grep -c 'unavailable or contested' -- skills/delivery/SKILL.md`: one
+  match on the baseline, no output and exit 1 on the candidate.
+- `grep -c` of `defined by pin and briefing`, `on the implement pin` and `on
+  the review pin` in `skills/delivery/SKILL.md`: 0, 0, 0 on the baseline; 1,
+  1, 1 on the candidate.
+- The three `AGENTS.md` version gate lines at 0.26.3 fail on the baseline
+  (exit 1) and pass on the candidate, and `git grep -n '0\.26\.2'` over both
+  plugin manifests, `package.json` and `AGENTS.md` finds nothing.
+- `grep -c '^### 2026-10-12 ' docs/decisions.md`: 0 on the baseline, 1 on
+  the candidate.
+- `grep -c '^Open\. Trigger:' docs/decisions.md`: 0 on the baseline and 0 on
+  the candidate — the committed baseline never held the friction subsection,
+  which entered the working tree uncommitted from the approved Spike. The
+  `Open. Trigger:` paragraph existed only in that pre-edit working tree,
+  where the count was 1, so this sub-instrument discriminates against the
+  working tree it edited, not against `ff2155d`; the row's baseline-red
+  rests on the heading count above. Found at review: the first version of
+  this subsection claimed 1 on the baseline, a measurement exact Git history
+  contradicts.
+
+These instruments are lexical. They reject a rewrite that keeps the escape
+clause or defines only one side, but not wording that is present and wrong:
+the reviewer reads the section against the approved text.
+
+### 2026-10-11 — The wait deadline drops to 55 minutes, and OMP's Control wake becomes `background`
+
+#### Context
+
+The 2026-09-27 record deferred `controlWake: background` for OMP with the
+trigger "a measured OMP job timeout above `dely wait`'s deadline, or a helper
+deadline below it". OMP's bash tool runs a command as an async job that wakes
+the agent when it exits, but kills the job at 3600 s, which was exactly
+`dely wait`'s default deadline of 60 minutes. OMP Control therefore waited
+through the waker terminal and `notify` path (`wait-bg`) that Codex, Grok,
+Antigravity and Pi still use.
+
+#### Decision
+
+The default deadline of `dely wait` is 55 minutes (3300 s) when `--timeout-min`
+is absent. That is the second half of the trigger: the helper deadline is now
+below OMP's job cap. The default applies to every harness: a `DEADLINE`
+checkpoint arrives 5 minutes earlier than before, and the route after it is
+unchanged (Control waits again, exactly as it did at 60 minutes). `wait-bg`
+runs the same `wait()` and inherits the default.
+
+The `omp` entry has `controlWake: "background"`. An OMP Control runs `dely
+wait` as an ordinary background job and wakes on its exit, with no waker
+terminal. Its `limits` gain "As Control, run dely wait with your largest job
+timeout (3600 s); a shorter timeout kills the wait before it ends.", so the
+README Control cell for OMP is ⚠, and its `notes` record the 55-minute
+deadline and list this section. The waker machinery (`waitBg`, `notify`) is
+untouched: four harnesses still need it.
+
+This closes the Deferred item "`controlWake: background` for OMP" of the
+2026-09-27 record. It also makes the Alternatives entry there ("Rejected for
+now") obsolete.
+
+#### Consequences
+
+- A healthy delivery waits at most 55 minutes per `dely wait` call before
+  `DEADLINE`, for every harness.
+- An OMP Control whose job timeout is below 3300 s still has its wait killed
+  early; the new `limits` sentence says to use the largest timeout.
+- OMP Control no longer needs the waker terminal or the `notify` path; the
+  other waker harnesses keep both.
+
+#### Not yet measured
+
+A full OMP background-Control cycle on the candidate (dispatch, wait, wake on
+exit, settle), and what OMP does when its job is killed before the deadline.
+Both run in this delivery's live checklist before review; this section is
+updated with their results.
+
+#### Verification, 2026-10-11
+
+Fake-clock probe in the Run folder (`.dely/local/runs/run_4ee9dded8927/`):
+`Date.now` reads +3350 s after five calls, the `orca` binary is faked, and
+`wait` runs with no `--timeout-min`. On the baseline file it was still polling
+when a 6 s wall-clock cap killed it (exit 124, the 60-minute default survives
+a 3350 s jump); on the edited file it printed `DEADLINE` and exited 7.
+
+### 2026-10-10 — The helper releases settled workers
+
+#### Context
+
+A worker's Orca tab closes only when someone runs `orca orchestration
+worker-release --dispatch <id>` after its `worker_done`. On the normal path
+nothing in Dely did that: `SKILL.md` named `worker-release` only in recovery
+routes, and `dely.js` released only in `preflight` and on the `NO_ACK` and
+failed-preflight paths. Whether tabs closed depended on whether Control
+happened to follow Orca's own orchestration guide. Measured on 2026-10-10
+with Orca 1.4.224: one Claude Control session released every worker after
+`worker_done` on 2026-10-02 and 2026-10-07, then released none after its
+context was compacted on 2026-10-08, leaving 18 settled workers `reclaimable`
+with their tabs open in one Run. Earlier records already
+stated the symptom three times and deferred it ("Workers left unreleased by
+Controls", trigger: the next delivery that touches `SKILL.md`'s completion
+accounting).
+
+A second, separate cause: Orca marks a worker terminal `user_owned` as soon
+as a human types or pastes into it (Orca reports it over
+`orchestration.workerTerminalUserInput`). `worker-release` then answers
+`{"state":"retained","reason":"user_takeover"}` and never closes that tab.
+Dely cannot change that.
+
+Orca 1.4.224 answers `worker-release` with `ok: true` and a `state` of
+`released`, `already_released`, `retained` (with a `reason`), `release_pending`
+or `release_unknown` (the CLI exits 1 for the last, and still prints its
+result), or with `ok: false` and an error such as `dispatch_not_found`.
+
+#### Decision
+
+`dely wait`, in the branch that prints `SETTLED`, runs `worker-release
+--dispatch <id>` once per distinct dispatch id for each message in that batch
+that is not Orca-rejected, has type `worker_done`, and names a dispatch. It
+never releases for an `escalation` or a `question` (that worker is alive and
+waiting for a reply), for an Orca-rejected message, or for a batch that does
+not settle. The helper records one entry per release, `{ dispatchId, state }`
+plus `reason` when Orca returns one, or `{ dispatchId, error }` when the call
+returns `ok: false`, and never writes a state Orca did not print. The array
+is `release` on the printed `SETTLED` object (after `messages`) and on the
+`settled` log event. A release failure changes neither the exit code, the
+print nor the flow. `wait-bg` runs the same `wait()` in its waker terminal and
+needed no change.
+
+`dely log` lists `worker-list --run <run> --terminal-state reclaimable`,
+following `result.page.nextCursor` while `hasMore`, and releases each
+`dispatchId` Orca returned under that filter, never a row it chose itself. The
+`delivery` event carries `release` (`[]` when none); when the listing fails it
+carries `releaseError` (the error code, else its message) and the event is
+still written. This runs whether or not `--repo` is given. `dely log` still
+deletes nothing on disk.
+
+`SKILL.md` says in "Result handling" that the helper already released those
+workers, that Control does not release them or close a terminal by hand, and
+what `retained` with `user_takeover` means; the close paragraph says `dely
+log` also releases what Orca still lists as `reclaimable`. The README
+Troubleshooting gains "Worker tab stays open", and Pi's `limits` lose "release
+leftover workers", which is now the helper's job.
+
+#### Alternatives considered
+
+**A `SKILL.md` rule alone.** Rejected: the measured failure is a rule lost
+from Control's context at compaction; a rule cannot fix a rule that was
+forgotten.
+
+**Release in `dely dispatch`, before the next start.** Rejected: it leaves the
+last workers of every Run open, and the review worker is the last one.
+
+**Let Control release by hand.** Rejected: it is the status quo that failed.
+
+#### Consequences
+
+- Worker tabs close at settlement. The terminal output stays readable through
+  `worker-read` afterwards, which the live Control row checks.
+- A tab a human typed or pasted into stays open (`retained`,
+  `user_takeover`); the human closes it. Dely cannot override Orca here.
+- `dely log` at close sweeps anything still `reclaimable`, including a worker
+  whose settlement a Control processed without the helper.
+- A worker that sends `worker_done` and is released cannot be sent a follow-up
+  in the same terminal; a rework is a new dispatch, as `SKILL.md` already says
+  for a settled terminal.
+- An `escalation` or `question` releases nothing: that worker is released at
+  its later accepted `worker_done`, or by the `dely log` sweep once Orca
+  lists it `reclaimable`. A worker whose `worker_done` Orca rejected is not
+  settled, so it is left to the recovery routes, as before.
+
+#### Verification, 2026-10-10
+
+The implementer ran the release stub row against a snapshot of the working
+tree (`probe/checklist.md`, "Stub row — worker release"). The first version of
+that row let a wrong copy that only drops the rejection test from the settle
+filter pass, so review had its fixture extended. This is the output of the
+remediated row, run by the implementer at `44ec84b`:
+
+```text
+RED: a: no release at all fails wait: no release of done-ok and done-kept once each
+RED: b: releases every settling message fails wait: asks and escalates released
+RED: c: the settle filter drops the rejection test fails wait: done-bad released
+RED: d: hard-coded state fails wait: state not Orca's
+RED: e: log lists without the filter fails log: still-running released
+RED: f: releases in a batch that does not settle fails wait: done-rejected released
+RED: g: no de-duplication fails wait: done-ok released twice
+GREEN: wait
+GREEN: log
+GREEN: logListFails
+GREEN: candidate releases exactly the accepted worker_done and reclaimable dispatches
+```
+
+The existing rejected-message stub row and every closure gate in `AGENTS.md`
+also passed on the same snapshot.
+
+A separate probe session ran `probe/checklist.md` against a `git archive`
+snapshot of `f48e8ce` on Orca 1.4.224, Claude Code 2.1.296 and Codex CLI
+0.162.1 (report `~/dely-probe/checklist-release-f48e8ce.md`):
+
+- **Release stub, rejected-message stub:** PASS. The release row was its
+  first version, with wrong copies a to e only; the rejected row printed its
+  RED, `LOG PASS` and GREEN lines. The remediated row changes no runtime
+  file, so the live rows below still apply.
+- **Argv stub against `v0.26.0`**, `DELY_NAMED_INTENDED` empty: PASS, no
+  `INTENDED:` line, so launch is unchanged for every supported entry.
+- **Control row, `background`, Claude Code** (`claude-sonnet-5-5`, `medium`;
+  workers Claude `claude-sonnet-5-5`, `medium`): PASS. Both `settled` events
+  carry `"release":[{"dispatchId":…,"state":"released"}]`; a 3 s sampler
+  last listed each worker terminal 3.4 s and 0.9 s before its `settled`
+  event, and never after. Control ran no `worker-release` and no `terminal close`.
+  `worker-read` still returned both workers' transcripts. After close,
+  `worker-list --terminal-state reclaimable` returned no workers, and the
+  `delivery` event carried `"release":[]`.
+- **Control row, `waker`, Codex CLI** (`gpt-5.6-terra`, `medium`): PASS, the
+  same observations (last listed 3.3 s and 1.5 s before `settled`), with the
+  releases run from the `wait-bg` waker terminal
+  and no `error` entry, so Orca accepts a release from a terminal that is not
+  the coordinator's.
+
+The `dely log` sweep ran live only in its empty case, because `wait` had
+already released every worker; a non-empty sweep, `releaseError`, and a live
+`retained`/`user_takeover` answer are covered only by the stub row. Not run,
+because launch, pins, attention and stall did not change: the live worker
+rows, the pin-resolution stub, rows 4–7, and every OMP and Pi row.
+
+#### Friction, 2026-10-12
+
+A Bounded delivery in a consuming repository (Orca 1.4.224, Claude Code
+Control; machine-local log Run `run_89d9feaa48fa`) hit a conflict this record
+did not reconcile. The reviewer returned `CHANGES_REQUESTED` with two
+in-contract documentation findings, one Important and one Minor, and the
+helper had already released both the implementer and that reviewer at their
+`SETTLED` batches — the release runs on every accepted `worker_done` before
+Control reads the verdict the batch carries. `SKILL.md`'s remediation clause
+routes the fix to the original implementer and the re-review to the reviewer
+that raised the finding, allows a fresh replacement reviewer "only when the
+original reviewer is unavailable or contested", and names no replacement path
+for the implementer at all. Control improvised: a fresh implementer and a
+fresh reviewer on the same pins, briefed from the Run's folder with the
+earlier prompt, the handoff and the findings. The remediation was accepted in
+one pass; the procedure was outside the written protocol.
+
+The conflict predates this record in part. Since the 2026-09-11 decision,
+every dispatch is a fresh `worker-start` through `dely dispatch`, which can
+address no existing terminal, and reuse of a settled terminal is forbidden on
+a measured failure (input accepted but never submitted; the session had
+switched its own model). Release-at-settlement removed the last informal
+route — a live, unreleased tab — and forecloses the orchestration guide's
+other two completion options (follow-up dispatch into the proven terminal,
+`worker-retain`) before Control can see the verdict, so the replacement
+clause's condition "unavailable" is now met by every remediation.
+
+Resolved by the 2026-10-12 record "The original party in remediation is
+defined by pin and briefing, not by session", above: the original parties
+are defined by pin and briefing, and release at settlement stands.
+
+### 2026-10-10 — OMP is pinned by Orca's `--model` flag, with the effort joined to the model; the `spec` pin mode is deleted
+
+#### Context
+
+Measured on 2026-10-10 with Orca 1.4.224, OMP 18.6.1 and Pi 1.0.2 (evidence
+`~/dely-probe/omp-pi-1424-evidence/NOTES.md`, Run `run_798f4cf5c216`):
+
+- `worker-start --agent omp --model <id>` is accepted
+  (stablyai/orca#24796 has shipped); the receipt's `launch.effective.model`
+  echoes the value. `--effort` is still refused for OMP
+  (stablyai/orca#23388 is open).
+- `--model google-vertex/gemini-3.8-flash:medium` started a session whose log
+  records thinking level `medium`; the same selector without a suffix ran
+  OMP's configured default level (`high`).
+- `--model google-vertex/no-such-model`: OMP warned the model was not found,
+  started with no model and never acted on the task. `--model
+  google-vertex/gemini-3.8-flash:bogus`: OMP exited ("Model … not found") and
+  the start ended `failed` at `agent_readiness`.
+- Every live OMP worker still projects liveness `unverifiable` /
+  `missing_status`, no `provider`, `requiresAction` true
+  (stablyai/orca#24436; PR stablyai/orca#24196 is open).
+- Pi: `--model` is still refused and the projection reports `model: null`.
+  With Dely installed in Pi 1.0.2, a `dely-pin:` line applied
+  `google-vertex/gemini-3.8-flash` `medium`, and an unknown selector printed
+  `DELY-PIN-FAIL` and exited.
+
+Until now OMP's pin travelled as a `dely-pin:` spec line applied by
+`extensions/dely-pin.ts`, so a pinned OMP worker needed Dely installed in
+OMP, and dispatch could not check the model (2026-10-05). No harness has used
+`modelPin: "spec"` since 2026-10-05; its post-acknowledgement check in
+`dely.js` is dormant.
+
+#### Decision
+
+The `omp` entry has `modelFlag: true`, `effortFlag: false`, no `modelPin`,
+and `effortInModel: ":"`. `effortInModel` is a new optional field: a harness
+that has it and `modelFlag: true` receives a pinned Effort joined to the
+pinned Model by that string, in `--model`. With Model `selector` and Effort
+`level` the helper launches `--model selector:level`; with Effort `default`
+it launches `--model selector`; with Model `default` and a pinned Effort it
+refuses as it does for every harness; with both `default` it passes no
+`--model`. It never passes `--effort` for such a harness and never adds a
+`dely-pin:` line. A Model cell that already carries a suffix is passed as
+written; OMP itself rejects a doubled suffix.
+
+The `spec` value of `modelPin` is deleted with its check: `shownModel`,
+`waitShownModel`, `pinCheckMs` and `DELY_PIN_CHECK_S`, and the `pin not
+applied` branch and its `pin_not_applied` log event. `modelPin` may be absent
+or `spec-unchecked`; Pi keeps `spec-unchecked` and the extension. The
+closure gate enforces both fields.
+
+OMP's `limits` require Orca 1.4.224 or newer for an OMP worker and keep the
+caveat that Dely reports a working OMP worker as needing attention; the
+sentence asking the user to install Dely in OMP to pin a model is removed.
+`dely:setup` offers effort levels for an `effortInModel` harness as it does
+for a flag harness.
+
+The intended argv differences against `v0.25.0` are `OMP --model` and `OMP
+preflight --model`; no other entry's argv changes.
+
+This amends the 2026-09-27 record (OMP's pin travels in the spec) and the
+2026-10-05 record (OMP's pin is unchecked), and closes the first Deferred item
+of the 2026-10-05 record. Its "Returning OMP to `spec`" item lapses: no
+`spec` mode remains to return to.
+
+#### Alternatives considered
+
+**Write the effort in the Model cell, as Cursor does.** Rejected. `omp models
+--json` lists selectors and their `thinking` levels separately, so setup
+would have to synthesize `selector:level` strings, which `dely:setup`
+forbids. Existing OMP pins (Model `selector`, Effort `level`) would lose
+their effort silently, because the helper drops an Effort for a harness
+without `effortFlag`. When Orca accepts `--effort` for OMP, every pin would
+need rewriting; with `effortInModel` only the entry changes.
+
+**Keep the spec pin for OMP.** Rejected: it needs Dely installed in every
+OMP that runs a worker, and Orca can now apply the model itself.
+
+**Rename `spec-unchecked` to `spec`.** Rejected: it churns Pi's entry, the
+gate, the docs and the checklist for no change in behaviour.
+
+**Refuse a Model cell that already contains `:` when Effort is pinned.**
+Rejected: some provider ids contain `:`; OMP exits on a doubled suffix, so
+the failure is already loud.
+
+#### Consequences
+
+- A pinned OMP worker needs no Dely install in OMP. OMP as Control still
+  needs it for the skills; the extension still loads there and acts only on
+  a `dely-pin:` line, which OMP no longer receives from the helper.
+- An OMP worker on Orca older than 1.4.224 fails at `worker-start` (Orca
+  refuses `--model`), and dispatch prints `FAILED`.
+- A bad OMP pin surfaces as `NO_ACK` rather than as `DELY-PIN-FAIL`. With a
+  pinned Effort, an unknown selector or a level the model does not offer
+  makes OMP exit at once ("Model … not found"), and dispatch prints `NO_ACK`
+  within seconds. With Effort `default`, an unknown selector starts OMP with
+  no model; it never acts, and `NO_ACK` comes after the acknowledgement
+  window (60 s by default).
+- Dispatch still does not check OMP's model: Orca reports none
+  (stablyai/orca#24436). The receipt's `launch.effective` records what Orca
+  launched, not what the session ran.
+- Not improved: the `ATTENTION` a healthy OMP worker shows.
+
+#### Verification, 2026-10-10
+
+A separate Claude Code session (`claude-sonnet-5-5`, medium) ran
+`probe/checklist.md` on a snapshot of `5ef34de` (Orca 1.4.224, OMP 18.6.1,
+Pi 1.0.2), in the scope the owner chose: the stubs, OMP's worker row and rows
+8, 9, 10 and 12, and Pi rows 13 to 15. Report:
+`~/dely-probe/checklist-omp-flag-5ef34de.md`; raw evidence
+`~/dely-probe/live-omp-flag-5ef34de/`. Every row run passed.
+
+- Argv stub against `v0.25.0`: RED for the `--effort`-dropping mutant;
+  INTENDED `OMP --model` and `OMP preflight --model`, equal to the named
+  list; GREEN, with the candidate-only OMP and Pi assertions passing. The
+  pin-resolution and rejected-message stubs passed.
+- OMP worker row, pin `google-vertex/gemini-3.8-flash` `medium`: preflight
+  PASS in 10 s; implement and review `DISPATCHED`, settled with
+  `worker_done`, review `ACCEPT`. Both receipts:
+  `launch.requested.model` and `launch.effective.model`
+  `google-vertex/gemini-3.8-flash:medium`. Session logs: thinking `medium`
+  before the first user message, no `dely-pin:` line. Each wait printed one
+  `ATTENTION` (`unverifiable` / `missing_status`, `nextAction` `none`) on a
+  healthy worker, as the 2026-10-05 record describes.
+- Row 8, `google-vertex/gemini-3.5-flash` `low` (both differ from OMP's
+  default): receipt model `google-vertex/gemini-3.5-flash:low`; the session
+  ran that model at `low` for every assistant message.
+- Row 9, unknown selector with Effort `low`, and row 12, a level the model
+  does not offer: `NO_ACK` after 0 s quoting `Model "…" not found`; no
+  session was written.
+- Row 10, Model `default`: receipt model `null`; no `dely-pin:` line; the
+  session ran OMP's default.
+- Pi rows 13 to 15 on Pi 1.0.2: the extension applied the pin
+  (`google-vertex/gemini-3.5-flash` `high`, both differing from Pi's
+  default); an unknown selector and a level the model does not offer ended
+  `NO_ACK` quoting `DELY-PIN-FAIL`.
+
+Not run, by the owner's choice: rows 4 to 7, row 11 (OMP no longer receives
+a `dely-pin:` line, and the extension did not change), row 16, every Control
+row, and the Claude Code and Codex CLI worker rows (their entries did not
+change; the argv stub covers their launch). An unknown OMP selector with
+Effort `default` was not run in the candidate; the 2026-10-10 Context
+measured it on Orca directly.
+
+#### Non-goals
+
+Pi's pin, extension and entry, apart from its checked version. OMP as
+Control. The silent drop of a pinned Effort on Cursor and Antigravity.
+
+#### Deferred
+
+Passing OMP's effort by flag. Trigger: an Orca release that accepts
+`--effort` for OMP (stablyai/orca#23388); then `effortFlag: true` and no
+`effortInModel`, with pins unchanged.
+
+A pinned Effort on a harness with `modelFlag` but neither `effortFlag` nor
+`effortInModel` (Cursor, Antigravity) is dropped without a message. Trigger:
+a pin reported to run at the wrong effort, or the next change to `start()`
+that touches effort.
+
+Telling a live OMP worker from a dead one in `dely wait` stays deferred under
+the 2026-10-05 record.
+
+### 2026-10-10 — Every dispatch file lives in its Run's folder under `.dely/local/runs/`, kept until the run closes
+
+#### Context
+
+Issue #69: a consumer project found 16 untracked dispatch files in its
+repository root, written between 2026-09-09 and 2026-09-10 and left for a
+month. Six came from two delivery runs (four and two handoffs and reviews),
+ten from a chain of five read-only Spikes (five prompts, five handoffs). No
+delivery prompt survived; every report did.
+
+Read from 0.24.1:
+
+- `SKILL.md` tells Control to write the prompt to an untracked file inside the
+  worktree and delete it after the worker returns. The handoff "is a file in
+  the worktree; its path travels as `payload.reportPath`". Nothing names who
+  deletes a report, or when, and no Release step mentions dispatch files.
+- A report cannot be deleted when its worker returns: Control routes on it, a
+  review re-reads the implement handoff, and remediation goes back to the
+  original parties. The only point where nothing reads it any more is the
+  run's close, and no step exists there.
+- A Spike "starts no delivery run" and the skill's description excludes it,
+  so a Spike that dispatched Orca workers ran outside every rule here,
+  including prompt deletion. Its reports were inputs to later Spikes in the
+  same chain, so per-dispatch deletion would have been wrong too.
+- `dely dispatch --spec-file` accepts any path; nothing names a default
+  location, so Control chose the repository root, where the files show in
+  `git status` and carry no owner.
+- `dely log` writes the object Control passes; it has no field for files left
+  behind, so the residue was invisible in maintenance logging.
+
+#### Decision
+
+1. Every dispatch file of a Run — the prompt Control writes and the handoff
+   the prompt names — lives in `<repo>/.dely/local/runs/<run>/`, where `<run>`
+   is the Orca Run id. It is still inside the worktree, so the reason for the
+   2026-09-04 rule (no second permission surface, no prompt in a shell
+   argument) holds.
+2. `dely dispatch` refuses, with `REFUSED` and before any `worker-start`, a
+   `--spec-file` whose resolved path is not inside that folder; the message
+   names the folder. When `.dely/local/.gitignore` is absent the helper
+   writes it with the single line `*`, the same file `dely:setup` writes; an
+   existing file is never rewritten, so a hand-written one that does not
+   ignore the folder leaves the dispatch files visible to Git.
+3. Dispatch files are kept until the run closes; the rule that deleted the
+   prompt after its worker returned is withdrawn. At close — after release,
+   or when the run stops early — Control deletes the Run's folder, then runs
+   `dely log --run <run> --repo <path> --json '<object>'`.
+4. `dely log` adds `residue`: the sorted repo-relative paths of every file
+   still under that Run's folder, `[]` when the folder is absent or empty,
+   `null` when no repository is known (`--repo` absent and no `repo` in the
+   object) or when any part of the folder cannot be read. An unreadable part
+   also adds `residueError`, the error code and the repo-relative path it
+   failed on, so an incomplete listing never reads as a clean close. The log
+   stays an observer: it deletes nothing, and without
+   `~/.dely/` it writes and creates nothing.
+5. A Spike that dispatches workers follows the same rule: its own Run, every
+   dispatch through `dely dispatch`, its files in that Run's folder. A report
+   a later dispatch of the same Spike reads stays there until the Spike
+   reports its recommendation; then Control deletes the folder and runs
+   `dely log`. A Spike still starts no delivery run. The skill's description
+   says so, so a Spike that dispatches loads it.
+
+This amends the 2026-09-04 record (decision four) and the portable launch
+rule in the 2026-08-26 Antigravity record in place.
+
+#### Alternatives considered
+
+**Keep the location free and add only a close step.** Rejected: a Spike does
+not load this skill, so a rule only in prose does not reach it; a refusal in
+the helper reaches every Control that dispatches through it, and its message
+teaches the path.
+
+**Delete the handoff with the prompt when the worker returns.** Rejected:
+routing, review and remediation read it later (issue #69, point two).
+
+**A new subcommand that creates the folder and prints its path.** Rejected
+as more interface than the gap needs: Control knows the Run id, and the
+helper writes the ignore file at the first dispatch.
+
+**Let `dely log` delete the folder.** Rejected: logging is opt-in on
+`~/.dely/`, and cleanup must not be; an observer that deletes would also hide
+the residue it is meant to show.
+
+**`.tmp/dely/` or another project-chosen directory.** Rejected: one home per
+Run is what makes the close step and the residue check mechanical; a
+directory shared across runs cannot be deleted by one of them.
+
+#### Consequences
+
+- Breaking: a Control that writes prompts anywhere else is refused at
+  dispatch, including the consumer mitigation in issue #69 (`.tmp/dely/`).
+- Between Control writing the first prompt and the first dispatch, the file
+  can show in `git status` when `.dely/local/.gitignore` does not exist yet.
+- `git clean -fdx` deletes an open run's folder, as it deletes any ignored
+  file.
+- Not improved: the helper cannot make a worker write its handoff where the
+  prompt says; `residue` sees only the Run's folder, not a stray file
+  elsewhere. Off-protocol dispatch kinds and verdicts (issue #69, point six)
+  are not addressed.
+
+#### Non-goals
+
+The `wait-bg --out` default in the system temporary directory. Cleaning up
+consumer repositories. A retention policy for reports after close.
+
+#### Verification, 2026-10-10
+
+A separate Claude Code session (`claude-sonnet-5-5`, medium) ran
+`probe/checklist.md` on a snapshot of `4c63776` with Orca 1.4.224, Claude Code
+2.1.296 and Codex CLI 0.162.0, in the scope the owner chose. Report:
+`~/dely-probe/checklist-run-folder-4c63776.md`; evidence
+`~/dely-probe/live-run-folder-4c63776/`.
+
+- Argv stub against `v0.24.1`, `DELY_NAMED_INTENDED` empty: the mutant
+  dropping `--effort` failed, the candidate passed with no intended
+  difference. The rejected-message and pin-resolution stubs passed with
+  their fixtures' spec files in `.dely/local/runs/fixture-run/`.
+- Control row, `background`, Claude Code: both dispatches named a spec in
+  the Run's folder; both handoffs were written there; Control deleted the
+  folder at close and the `delivery` line carried `residue: []`; review
+  accepted and the pushed SHA equalled the reviewed head. Neither prompt
+  nor handoff was told about the folder; Control took it from `SKILL.md`.
+- Control row, `waker`, Codex CLI (`gpt-5.6-terra`, medium): both dispatches
+  named a spec in the Run's folder; review accepted, the pushed SHA equalled
+  the reviewed head, the waker events were clean and a blocking `wait`
+  printed `REFUSED`. Codex's exec policy refused `rm -rf`; Control deleted
+  the files with its patch tool and the folder with `rmdir`, and the
+  `delivery` line carried `residue: []`. Two observations, both already
+  named under Consequences: `git status` showed `?? .dely/local/` for 13 s
+  between Control writing the first prompt and its first dispatch, and
+  Control asked neither worker for a handoff file, so the verdicts travelled
+  only in `worker_done` subjects.
+
+Seen and outside this decision: the Claude Control released neither worker
+after settlement; `dely log` keeps its own `sha` field, so a `sha` in the
+object Control passes is dropped.
+
+Not run, because the owner scoped the probe to stubs and the Control rows:
+the live worker rows for the Orca, Claude Code and Codex CLI upgrades, rows
+4 to 7, and every OMP and Pi row.
+
+The task review of `162c8b8` found that an unreadable Run folder logged
+`residue: []`, that the `SKILL.md` sentence promised untracked files even
+when an existing `.gitignore` ignores nothing, and that the guard refused an
+in-folder name starting with `..`. The remediation, `c3f131b`, changed the
+guard's boundary and the log's error path only; the launch argv is
+unchanged, so the live Control rows above, run on `4c63776`, were not rerun.
+The argv stub against `v0.24.1` and fixtures for each amended row passed on
+`c3f131b`.
+
+#### Deferred
+
+Checking that a handoff landed inside the Run's folder. Trigger: a live row
+or a consumer report shows a handoff written elsewhere under 0.25.0. A Codex
+Control that asks for no handoff file at all was seen once on 2026-10-10;
+a second observation is the trigger for making the helper name the handoff
+path in the spec.
 
 ### 2026-10-05 — Pins live in `.dely/`, with a personal file that overrides the team's per phase
 
@@ -641,7 +1378,8 @@ Grok as Control on the 0.23.0 helper. Trigger: a Grok account without the
 free-tier limit.
 
 Workers left unreleased by Controls. Trigger: the next delivery that touches
-`SKILL.md`'s completion accounting.
+`SKILL.md`'s completion accounting. Closed by the 2026-10-10 record "The
+helper releases settled workers", which moves the release into the helper.
 
 ---
 
@@ -1311,6 +2049,9 @@ marketplace, which already loads its skills.
 
 `controlWake: background` for OMP. Trigger: a measured OMP job timeout above
 `dely wait`'s deadline, or a helper deadline below it.
+
+Closed 2026-10-11 by the helper deadline falling to 55 minutes; see
+"The wait deadline drops to 55 minutes".
 
 ### 2026-09-18 — Live verification runs before review; review-round cost from `~/.dely/log`
 
@@ -3140,7 +3881,10 @@ it, and it changed the design:
 4. The prompt and the handoff stay files inside the worktree. Messages carry a
    short body and a `payload.reportPath`. The reason is this skill's own rule:
    a task spec and a message body are shell arguments, and prompts do not go in
-   shell arguments.
+   shell arguments. Amended 2026-10-10: both files live in the Run's folder,
+   `.dely/local/runs/<run>/`, and are kept until the run closes. See
+   `2026-10-10 — Every dispatch file lives in its Run's folder under
+   .dely/local/runs/, kept until the run closes`.
 5. `references/harnesses.md` keeps only facts verified in this delivery — the
    Orca agent id, the forbidden headless forms, and answers whose wrong choice
    destroys the worker. An unverified per-harness fact is deleted rather than
@@ -4246,7 +4990,8 @@ managed Dely table stays Claude Code for `implement` and Codex CLI for `review`.
 `skills/delivery/SKILL.md` still does not name harnesses. It may carry two
 portable launch rules only: write the worker prompt to an untracked file inside
 the worktree, do not stage it, and delete that same file after the worker
-returns; when composing TUI argv, keep the execution plane's default
+returns (amended 2026-10-10: the file lives in the Run's folder under
+`.dely/local/runs/` and is deleted with that folder when the run closes); when composing TUI argv, keep the execution plane's default
 permission-bypass flags and add no unpinned sandbox. Install documentation
 does not restate those rules. Refresh of an `agy` install is a second
 `agy plugin install` of the same source; the CLI has no `plugin update`.

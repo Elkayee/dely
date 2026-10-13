@@ -1,8 +1,9 @@
 # dely — Agent Instructions
 
 This repository contains the `dely` package: the `delivery` skill and its
-automation-first control protocol for coding agents, supported today on
-Claude Code, Codex CLI, and Cursor Agent CLI.
+automation-first control protocol for coding agents, on Claude Code, Codex
+CLI, Cursor Agent CLI and the other harnesses `harnesses.json` marks
+`supported`.
 
 ## Source of truth
 
@@ -48,7 +49,7 @@ workspace installation remains available and is not removed by this change.
   (JSON Lines, one object per line); no project-owned log file is tracked.
   Dely never creates `~/.dely/`: a missing directory means nothing is
   written and nothing is created. The log records failed and abandoned
-  deliveries too, which the previous format did not.
+  deliveries too.
 - A self-update runs its release phase through the frozen installed plugin
   version, because Control is already using it when the plan starts.
   Candidate changes in this checkout take effect for the next delivery, not
@@ -94,7 +95,7 @@ jq -e . harnesses.json plugin.json .claude-plugin/plugin.json .claude-plugin/mar
 ```
 
 ```bash
-jq -e '.harnesses | all((.status == "supported" or .status == "deferred") and (.controlWake == "background" or .controlWake == "waker" or .controlWake == "unsupported") and ((has("modelPin") | not) or .modelPin == "spec" or .modelPin == "spec-unchecked"))' harnesses.json >/dev/null
+jq -e '.harnesses | all((.status == "supported" or .status == "deferred") and (.controlWake == "background" or .controlWake == "waker" or .controlWake == "unsupported") and ((has("modelPin") | not) or .modelPin == "spec-unchecked") and ((has("effortInModel") | not) or (((.effortInModel | type) == "string") and .effortInModel != "" and .modelFlag == true and .effortFlag == false and (has("modelPin") | not))))' harnesses.json >/dev/null
 ```
 
 ```bash
@@ -103,9 +104,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.24.10
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.24.10
-test "$(jq -r .version package.json)" = 0.24.10
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.0
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.0
+test "$(jq -r .version package.json)" = 0.27.0
 ```
 
 ```bash
@@ -117,7 +118,7 @@ test ! -e skills/delivery/references/harnesses.md
 ```
 
 ```bash
-git grep -nE 'adoptCommand|adoptedPermission|adoptPath|readAdopts|writeAdopts|recordAdopt|takeAdopt|closeAdopted|closeCreated|waitQuiet|lastOutputAt|launchKind|hasGate|GATES|pinWhy|ELECTRON|harnessCell' -- skills/ && exit 1 || true
+git grep -nE 'adoptCommand|adoptedPermission|adoptPath|readAdopts|writeAdopts|recordAdopt|takeAdopt|closeAdopted|closeCreated|waitQuiet|lastOutputAt|launchKind|hasGate|GATES|pinWhy|ELECTRON|harnessCell|shownModel|waitShownModel|pinCheckMs|PIN_CHECK|pin_not_applied' -- skills/ && exit 1 || true
 ```
 
 ```bash
@@ -138,15 +139,15 @@ that distinguishes the changed behaviour from its failure mode, and a change
 to what a worker launch does is verified by running `probe/checklist.md`, not
 by these gates.
 
-The version gate is a literal pin. It is what keeps the two manifests from
-splitting now that no workflow compares them: a `skills/` change that forgets
-one manifest ships different protocol text under the same version string.
+The version gate is a literal pin and the only check that keeps the two
+manifests from splitting: a `skills/` change that forgets one manifest ships
+different protocol text under the same version string.
 
 The absence command distinguishes a deleted rail from documentation that
-merely says it is deleted. This delivery deleted
-`skills/delivery/references/harnesses.md`; the command fails if that file
-returns. The identifier grep is the same instrument applied to code: it
-fails on a deletion that removes a definition and leaves a caller.
+merely says it is deleted: it fails if the retired
+`skills/delivery/references/harnesses.md` returns. The identifier grep is
+the same instrument applied to code: it fails on a deletion that removes a
+definition and leaves a caller.
 
 The disclosure grep is lexical. It catches named consumer identifiers; it does
 not catch a quoted consumer path, a branch name, or a session id. A green result

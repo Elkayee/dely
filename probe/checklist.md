@@ -21,7 +21,7 @@ for every supported entry to the last release snapshot, and also runs
 stands in for the live worker row of every entry whose `harnesses.json`
 entry did not change. An **entry changed** when one of these fields differs
 from the last release: `id`, `name`, `binary`, `status`, `controlWake`,
-`modelFlag`, `effortFlag`, `modelPin`, `permissionDefault`, `discovery`,
+`modelFlag`, `effortFlag`, `effortInModel`, `modelPin`, `permissionDefault`, `discovery`,
 `trust`. A change to `limits` or `notes` does not count.
 
 Run the live worker row for each entry that changed and for each harness
@@ -46,10 +46,11 @@ per harness when its entry changed, or when that harness upgraded and a
 deployment uses it as Control.
 
 The release floor is the argv stub row, the pin-resolution stub row when its
-trigger fired, the rejected-message stub row, the
+trigger fired, the rejected-message stub row, the worker-release stub row
+when `wait`, `log`, or the settle logic changes, the
 live worker rows the rules above require, the Control rows those rules
-require, and rows 4–7. Rows 10–11 run when `start()` or the pin extension
-changes. Rows 13–16 run when
+require, and rows 4–7. Rows 8–10 and 12 run when `start()` or the `omp` entry
+changes; row 11 runs when the pin extension changes. Rows 13–16 run when
 `start()`, the extension or the Pi entry changes, after a Pi upgrade, and
 after an Orca upgrade. After an Orca upgrade, run the live worker row for
 each harness a deployment uses, the Control row once per wake mode, rows 4
@@ -256,8 +257,8 @@ const helper = (tree) => path.join(tree, 'skills/delivery/scripts/dely.js');
 const load = (tree) => JSON.parse(fs.readFileSync(path.join(tree, 'harnesses.json'), 'utf8')).harnesses;
 const candH = load(snap), relH = load(release);
 fs.mkdirSync(path.join(root, 'home/.dely'), {recursive: true});
-fs.mkdirSync(path.join(root, 'repo'));
-fs.writeFileSync(path.join(root, 'repo/spec.md'), 'Fixture only.');
+fs.mkdirSync(path.join(root, 'repo/.dely/local/runs/fixture-run'), {recursive: true});
+fs.writeFileSync(path.join(root, 'repo/.dely/local/runs/fixture-run/spec.md'), 'Fixture only.');
 fs.cpSync(snap, path.join(root, 'wrong'), {recursive: true});
 const wrong = helper(path.join(root, 'wrong'));
 const source = fs.readFileSync(wrong, 'utf8');
@@ -274,7 +275,6 @@ if (cmd === 'check') result = {deliveryId:'batch-1',messages:[
   {type:'heartbeat',subject:'ack',payload:{dispatchId:'d-1'}},
   {type:'worker_done',subject:'preflight ok',payload:{dispatchId:'d-1'}}]};
 if (cmd === 'worker-list') result = {workers:[]};
-if (cmd === 'worker-show') result = {projection:{provider:{model:'pin-model'}}};
 if (cmd === 'worker-read') result = {terminal:{tail:[]}};
 if (cmd === 'worker-stop' || cmd === 'worker-release') result = {};
 if (cmd === 'status') result = {runtime:{appVersion:'stub'}};
@@ -283,8 +283,10 @@ console.log(JSON.stringify({ok:true,result}));
 function pinOf(h, other, mode) {
   const o = other || {};
   const modelCap = !!(h.modelFlag || h.modelPin || o.modelFlag || o.modelPin);
-  const effortCap = !!(h.effortFlag || h.modelPin || o.effortFlag || o.modelPin);
+  // A modelFlag entry gets a pinned Effort too, so an argv that starts using it is seen.
+  const effortCap = !!(h.effortFlag || h.effortInModel || h.modelFlag || h.modelPin || o.effortFlag || o.effortInModel || o.modelFlag || o.modelPin);
   if (mode === 'default') return {model:'default', effort:'default'};
+  if (mode === 'effortdefault') return {model:'pin-model', effort:'default'};
   if (mode === 'effort') return {model:'default', effort:'high'};
   return {
     model: modelCap ? 'pin-model' : 'default',
@@ -304,6 +306,8 @@ function stripped(argv) {
   if (!argv) return out;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--model' || argv[i] === '--effort') { i++; continue; }
+    // A spec pin line is compared by the candidate-only assertions below.
+    if (argv[i] === '--spec') { out.push(argv[++i].replace(/\ndely-pin: .*/, '')); continue; }
     out.push(argv[i]);
   }
   return out;
@@ -314,8 +318,7 @@ function add(arr, line) {
 function launch(file, h, other, mode, verb) {
   const pin = pinOf(h, other, mode);
   // Each helper reads its own form: the 0.23.1 release reads this table in
-  // AGENTS.md, the candidate reads .dely/pins.json. The table carries no
-  // dely:begin marker, which the candidate would refuse.
+  // AGENTS.md, the candidate reads .dely/pins.json.
   fs.writeFileSync(path.join(root, 'repo/AGENTS.md'),
     '| Phase | Harness | Model | Effort |\n| --- | --- | --- | --- |\n' +
     '| `implement` | ' + h.name + ' | ' + pin.model + ' | ' + pin.effort + ' |\n' +
@@ -326,12 +329,12 @@ function launch(file, h, other, mode, verb) {
     JSON.stringify({implement: one, review: one}));
   fs.writeFileSync(path.join(root, 'calls.jsonl'), '');
   const args = [file, verb, '--run', 'fixture-run', '--repo', path.join(root, 'repo')];
-  if (verb === 'dispatch') args.push('--phase', 'implement', '--spec-file', 'spec.md');
+  if (verb === 'dispatch') args.push('--phase', 'implement', '--spec-file', '.dely/local/runs/fixture-run/spec.md');
   const r = spawnSync(process.execPath, args,
     {encoding:'utf8', timeout:10000, env:{...process.env,
       HOME:path.join(root, 'home'), ORCA_TERMINAL_HANDLE:'fixture-terminal',
       ORCA_CLI_COMMAND:path.join(root, 'orca.js'), FIXTURE_ROOT:root,
-      DELY_ACK_S:'0.2', DELY_POLL_S:'0.02', DELY_PIN_CHECK_S:'0', DELY_PREFLIGHT_S:'0.2'}});
+      DELY_ACK_S:'0.2', DELY_POLL_S:'0.02', DELY_PREFLIGHT_S:'0.2'}});
   const starts = [];
   for (const line of fs.readFileSync(path.join(root, 'calls.jsonl'), 'utf8').split('\n').filter(Boolean)) {
     const a = JSON.parse(line);
@@ -341,7 +344,9 @@ function launch(file, h, other, mode, verb) {
   if (verb === 'preflight') out = out.replace(/PASS \d+s/g, 'PASS');
   const ok = verb === 'preflight' ? / PASS/.test(out) && starts.length > 0
     : out.includes('DISPATCHED') && starts.length > 0;
-  return {out, startArgv: starts[0] || null, starts, ok, status: r.status};
+  const startArgv = starts[0] || null;
+  const si = startArgv ? startArgv.indexOf('--spec') : -1;
+  return {out, startArgv, starts, ok, status: r.status, spec: si < 0 ? null : startArgv[si + 1]};
 }
 function diffLaunch(label, cand, rel, h, other, intended, unexpected, mode) {
   const tag = label === 'dispatch' ? h.name : h.name + ' ' + label;
@@ -366,11 +371,40 @@ function diffLaunch(label, cand, rel, h, other, intended, unexpected, mode) {
     else add(unexpected, ftag + ' ' + flag);
   }
 }
+// Candidate-only: what the candidate's own entries must launch. The release
+// comparison cannot see these, because the release launched them differently.
+function assertCandidate(candTree, unexpected) {
+  for (const h of load(candTree).filter((x) => x.status === 'supported')) {
+    for (const verb of ['dispatch', 'preflight']) {
+      const tag = verb === 'dispatch' ? h.name : h.name + ' preflight';
+      if (h.effortInModel && h.modelFlag) {
+        const hi = launch(helper(candTree), h, null, 'pinned', verb);
+        const f = flagsOf(hi.startArgv);
+        if (f['--model'] !== 'pin-model' + h.effortInModel + 'high') add(unexpected, tag + ' --model ' + f['--model']);
+        if ('--effort' in f) add(unexpected, tag + ' passes --effort');
+        if (hi.spec == null || /dely-pin:/.test(hi.spec)) add(unexpected, tag + ' spec carries a dely-pin line');
+        const lo = launch(helper(candTree), h, null, 'effortdefault', verb);
+        const g = flagsOf(lo.startArgv);
+        if (g['--model'] !== 'pin-model') add(unexpected, tag + ' Effort default --model ' + g['--model']);
+        if ('--effort' in g) add(unexpected, tag + ' Effort default passes --effort');
+        const rf = launch(helper(candTree), h, null, 'effort', verb);
+        if (rf.starts.length) add(unexpected, tag + ' launched with Model default and a pinned Effort');
+      }
+      if (h.modelPin) {
+        const m = launch(helper(candTree), h, null, 'pinned', verb);
+        const f = flagsOf(m.startArgv);
+        if (m.spec == null || !m.spec.includes('\ndely-pin: pin-model high')) add(unexpected, tag + ' spec lacks dely-pin: pin-model high');
+        if ('--model' in f || '--effort' in f) add(unexpected, tag + ' passes a flag beside the spec pin');
+      }
+    }
+  }
+}
 function compare(candTree, relTree) {
   const intended = [], unexpected = [];
   const candHs = load(candTree), relHs = load(relTree);
   const supported = candHs.filter((h) => h.status === 'supported');
   assert(supported.length, 'candidate has no supported entries');
+  assertCandidate(candTree, unexpected);
   for (const h of supported) {
     const other = relHs.find((x) => x.name === h.name);
     if (!other) {
@@ -386,7 +420,7 @@ function compare(candTree, relTree) {
       continue;
     }
     for (const mode of ['pinned', 'default'].concat(
-      (h.effortFlag || h.modelPin || other.effortFlag || other.modelPin) ? ['effort'] : []
+      (h.effortFlag || h.effortInModel || h.modelPin || other.effortFlag || other.effortInModel || other.modelPin) ? ['effort'] : []
     )) {
       diffLaunch('dispatch',
         launch(helper(candTree), h, other, mode, 'dispatch'),
@@ -424,8 +458,13 @@ node "$stub/check.cjs" "$snap" "$release_snap" "$stub"
 
 **Pass:** RED prints (the `--effort`-dropping mutant fails the comparison), GREEN
 prints, every supported entry was compared pinned and with `default`, entries
-with `effortFlag` or `modelPin` were also compared with Effort pinned and Model
-`default` (including the refusal), preflight output and launches matched, every
+with `effortFlag`, `effortInModel` or `modelPin` were also compared with Effort
+pinned and Model `default` (including the refusal), preflight output and
+launches matched (a spec pin line is stripped from the comparison and asserted
+for the candidate alone: an `effortInModel` entry launches `--model
+pin-model<sep>high`, or `--model pin-model` with Effort `default`, with no
+`--effort` and no `dely-pin:` line, and a `modelPin` entry's spec carries
+`dely-pin: pin-model high` with no flag), every
 release-supported entry missing or `deferred` in the candidate is reported, and
 the printed INTENDED lines equal `DELY_NAMED_INTENDED`. An argv or stdout
 difference always fails the row; the live worker rows it routes to replace the
@@ -461,7 +500,9 @@ observer's harness id as `<control-id>` for every wait's `--control`.
 Answer the tested harness's trust dialog at this probe path before dispatch
 (by hand except for Claude's `probe/trust.sh`). OMP and Pi pinned workers
 need their README Dely install, which loads the pin extension. Create two
-spec files under the probe path:
+spec files under `<absolute probe path>/.dely/local/runs/<run>/`, the Run's
+folder, which `dely dispatch` requires and in which the workers write their
+handoffs:
 
 - Implement: fix the `REQUEST.md` defect, add a regression test, run
   `node --test test/`, and commit. Report through the dispatched lifecycle
@@ -473,7 +514,7 @@ spec files under the probe path:
 ```bash
 dely preflight --repo <absolute probe path> --run <run>
 dely dispatch --repo <absolute probe path> --run <run> --phase implement --spec-file <implement spec>
-# After processing implement settlement, acknowledging it and releasing:
+# After processing implement settlement and acknowledging it (the helper released the worker):
 dely dispatch --repo <absolute probe path> --run <run> --phase review --spec-file <review spec>
 ```
 
@@ -535,7 +576,10 @@ from a shell: it must print `REFUSED`.
 Observe with `worker-list`, `worker-show`, and `terminal read --screen`.
 **Pass:** the pushed SHA matches the reviewed head, review reports `ACCEPT`,
 no human acts after initial trust, and Control wakes and processes the correct
-batch. For waker Controls, every `wait_bg` log event is followed by `settled`,
+batch. Every settled worker's terminal leaves `orca terminal list` without
+Control running `worker-release`, `worker-read` still returns that worker's
+output afterwards, and `worker-list --run <run> --terminal-state reclaimable`
+is empty after `dely log`. For waker Controls, every `wait_bg` log event is followed by `settled`,
 `attention` or `stalled` before `notify`, and there is no `error` event.
 `ALREADY_WAITING` starts no waiter and has no notify of its own. Confirm the
 next Control turn acts on the wake. Merely seeing `wait_bg` and `notify` does
@@ -551,7 +595,7 @@ For other harnesses, record the available source or say unobservable.
 Run this when the pin resolver in `dely.js`, the `.dely/` file format, or the
 text of `dely pins` changes. It runs from the observer shell with `snap` set to
 the candidate snapshot, against a fake Orca executable and an isolated home;
-it creates no real Run or worker. It checks six requirements, each against a
+it creates no real Run or worker. It checks five requirements, each against a
 deliberately wrong copy of the candidate before the candidate itself:
 
 | Row | Requirement | Mutant that must turn it RED |
@@ -559,9 +603,8 @@ deliberately wrong copy of the candidate before the candidate itself:
 | 1 | the personal file overrides per phase | `first-file-only`: the first file found answers both phases, so `implement` falls to Control |
 | 2 | worktree, then main checkout | `worktree-only`: reads only `<repo>/.dely/local`; `main-wins`: the main checkout's file beats the worktree's own |
 | 3 | Control fallback | `control-throws`: no Control harness is an error as in 0.23.1; `control-claude`: hard-codes `claude` |
-| 4 | an old `dely:begin` block stops the helper | `block-ignored`: the block is skipped and Control answers |
-| 5 | strict format | `typo-ignored`: an unknown key such as `reveiw` is skipped and the team pin is used |
-| 6 | `dispatch` and `preflight` use the resolver | `dispatch-agents-md`, `preflight-agents-md`: each still parses the `AGENTS.md` table |
+| 4 | strict format | `typo-ignored`: an unknown key such as `reveiw` is skipped and the team pin is used |
+| 5 | `dispatch` and `preflight` use the resolver | `dispatch-agents-md`, `preflight-agents-md`: each still parses the `AGENTS.md` table |
 
 ```bash
 stub=$(mktemp -d "$HOME/dely-probe/pins.XXXXXX")
@@ -585,7 +628,6 @@ if (cmd === 'check') result = {deliveryId:'batch-1',messages:[
   {type:'heartbeat',subject:'ack',payload:{dispatchId:'d-1'}},
   {type:'worker_done',subject:'preflight ok',payload:{dispatchId:'d-1'}}]};
 if (cmd === 'worker-list') result = {workers:[]};
-if (cmd === 'worker-show') result = {projection:{provider:{model:'pin-model'}}};
 if (cmd === 'worker-read') result = {terminal:{tail:[]}};
 if (cmd === 'status') result = {runtime:{appVersion:'stub'}};
 console.log(JSON.stringify({ok:true,result}));
@@ -600,7 +642,8 @@ function repo(files, agents) {
     fs.writeFileSync(path.join(dir, f), typeof v === 'string' ? v : JSON.stringify(v));
   }
   if (agents) fs.writeFileSync(path.join(dir, 'AGENTS.md'), agents);
-  fs.writeFileSync(path.join(dir, 'spec.md'), 'Fixture only.');
+  fs.mkdirSync(path.join(dir, '.dely/local/runs/fixture-run'), {recursive: true});
+  fs.writeFileSync(path.join(dir, '.dely/local/runs/fixture-run/spec.md'), 'Fixture only.');
   return dir;
 }
 function commit(dir, ...paths) {
@@ -612,7 +655,7 @@ function helper(tree, args, ident) {
     {encoding: 'utf8', timeout: 10000, env: {...process.env, HOME: path.join(root, 'home'),
       ORCA_TERMINAL_HANDLE: 'fixture-terminal', ORCA_CLI_COMMAND: path.join(root, 'orca.js'),
       FIXTURE_ROOT: root, FIXTURE_IDENTITY: ident || '', DELY_ACK_S: '0.2', DELY_POLL_S: '0.02',
-      DELY_PIN_CHECK_S: '0', DELY_PREFLIGHT_S: '0.2'}});
+      DELY_PREFLIGHT_S: '0.2'}});
   return {status: r.status, out: (r.stdout || '').trim()};
 }
 function pins(tree, dir, ident) {
@@ -666,11 +709,6 @@ const rows = {
     return r.status === 0 && same(r.json, {implement: side, review: side}) ? null : 'status ' + r.status + ' ' + r.out;
   },
   4(tree) {
-    const dir = repo({}, '# x\n<!-- dely:begin -->\n| `implement` | Claude Code | m | e |\n<!-- dely:end -->\n');
-    const r = pins(tree, dir, 'codex');
-    return r.status !== 0 && r.out.includes('.dely/pins.json') && !r.json ? null : 'status ' + r.status + ' ' + r.out;
-  },
-  5(tree) {
     const ok = {implement: P('claude', 'a'), review: P('codex', 'b')};
     const cases = {
       'typo key': {...ok, reveiw: P('cursor')},
@@ -686,13 +724,13 @@ const rows = {
     }
     return null;
   },
-  6(tree) {
+  5(tree) {
     const table = '| Phase | Harness | Model | Effort |\n| --- | --- | --- | --- |\n' +
       '| `implement` | Claude Code | old-model | low |\n| `review` | Claude Code | old-model | low |\n';
     const dir = repo({'.dely/pins.json': {implement: P('claude', 'a'), review: P('claude', 'b')},
                       '.dely/local/pins.json': {implement: P('codex', 'pin-model', 'high')}}, table);
     fs.writeFileSync(path.join(root, 'calls.jsonl'), '');
-    const d = helper(tree, ['dispatch', '--repo', dir, '--run', 'fixture-run', '--phase', 'implement', '--spec-file', 'spec.md']);
+    const d = helper(tree, ['dispatch', '--repo', dir, '--run', 'fixture-run', '--phase', 'implement', '--spec-file', '.dely/local/runs/fixture-run/spec.md']);
     const s = starts();
     if (!d.out.includes('DISPATCHED') || !s.length || argvOf(s[0], '--agent') !== 'codex' ||
         argvOf(s[0], '--model') !== 'pin-model' || argvOf(s[0], '--effort') !== 'high')
@@ -733,11 +771,10 @@ const mutants = [
   ['main-wins', 2, [['if (fs.existsSync(own)) return own;', 'if (fs.existsSync(own) && !mainCheckout(repo)) return own;']]],
   ['control-throws', 3, [['const id = selfHarness();', 'const id = null;']]],
   ['control-claude', 3, [['const id = selfHarness();', 'const id = "claude";']]],
-  ['block-ignored', 4, [['if (agents.includes(OLD_BLOCK)) {', 'if (false) {']]],
-  ['typo-ignored', 5, [['if (!PHASES.includes(k)) fail(', 'if (false) fail(']]],
-  ['dispatch-agents-md', 6, [['const p = pin(f.repo, f.phase);',
+  ['typo-ignored', 4, [['if (!PHASES.includes(k)) fail(', 'if (false) fail(']]],
+  ['dispatch-agents-md', 5, [['const p = pin(f.repo, f.phase);',
     'const p = (() => ' + agentsTable('f.phase') + ')();']]],
-  ['preflight-agents-md', 6, [['const pins = PHASES.map((ph) => resolved[ph]);',
+  ['preflight-agents-md', 5, [['const pins = PHASES.map((ph) => resolved[ph]);',
     'const pins = PHASES.map((ph) => (() => ' + agentsTable('ph') + ')());']]],
 ];
 const redRows = new Set();
@@ -748,8 +785,8 @@ for (const [name, row, edits] of mutants) {
   redRows.add(row);
   console.log('RED: mutant ' + name + ' fails row ' + row + ': ' + String(why).split('\n')[0].slice(0, 150));
 }
-for (const r of [1, 2, 3, 4, 5, 6]) assert(redRows.has(r), 'no mutant turned row ' + r + ' RED');
-for (const r of [1, 2, 3, 4, 5, 6]) {
+for (const r of [1, 2, 3, 4, 5]) assert(redRows.has(r), 'no mutant turned row ' + r + ' RED');
+for (const r of [1, 2, 3, 4, 5]) {
   const why = rows[r](snap);
   assert.equal(why, null, 'candidate fails row ' + r + ': ' + why);
   console.log('GREEN: row ' + r);
@@ -760,7 +797,7 @@ node "$stub/check.cjs" "$snap" "$stub"
 ```
 
 **Pass:** every mutant prints RED for the row it is named for, and the candidate
-prints GREEN for rows 1 to 6. If a mutation assert fires, update that needle;
+prints GREEN for rows 1 to 5. If a mutation assert fires, update that needle;
 it is not a candidate failure. A GREEN candidate with a row that no mutant
 turned RED proves nothing, and the script refuses it. Keep the fixture
 directory and output with the probe report; remove it after recording the
@@ -786,7 +823,8 @@ fs.mkdirSync(path.join(root, 'repo/.dely'));
 fs.writeFileSync(path.join(root, 'repo/.dely/pins.json'), JSON.stringify({
   implement: {harness: 'claude', model: 'default', effort: 'default'},
   review: {harness: 'claude', model: 'default', effort: 'default'}}));
-fs.writeFileSync(path.join(root, 'repo/spec.md'), 'Fixture only.');
+fs.mkdirSync(path.join(root, 'repo/.dely/local/runs/fixture-run'), {recursive: true});
+fs.writeFileSync(path.join(root, 'repo/.dely/local/runs/fixture-run/spec.md'), 'Fixture only.');
 fs.cpSync(snap, path.join(root, 'wrong'), {recursive: true});
 const wrong = path.join(root, 'wrong/skills/delivery/scripts/dely.js');
 const source = fs.readFileSync(wrong, 'utf8');
@@ -818,7 +856,7 @@ function run(file, verb, mode) {
   const args = [file, verb, '--run', 'fixture-run'];
   if (verb === 'wait') args.push('--control', 'claude', '--timeout-min', '0.05');
   else args.push('--repo', path.join(root, 'repo'));
-  if (verb === 'dispatch') args.push('--phase', 'implement', '--spec-file', 'spec.md');
+  if (verb === 'dispatch') args.push('--phase', 'implement', '--spec-file', '.dely/local/runs/fixture-run/spec.md');
   const r = spawnSync(process.execPath, args, {encoding:'utf8', timeout:10000,
     env:{...process.env, HOME:path.join(root,file === wrong ? 'red-home' : 'green-home'),
       ORCA_TERMINAL_HANDLE:'fixture-terminal', ORCA_CLI_COMMAND:path.join(root,'orca.js'),
@@ -862,6 +900,194 @@ before accepted settlement, with no rejected settlement. The wrong copy logs
 separately in `$stub/red-home/.dely/log.jsonl`. Keep the fixture directory
 and output with the probe report; remove it after recording the result. The accepted message's
 subject intentionally begins `Rejected `; only the payload marker rejects it.
+
+## Stub row — worker release
+
+Run this from the observer shell with `snap` set to the candidate snapshot.
+It uses a fake Orca executable and isolated homes, creates no real Run or
+worker, and checks seven deliberately wrong copies before the candidate. Run it
+when `wait`, `log`, or the settle logic changes. Its fake Orca answers `wait`
+with two batches: a first that never settles, carrying only an Orca-rejected
+`worker_done` for `done-rejected`; then a settling batch with accepted
+`worker_done` for `done-ok` (twice) and `done-kept`, an Orca-rejected
+`worker_done` for `done-bad`, a `question` for `asks` and an `escalation` for
+`escalates`.
+
+```bash
+stub=$(mktemp -d "$HOME/dely-probe/release.XXXXXX")
+cat > "$stub/check.cjs" <<'JS'
+const fs = require('fs'), path = require('path'), assert = require('assert');
+const {spawnSync} = require('child_process');
+const [snap, root] = process.argv.slice(2);
+const rel = 'skills/delivery/scripts/dely.js';
+fs.writeFileSync(path.join(root, 'orca.js'), `
+const fs = require('fs');
+const a = process.argv.slice(2), cmd = a[1], root = process.env.FIXTURE_ROOT;
+fs.appendFileSync(root+'/calls.jsonl', JSON.stringify(a)+'\\n');
+const arg = (k) => a[a.indexOf(k)+1];
+const msg = (type, id, rejected) => ({type, subject: type+' '+id, payload: {dispatchId: id,
+  ...(rejected ? {_orcaLifecycleRejection: {code:'dispatch_capability_invalid'}} : {})}});
+let reply = {ok:true, result:{}};
+if (cmd === 'check' && !a.includes('--ack')) {
+  let n = 0; try {n = +fs.readFileSync(root+'/count','utf8')} catch {}
+  fs.writeFileSync(root+'/count', String(n+1));
+  reply.result = n === 0
+    ? {deliveryId:'rejected-batch', messages:[msg('worker_done','done-rejected',true)]}
+    : {deliveryId:'accepted-batch', messages:[msg('worker_done','done-ok'),
+        msg('worker_done','done-bad',true), msg('worker_done','done-kept'),
+        msg('worker_done','done-ok'), msg('question','asks'),
+        msg('escalation','escalates')]};
+}
+if (cmd === 'worker-release') {
+  const id = arg('--dispatch');
+  reply.result = id === 'done-kept' ? {dispatchId:id, state:'retained', reason:'user_takeover'}
+    : {dispatchId:id, state:'released', processAction:'none'};
+}
+if (cmd === 'worker-list') {
+  if (process.env.FIXTURE_MODE === 'list-fails')
+    reply = {ok:false, error:{code:'list_failed', message:'fixture list failure'}};
+  else {
+    const workers = [{dispatchId:'reclaimable-a', dispatchStatus:'completed'}];
+    if (arg('--terminal-state') !== 'reclaimable')
+      workers.push({dispatchId:'still-running', dispatchStatus:'dispatched'});
+    reply.result = {workers, page:{hasMore:false}};
+  }
+}
+console.log(JSON.stringify(reply));
+`);
+function run(copy, verb, mode) {
+  const home = path.join(root, 'home-' + copy);
+  fs.mkdirSync(path.join(home, '.dely'), {recursive: true});
+  fs.rmSync(path.join(home, '.dely/log.jsonl'), {force: true});
+  fs.rmSync(path.join(root, 'count'), {force: true});
+  fs.writeFileSync(path.join(root, 'calls.jsonl'), '');
+  const args = [path.join(root, copy, rel), verb, '--run', 'fixture-run'];
+  if (verb === 'wait') args.push('--control', 'claude', '--timeout-min', '0.05');
+  else args.push('--json', '{"outcome":"fixture"}');
+  const r = spawnSync(process.execPath, args, {encoding:'utf8', timeout:10000,
+    env:{...process.env, HOME:home, ORCA_TERMINAL_HANDLE:'fixture-terminal',
+      ORCA_CLI_COMMAND:path.join(root,'orca.js'), FIXTURE_ROOT:root, FIXTURE_MODE:mode,
+      DELY_POLL_S:'0.02'}});
+  assert(!r.error, String(r.error));
+  const lines = fs.readFileSync(path.join(root, 'calls.jsonl'), 'utf8').trim().split('\n');
+  const calls = lines.filter(Boolean).map(l => JSON.parse(l));
+  const logFile = path.join(home, '.dely/log.jsonl');
+  const events = fs.existsSync(logFile) ?
+    fs.readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l)) : [];
+  return {status: r.status, stdout: r.stdout, calls, events};
+}
+const released = (r) => r.calls.filter(c => c[1] === 'worker-release').map(c => c[3]).sort();
+const expectWait = [{dispatchId:'done-ok', state:'released'},
+  {dispatchId:'done-kept', state:'retained', reason:'user_takeover'}];
+const checks = {
+  wait(copy) {
+    const r = run(copy, 'wait', 'wait');
+    assert.equal(r.status, 0, 'wait must exit 0');
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.SETTLED, 'accepted-batch');
+    for (const id of ['done-rejected', 'done-bad'])
+      assert(!released(r).includes(id), id + ' released');
+    const alive = ['asks', 'escalates'].filter(id => released(r).includes(id));
+    assert(!alive.length, alive.join(' and ') + ' released');
+    for (const id of ['done-ok', 'done-kept'])
+      assert(released(r).filter(x => x === id).length <= 1, id + ' released twice');
+    assert.deepEqual(released(r), ['done-kept', 'done-ok'], 'no release of done-ok and done-kept once each');
+    assert.deepEqual(Object.keys(out), ['SETTLED', 'messages', 'release']);
+    assert.deepEqual(out.release, expectWait, "state not Orca's");
+    const settled = r.events.filter(e => e.event === 'settled');
+    assert.equal(settled.length, 1);
+    assert.deepEqual(settled[0].release, expectWait, "logged state not Orca's");
+  },
+  log(copy) {
+    const r = run(copy, 'log', 'ok');
+    assert.equal(r.status, 0, 'log must exit 0');
+    assert(!released(r).includes('still-running'), 'still-running released');
+    assert.deepEqual(released(r), ['reclaimable-a'], 'no release of reclaimable-a');
+    const listed = r.calls.filter(c => c[1] === 'worker-list');
+    assert(listed.length >= 1 && listed.every(c => c.join(' ').includes('--terminal-state reclaimable')),
+      'worker-list was not filtered');
+    const ev = r.events.filter(e => e.event === 'delivery');
+    assert.equal(ev.length, 1);
+    assert.deepEqual(ev[0].release, [{dispatchId:'reclaimable-a', state:'released'}], 'delivery release');
+    assert(!('releaseError' in ev[0]), 'releaseError without a failure');
+  },
+  logListFails(copy) {
+    const r = run(copy, 'log', 'list-fails');
+    assert.equal(r.status, 0, 'log must exit 0 when the listing fails');
+    const ev = r.events.filter(e => e.event === 'delivery');
+    assert.equal(ev.length, 1, 'delivery event still written');
+    assert.equal(ev[0].releaseError, 'list_failed', 'releaseError');
+    assert.deepEqual(ev[0].release, [], 'release when the listing fails');
+    assert.deepEqual(released(r), []);
+  },
+};
+const lines = (...l) => l.join('\n');
+const none = [['const release = [...new Set(done.filter(Boolean))].map(releaseWorker);',
+    'const release = [];'],
+  ['const swept = releaseReclaimable(f.run);', 'const swept = {release: [], releaseError: null};']];
+const mutants = [
+  ['a: no release at all', none, 'wait', 'no release of done-ok'],
+  ['b: releases every settling message', [[
+    'const done = msgs.filter((m) => !isRejected(m) && m.type === "worker_done").map(messageDispatchId);',
+    'const done = msgs.filter(settling).map(messageDispatchId);']], 'wait', 'asks and escalates released'],
+  ['c: the settle filter drops the rejection test', [[
+    'const done = msgs.filter((m) => !isRejected(m) && m.type === "worker_done").map(messageDispatchId);',
+    'const done = msgs.filter((m) => m.type === "worker_done").map(messageDispatchId);']],
+    'wait', 'done-bad released'],
+  ['d: hard-coded state', [[
+    'const entry = { dispatchId: id, state: res.state };',
+    'const entry = { dispatchId: id, state: "released" };']], 'wait', "state not Orca's"],
+  ['e: log lists without the filter', [[
+    lines('      "--terminal-state",', '      "reclaimable",', ''), '']], 'log', 'still-running released'],
+  ['f: releases in a batch that does not settle', [[
+    '      if (msgs.some(settling)) {',
+    lines('      for (const m of msgs) if (m.type === "worker_done" && messageDispatchId(m))',
+      '        releaseWorker(messageDispatchId(m));', '      if (msgs.some(settling)) {')]],
+    'wait', 'done-rejected released'],
+  ['g: no de-duplication', [[
+    '[...new Set(done.filter(Boolean))].map(releaseWorker)',
+    'done.filter(Boolean).map(releaseWorker)']], 'wait', 'done-ok released twice'],
+];
+for (const copy of ['candidate', ...mutants.map((m, i) => 'wrong-' + 'abcdefg'[i])])
+  fs.cpSync(snap, path.join(root, copy), {recursive: true});
+mutants.forEach(([name, edits, check, token], i) => {
+  const copy = 'wrong-' + 'abcdefg'[i], file = path.join(root, copy, rel);
+  let source = fs.readFileSync(file, 'utf8');
+  for (const [needle, text] of edits) {
+    assert(source.includes(needle), 'update the wrong-copy mutation for this candidate: ' + name);
+    source = source.replace(needle, () => text);
+  }
+  fs.writeFileSync(file, source);
+  let failed = null;
+  try { checks[check](copy); } catch (e) { failed = e; }
+  assert(failed, 'wrong copy ' + name + ' passed ' + check);
+  assert(String(failed.message).includes(token),
+    'wrong copy ' + name + ' failed for another reason: ' + failed.message);
+  console.log('RED: ' + name + ' fails ' + check + ': ' + failed.message.split('\n')[0]);
+});
+for (const name of Object.keys(checks)) { checks[name]('candidate'); console.log('GREEN: ' + name); }
+console.log('GREEN: candidate releases exactly the accepted worker_done and reclaimable dispatches');
+JS
+node "$stub/check.cjs" "$snap" "$stub"
+```
+
+**Pass:** seven `RED` lines print, one per wrong copy, each failing for the
+named reason; then three `GREEN` lines and the final `GREEN` line; every
+assertion passes. The check proves, mechanically, that `wait` releases exactly
+`done-ok` and `done-kept`, each once, and never `done-bad` (an Orca-rejected
+`worker_done` inside the settling batch), `done-rejected` (one in a batch that
+never settles), `asks` or `escalates`; that `SETTLED` and the `settled` event
+carry the two states Orca returned, including `retained` with `user_takeover`;
+and that `log` releases only what Orca lists under `--terminal-state
+reclaimable`, records it, and still writes the event when the listing fails.
+The wrong copies are: (a) no release; (b) every settling message released,
+failing on `asks and escalates`; (c) the settle filter without its rejection
+test, failing on `done-bad`; (d) a hard-coded state; (e) `log` without the
+filter; (f) a release loop before the settle check, failing on
+`done-rejected`; (g) no de-duplication, failing on `done-ok` released twice.
+They run before the candidate and log into their own homes. Keep the fixture
+directory and output with the probe report; remove it after recording the
+result.
 
 ## Step 4 — row 4, a worker that dies after it acknowledges
 
@@ -1006,49 +1232,58 @@ second.
 
 ## Step 8 — row 8, OMP worker with a valid pin
 
-Build a probe repository under `~/dely-probe/` whose `implement` pin is OMP
-with a Model `selector` from `omp models --json` and an Effort that is one of
-that model's `thinking` levels. The pinned model and level must differ from
-OMP's configured default.
-`probe/mkrepo.sh` writes whatever harness ids it is given; OMP needs no
-trust step. From that repository run `dely dispatch` for `implement`.
+Run this row when `start()` in `dely.js` or the `omp` entry changes, and after
+an OMP or Orca upgrade. Build a probe repository under `~/dely-probe/` whose
+`implement` pin is OMP with a Model `selector` from `omp models --json` and an
+Effort that is one of that model's `thinking` levels. The pinned model and
+level must differ from OMP's configured default. `probe/mkrepo.sh` writes
+whatever harness ids it is given; OMP needs no trust step. From that
+repository run `dely dispatch` for `implement`.
 
 **Pass:** `dely dispatch` prints `DISPATCHED <id>` without a model check,
-because Orca does not report OMP's model (stablyai/orca#24436). In the OMP
-session JSONL under `~/.omp/agent/sessions/`: the last `model_change` before
-the first user message and every assistant message is the pinned model, and
-the last `thinking_level_change` before the first user message is the pinned
-level. If the first request ran OMP's configured default, the extension did
-not apply the pin.
+because Orca does not report OMP's model (stablyai/orca#24436). The receipt's
+`launch.effective.model` equals `selector:level`. In the OMP session JSONL
+under `~/.omp/agent/sessions/`: the last `model_change` before the first user
+message and every assistant message is the pinned model, and the last
+`thinking_level_change` before the first user message is the pinned level.
 
 ## Step 9 — row 9, OMP worker with an invalid pin
 
-Same probe-repository setup as row 8's first dispatch (plugin enabled), with
-a selector `omp models --json` does not offer.
+Run this row when `start()` in `dely.js` or the `omp` entry changes. Same
+probe-repository setup as row 8, with a selector `omp models --json` does not
+offer.
 
-**Pass:** `dely dispatch` prints `NO_ACK` whose quote contains
-`DELY-PIN-FAIL`, and that session has no assistant message. If the worker
-acknowledged and completed on OMP's default model, the extension threw or
-called `ctx.shutdown()` instead of exiting the process.
+**Pass:** `dely dispatch` prints `NO_ACK` and that session has no assistant
+message. If the worker acknowledged and completed on OMP's default model, OMP
+fell back instead of stopping.
 
 ## Step 10 — row 10, OMP worker with Model `default`
 
-Run this row when `start()` in `dely.js` or `extensions/dely-pin.ts` changes.
-Same probe-repository setup as row 8's first dispatch, with Model `default`
-and Effort `default`.
+Run this row when `start()` in `dely.js` or the `omp` entry changes. Same
+probe-repository setup as row 8, with Model `default` and Effort `default`.
 
-**Pass:** the worker transcript's first user message has no `dely-pin:`
-line. A first user message that contains a `dely-pin:` line is a fail.
+**Pass:** the `worker-start` argv has no `--model`, and the worker
+transcript's first user message has no `dely-pin:` line. Either present is a
+fail.
 
 ## Step 11 — row 11, a second `dely-pin:` line in an interactive OMP session
 
-Run this row when `start()` in `dely.js` or `extensions/dely-pin.ts` changes.
+Run this row when `extensions/dely-pin.ts` changes.
 Open an interactive OMP session (not a `dely dispatch`). After it has
 started, send a second prompt that carries a `dely-pin:` line and read its
 model.
 
 **Pass:** the session's model is unchanged from before that prompt. If the
 model switched, the extension applied the pin on a start after the first.
+
+## Step 12 — row 12, OMP worker with a level the model does not offer
+
+Run this row when `start()` in `dely.js` or the `omp` entry changes. Same
+probe-repository setup as row 8, with a valid Model `selector` and an Effort
+the model does not offer, so the launch carries `--model selector:bogus`.
+
+**Pass:** `dely dispatch` prints `NO_ACK` or `FAILED`, and no session has an
+assistant message.
 
 ## Step 13 — row 13, Pi worker with a valid pin
 
@@ -1121,7 +1356,8 @@ again exactly once. Killing the Pi worker process turns
 - remove the Pi install (`pi remove "$snap"`);
 - delete the candidate and last-release snapshots;
 - keep parameterized worker and Control paths so their trust entries survive;
-- remove the argv and rejected-message fixture directories after recording them;
+- remove the argv, rejected-message and worker-release fixture directories after
+  recording them;
 - remove the row 5, row 7, OMP-row and Pi-row paths, and the trust entries of the
   first two.
 
@@ -1134,12 +1370,13 @@ replayed batch in a live session (the stub covers only its fixtures). A quota ex
 the model was having a bad day. A shape change between two Orca releases, until
 the rows are run again. A Model `default` dispatch whose spec itself carries
 a pin line. A stuck live Pi worker before `DEADLINE`. Pi versions other than
-0.87.1 and 0.99.1. Pi's trust layout on other machines. A pinned Pi or OMP worker that did
+0.87.1, 0.99.1 and 1.0.2. Pi's trust layout on other machines. A pinned Pi worker that did
 not load the extension, which runs its own default unseen. A preflight that leaks
 its worker. A heartbeat-only acknowledgement, because the argv stub's fixture
-returns one batch. An Orca upgrade, which reruns live workers only for
-deployment harnesses, so the other supported harnesses are not re-verified
-against the new Orca.
+returns one batch. An OMP worker on Orca older than 1.4.224, which refuses `--model`. An Orca
+upgrade reruns the live worker row for each deployment harness, the Control row
+once per wake mode, rows 4 and 5, and Pi rows 13–16, so the other supported
+harnesses are not re-verified against the new Orca.
 
 ## Results
 

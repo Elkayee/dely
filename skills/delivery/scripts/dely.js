@@ -139,7 +139,7 @@ function pin(repo, phase) {
       const h = value && harnessById(value.harness);
       if (!h || typeof value.model !== "string" || !value.model || typeof value.effort !== "string" || !value.effort) throw new Error("invalid " + phase + " pin in " + file);
       return { phase, agent: h.id, model: value.model, effort: value.effort,
-        modelFlag: h.modelFlag, effortFlag: h.effortFlag, modelPin: h.modelPin,
+        modelFlag: h.modelFlag, effortFlag: h.effortFlag, effortInModel: h.effortInModel, modelPin: h.modelPin,
         source: file === path.join(repo, ".dely", "pins.json") ? "team" : "local", file };
     }
   }
@@ -168,7 +168,7 @@ function legacyPin(repo, phase) {
   const [, harness, model, effort] = row.split("|").slice(1).map((c) => c.trim().replace(/`/g, ""));
   const h = loadHarnesses().find((x) => x.name === harness);
   if (!h) throw new Error("unknown harness " + harness);
-  return { phase, agent: h.id, model, effort, modelFlag: h.modelFlag, effortFlag: h.effortFlag, modelPin: h.modelPin };
+  return { phase, agent: h.id, model, effort, modelFlag: h.modelFlag, effortFlag: h.effortFlag, effortInModel: h.effortInModel, modelPin: h.modelPin };
 }
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -755,11 +755,12 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
 
 function start(repo, run, p, spec, title) {
   const wantsModel = p.modelFlag && p.model !== "default";
+  const joinsEffort = wantsModel && p.effortInModel && p.effort !== "default";
   const wantsEffort = p.effortFlag && p.effort !== "default";
   const specPin = p.modelPin === "spec" || p.modelPin === "spec-unchecked";
   const specModel = specPin && p.model !== "default";
   const specEffort = specPin && p.effort !== "default";
-  if (effortRequiresModel() && (wantsEffort || specEffort) && !(wantsModel || specModel)) {
+  if (effortRequiresModel() && (wantsEffort || specEffort || (p.effortInModel && p.effort !== "default")) && !(wantsModel || specModel)) {
     return {
       error:
         "effort " + p.effort + " pinned with model default for " + p.agent +
@@ -790,7 +791,7 @@ function start(repo, run, p, spec, title) {
     "--agent",
     p.agent,
   ];
-  if (wantsModel) args.push("--model", p.model);
+  if (wantsModel) args.push("--model", joinsEffort ? p.model + p.effortInModel + p.effort : p.model);
   if (wantsEffort) args.push("--effort", p.effort);
   const r = orca(args);
   const id = r.result && r.result.dispatchId;
@@ -872,6 +873,49 @@ function isDispatchReceipt(m, dispatchId, receiptMarker, terminalHandle = null, 
 
 function settling(m) {
   return !isRejected(m) && ["worker_done", "escalation", "question"].includes(m.type);
+}
+
+// Records what Orca printed for one release and never a state it did not. A
+// failed release is an entry, not a failure: callers keep their exit code.
+function releaseWorker(id) {
+  const r = orca(["orchestration", "worker-release", "--dispatch", id]);
+  if (r.ok === false) {
+    const e = r.error || {};
+    return { dispatchId: id, error: e.code || e.message || "release failed" };
+  }
+  const res = r.result || {};
+  if (!res.state) return { dispatchId: id, error: "no state returned" };
+  const entry = { dispatchId: id, state: res.state };
+  if (res.reason) entry.reason = res.reason;
+  return entry;
+}
+
+function releaseReclaimable(run) {
+  const ids = [];
+  let cursor = null;
+  let releaseError = null;
+  for (;;) {
+    const r = orca([
+      "orchestration",
+      "worker-list",
+      "--run",
+      run,
+      "--terminal-state",
+      "reclaimable",
+      ...(cursor ? ["--cursor", cursor] : []),
+    ]);
+    if (r.ok === false) {
+      const e = r.error || {};
+      releaseError = e.code || e.message || "worker-list failed";
+      break;
+    }
+    const res = r.result || {};
+    for (const w of res.workers || []) if (w.dispatchId && !ids.includes(w.dispatchId)) ids.push(w.dispatchId);
+    const page = res.page || {};
+    if (!page.hasMore || !page.nextCursor || page.nextCursor === cursor) break;
+    cursor = page.nextCursor;
+  }
+  return { release: ids.map(releaseWorker), releaseError };
 }
 
 function orcaHint(msg, run) {
@@ -1149,6 +1193,32 @@ function dropWorker(id, handle = null, run = null) {
       try { orca(["terminal", "close", "--terminal", handle]); } catch (_) {}
     }
   }
+}
+
+function runFolder(repo, run) {
+  return path.join(repo, ".dely", "local", "runs", run);
+}
+
+// Lists every file under dir. A missing dir is an empty listing; any other
+// read failure sets err to {code, dir} and the listing is incomplete.
+function listFiles(dir, top = true) {
+  const r = { files: [], err: null };
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    if (!(top && e.code === "ENOENT")) r.err = { code: e.code || "ERROR", dir };
+    return r;
+  }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      const sub = listFiles(p, false);
+      r.files.push(...sub.files);
+      r.err = r.err || sub.err;
+    } else r.files.push(p);
+  }
+  return r;
 }
 
 function dispatch(f) {
@@ -1460,7 +1530,7 @@ function wait(f) {
   }
   const as = f.as ? ["--terminal", f.as] : [];
   const control = (f.as ? selfHarness(f.as) : self) || f.control || null;
-  const deadline = Date.now() + Number(f["timeout-min"] || 60) * 60000;
+  const deadline = Date.now() + Number(f["timeout-min"] || 55) * 60000;
   const stallMin = Number(f["stall-min"] || 10);
   const skip = String(f.skip || "").split(",").filter(Boolean);
   const track = {};
@@ -1490,6 +1560,10 @@ function wait(f) {
     if (res.deliveryId) {
       const msgs = res.messages || [];
       if (msgs.some(settling)) {
+        // A worker that settled with an accepted worker_done is finished; an
+        // escalation or question is alive and waiting for a reply.
+        const done = msgs.filter((m) => !isRejected(m) && m.type === "worker_done").map(messageDispatchId);
+        const release = [...new Set(done.filter(Boolean))].map(releaseWorker);
         logEvent("settled", {
           run: f.run,
           deliveryId: res.deliveryId,
@@ -1499,6 +1573,7 @@ function wait(f) {
             subject: m.subject,
             dispatchId: messageDispatchId(m),
           })),
+          release,
         });
         out(
           {
@@ -1510,6 +1585,7 @@ function wait(f) {
               subject: m.subject,
               payload: m.payload,
             })),
+            release,
           },
           0
         );
@@ -1891,7 +1967,15 @@ function logCmd(f) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     fail("--json must be an object", { run: f.run });
   }
-  logEvent("delivery", Object.assign({}, payload, { run: f.run, repo: f.repo || payload.repo || null }));
+  const repo = f.repo || payload.repo || null;
+  const root = repo ? path.resolve(repo) : null;
+  const listed = root ? listFiles(runFolder(root, f.run)) : null;
+  const residue = listed && !listed.err ? listed.files.map((p) => path.relative(root, p)).sort() : null;
+  const extra = listed && listed.err ? { residueError: listed.err.code + " " + path.relative(root, listed.err.dir) } : {};
+  const swept = releaseReclaimable(f.run);
+  const released = { release: swept.release };
+  if (swept.releaseError != null) released.releaseError = swept.releaseError;
+  logEvent("delivery", Object.assign({}, payload, { run: f.run, repo, residue }, extra, released));
   process.exit(0);
 }
 
