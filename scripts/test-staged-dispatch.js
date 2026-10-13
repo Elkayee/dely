@@ -31,7 +31,8 @@ function dispatchFixture(t, mode) {
   const nativeRequire = createRequire(helper);
   const context = vm.createContext({ require: (name) => name === "./task-routing.js" ? route : nativeRequire(name),
     __dirname: path.dirname(helper), __filename: helper, Buffer, TextDecoder,
-    process: { platform: "win32", env: {} }, console: { log: () => {} } });
+    process: { platform: "win32", env: { DELY_ACK_S: "1", DELY_POLL_S: "0.001" } },
+    console: { log: () => {} } });
   vm.runInContext(source.slice(0, cli), context, { filename: helper });
   const launches = [], events = [], snapshots = [];
   context.pin = (_, phase) => phase === "implement_backup_2" || mode === "inline" ?
@@ -49,12 +50,11 @@ function dispatchFixture(t, mode) {
   context.orca = () => {
     const delivered = snapshots.length ? fs.readFileSync(snapshots[0], "utf8") : launches.at(-1).spec;
     return { result: { messages: [{ type: "heartbeat", subject: delivered.match(/rcpt_[a-f0-9]{16}/)[0],
-      dispatchId: "ctx_staged", terminalHandle: "term_staged" }] } };
+      dispatchId: "ctx_staged", from_handle: "term_staged" }] } };
   };
   const completed = {};
-  context.out = (message, code) => {
-    assert.equal(code, 0, message);
-    assert.match(message, /^DISPATCHED /);
+  context.process.exit = (code) => {
+    assert.equal(code, 0);
     throw completed;
   };
   assert.throws(() => context.dispatch({ repo, run: "fixture", phase: "implement", "spec-file": "spec.md" }),

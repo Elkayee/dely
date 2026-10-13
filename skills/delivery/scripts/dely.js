@@ -1323,7 +1323,7 @@ function dispatch(f) {
 
     const relSnapshot = path.join(".tmp-dely", snapshotName).replace(/\\/g, "/");
     dispatchSpec =
-      "Task spec staged at " + relSnapshot + " (" + sourceBytes + " bytes, SHA-256: " + sourceSha256 + ").\n" +
+      "Task spec staged at " + relSnapshot + " (" + snapshotBytes + " bytes, SHA-256: " + snapshotSha256 + ").\n" +
       "Read the full task spec from " + relSnapshot + " before starting work.\n\n" +
       "First action: read the complete staged file from " + relSnapshot + ", then send the exact heartbeat receipt subject specified in that file's footer, then execute the task.\n" +
       "The Orca preamble and the staged spec file are everything the worker needs; read no other skill.";
