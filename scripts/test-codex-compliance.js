@@ -837,6 +837,23 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   assert.equal(guard.verifiedWorker(event, f.settings, handle, { spec_sha256: dispatch.promptSha256 }), true);
   assert.equal(guard.verifiedWorker(f.event, f.settings, handle), false);
   assert.equal(guard.verifiedWorker(event, f.settings, "another-terminal"), false);
+
+  dispatch.snapshotSha256 = guard.digest("The staged spec includes a receipt footer.");
+  fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run, repo: f.repo,
+    specSha256: dispatch.promptSha256 }].map(JSON.stringify).join("\n") + "\n");
+  const stagedClaim = { spec_sha256: dispatch.snapshotSha256 };
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), true);
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, { spec_sha256: dispatch.promptSha256 }), false);
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, { spec_sha256: guard.digest("stale snapshot") }), false);
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, claim), true);
+  assert.equal(guard.verifiedWorker({ ...event, model: "wrong-model" }, f.settings, handle, stagedClaim), false);
+  assert.equal(guard.verifiedWorker({ ...event, cwd: f.home }, f.settings, handle, stagedClaim), false);
+  assert.equal(guard.verifiedWorker(event, f.settings, "another-terminal", stagedClaim), false);
+  fs.writeFileSync(f.settings.journal, JSON.stringify(dispatch) + "\n");
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false);
+  fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run, repo: f.repo,
+    specSha256: dispatch.snapshotSha256 }].map(JSON.stringify).join("\n") + "\n");
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false);
 });
 
 test("preparation retains a dispatched worker's current prompt claim", async (t) => {
