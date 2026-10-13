@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 $repo = Split-Path -Parent $PSScriptRoot
+$nodeExe = Join-Path $env:ProgramFiles "nodejs\node.exe"
+if (-not (Test-Path -LiteralPath $nodeExe)) { throw "Native Node executable not found" }
 $dely = Join-Path $repo ".dely-poc\skills\delivery\scripts\dely.js"
 if (-not (Test-Path $dely)) {
     throw "Run scripts\setup-poc.ps1 first."
@@ -29,7 +31,7 @@ function Get-GuardPath([string]$RunId) {
 }
 
 function Invoke-Wait([string]$RunId) {
-    $out = (& node $dely wait --run $RunId --control codex --timeout-min 0.0001 2>&1) | Out-String
+    $out = (& $nodeExe $dely wait --run $RunId --control codex --timeout-min 0.0001 2>&1) | Out-String
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out.Trim() }
 }
 
@@ -55,7 +57,7 @@ try {
     $third = Invoke-Wait $runFailure
 
     if ($first.ExitCode -ne 7 -or $second.ExitCode -ne 7) {
-        throw "Repeated-failure setup did not produce two DEADLINE results."
+        throw "Repeated-failure setup did not produce two DEADLINE results: first=$($first.ExitCode) $($first.Output); second=$($second.ExitCode) $($second.Output)"
     }
     if ($third.ExitCode -ne 10 -or $third.Output -notmatch "LOOP_GUARD wait returned the same failure 2 times") {
         throw "Repeated-failure guard did not stop the third attempt."

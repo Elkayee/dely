@@ -11,17 +11,6 @@ const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
 const ACK_S = seconds(process.env.DELY_ACK_S, process.platform === "win32" ? 180 : 60);
 const POLL_S = Number(process.env.DELY_POLL_S || 15);
 const PROGRESS_S = Number(process.env.DELY_PROGRESS_S || 60);
-// Measured 2026-09-27 on OMP 18.3.4 / Orca 1.4.212: worker-show
-// projection.provider.model already equalled the pinned selector 1 ms after
-// worker-start returned ready, and still equalled it when heartbeat `ack`
-// arrived 7.4 s later. Five seconds is a safety bound, not a wait for lag.
-const PIN_CHECK_DEFAULT_S = 5;
-function pinCheckMs() {
-  const raw = process.env.DELY_PIN_CHECK_S;
-  if (raw == null || raw === "") return PIN_CHECK_DEFAULT_S * 1000;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n * 1000 : PIN_CHECK_DEFAULT_S * 1000;
-}
 const PREFLIGHT_S = seconds(process.env.DELY_PREFLIGHT_S, 150);
 const NOTIFY_RETRY_S = seconds(process.env.DELY_NOTIFY_RETRY_S, 30);
 const NOTIFY_GIVEUP_S = seconds(process.env.DELY_NOTIFY_GIVEUP_S, 1800);
@@ -757,7 +746,7 @@ function start(repo, run, p, spec, title) {
   const wantsModel = p.modelFlag && p.model !== "default";
   const joinsEffort = wantsModel && p.effortInModel && p.effort !== "default";
   const wantsEffort = p.effortFlag && p.effort !== "default";
-  const specPin = p.modelPin === "spec" || p.modelPin === "spec-unchecked";
+  const specPin = p.modelPin === "spec-unchecked";
   const specModel = specPin && p.model !== "default";
   const specEffort = specPin && p.effort !== "default";
   if (effortRequiresModel() && (wantsEffort || specEffort || (p.effortInModel && p.effort !== "default")) && !(wantsModel || specModel)) {
@@ -1166,22 +1155,6 @@ function preflight(f) {
   process.exit(failed ? 1 : 0);
 }
 
-function shownModel(id) {
-  const v = (((orca(["orchestration", "worker-show", "--dispatch", id]).result || {}).projection || {}).provider || {}).model;
-  return v == null || v === "" ? null : v;
-}
-
-function waitShownModel(id, expected) {
-  const ms = pinCheckMs();
-  const t0 = Date.now();
-  let saw = shownModel(id);
-  while (saw !== expected && Date.now() - t0 < ms) {
-    sleep(250);
-    saw = shownModel(id);
-  }
-  return saw;
-}
-
 function dropWorker(id, handle = null, run = null) {
   const dead = isProvenDead(id, handle, run);
   if (dead) {
@@ -1437,24 +1410,6 @@ function dispatch(f) {
         receiptMarker,
         seconds: Math.round((Date.now() - t0) / 1000),
       });
-      if (p.modelPin === "spec" && p.model !== "default") {
-        const saw = waitShownModel(s.id, p.model);
-        if (saw !== p.model) {
-          dropWorker(s.id, s.terminalHandle, f.run);
-          restoreControlFocus(f.run);
-          logEvent("pin_not_applied", {
-            run: f.run,
-            repo: f.repo,
-            dispatchId: s.id,
-            expected: p.model,
-            saw,
-          });
-          out(
-            "FAILED " + s.id + " pin not applied: expected " + p.model + ", saw " + (saw == null ? "none" : saw),
-            5
-          );
-        }
-      }
       restoreControlFocus(f.run);
       console.log("receipt confirmed for " + s.id + " [" + receiptMarker + "]");
       out("DISPATCHED " + s.id, 0);

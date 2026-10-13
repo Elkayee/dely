@@ -7,10 +7,14 @@ $patch = Join-Path $repo "patches\dely-agy.patch"
 Set-Location $repo
 
 if (Test-Path $dely) {
-    Remove-Item $dely -Recurse -Force
+    throw "Existing POC preserved. Update its task-owned files rather than deleting or recloning it."
 }
 
-git clone --depth 1 https://github.com/hieuphung97/dely.git $dely
+git clone --no-checkout --config core.autocrlf=false --depth 1 https://github.com/hieuphung97/dely.git $dely
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+git -C $dely fetch --depth 1 origin ce7a29cc0edb351c256162e8f5076f42ba69234f
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+git -C $dely checkout --detach ce7a29cc0edb351c256162e8f5076f42ba69234f
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 git -C $dely apply $patch

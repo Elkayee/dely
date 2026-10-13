@@ -9,6 +9,20 @@ Last updated 2026-10-13.
 
 ## Settled
 
+### 2026-10-13 — Staged evidence integration and OMP closure
+
+The staged pointer and inherited worker admission use the delivered snapshot's
+byte count and hash; original assessed hashes still bind the source task and
+route. The two staged-evidence commits and pending local maintenance are
+integrated under version `0.27.1`.
+
+The upstream OMP compound model/effort flags replace the retired strict spec-pin
+helpers. Their leftover definitions and caller are removed to satisfy the
+current closure gate. Native AGY catalog/footer enforcement and the local
+Codex fallback launcher remain unchanged. The previous sync's reported lexical
+pass used an older pattern and missed these leftovers; closure now uses the
+current pattern from `AGENTS.md`.
+
 ### 2026-10-13 — Remote main synchronized with the local POC
 
 The checkout incorporates remote `c1e733e` and retains the local four-tier

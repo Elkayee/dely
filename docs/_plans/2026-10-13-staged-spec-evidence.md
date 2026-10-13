@@ -44,3 +44,20 @@ remain unevaluated; no structural check substitutes for them. Runtime changes
 require a passing relevant probe and byte-for-byte preservation of both existing
 hooks manifests. No native hook trust or model-routing policy change is part of
 this fix.
+
+## Integration follow-up
+
+The pending monitor, documentation and POC maintenance files were committed
+separately on master as `62a9c69`. The staged-evidence branch is integrated with
+that commit. The retired OMP strict spec-pin helpers and caller are removed,
+matching the upstream compound model/effort flags and the current closure gate.
+The native AGY and Codex fallback launcher functions are unchanged from `66d1116`.
+
+The complete integrated candidate passes 143 regression tests, PowerShell
+syntax for both pending scripts, and the current JSON/schema/version/README,
+JavaScript/shell, lexical and whitespace closure checks. The exact retired-name
+predicate finds twelve hits in the baseline and zero in the candidate. The
+tests use the candidate routing module through `COMPLIANCE_ROUTING`; the old
+default cache path is unavailable on this machine. Separate snapshot verification
+runs against the committed candidate before final Control acceptance. Live
+provider and installed runtime activation remain outside this source merge.
