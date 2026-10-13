@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dely Monitor</title>
+  <link rel="stylesheet" href="/monitor.css">
+  <script src="/monitor.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Dely Monitor home"><span class="brand-mark">d</span><span>dely<span class="brand-sub">MONITOR</span></span></a>
+    <p class="nav-label">WORKSPACE</p>
+    <a class="nav-item active" href="#overview"><span class="nav-icon">◫</span> Overview</a>
+    <a class="nav-item" href="#models"><span class="nav-icon">▥</span> Model activity</a>
+    <a class="nav-item" href="#routing"><span class="nav-icon">↗</span> Routing coverage</a>
+    <a class="nav-item" href="#activity"><span class="nav-icon">≡</span> Recent launches</a>
+    <div class="sidebar-bottom"><span class="local-dot"></span> Local observation<p>Metadata only. Your prompts<br>stay out of this dashboard.</p></div>
+  </aside>
+  <main>
+    <header id="overview">
+      <div><p class="eyebrow">DELIVERY INTELLIGENCE</p><h1>Usage overview<span class="live-label"><i></i> Local</span></h1><p class="subtitle">See how tasks are routed, which models run, and where evidence is missing.</p></div>
+      <button id="refresh" class="button"><span aria-hidden="true">↻</span> Refresh</button>
+    </header>
+    <section class="toolbar" aria-label="Activity filters">
+      <div class="filter"><label for="days">Time window</label><select id="days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select></div>
+      <div class="filter workspace-filter"><label for="repo">Workspace</label><select id="repo"><option value="">All workspaces</option></select></div>
+      <label class="checkbox"><input id="probes" type="checkbox"> Include probe runs</label>
+      <p id="updated" class="updated">Reading local sources…</p>
+    </section>
+    <div id="notice" class="notice" role="status" aria-live="polite">Loading activity. Missing data will remain visible.</div>
+    <section class="metrics" aria-label="Usage metrics">
+      <article class="metric"><p>Dely adoption <span class="tag">TASKS</span></p><div id="adoption" class="metric-number">—</div><p id="adoption-detail" class="metric-detail">Reviewed eligible tasks only</p><div class="metric-rule blue"></div></article>
+      <article class="metric"><p>Recorded approvals <span class="tag">COVERAGE</span></p><div id="approvals" class="metric-number">—</div><p id="approval-detail" class="metric-detail">Classification is never inferred</p><div class="metric-rule violet"></div></article>
+      <article class="metric"><p>Orca workers <span class="tag">SNAPSHOT</span></p><div id="workers" class="metric-number">—</div><p id="worker-detail" class="metric-detail">Durable outcomes and active work</p><div class="metric-rule emerald"></div></article>
+      <article class="metric"><p>Codex conversations <span class="tag">SESSIONS</span></p><div id="sessions" class="metric-number">—</div><p id="session-detail" class="metric-detail">Separate from implementation launches</p><div class="metric-rule amber"></div></article>
+    </section>
+    <section id="models" class="chart-grid">
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">IMPLEMENTATION</p><h2>Effective model pins</h2></div><span id="launch-count" class="pill">Dely logs</span></div><p class="panel-caption">Acknowledged Dely launches. Retries and fallback launches are counted separately.</p><div id="implementation-chart" class="bar-chart"></div><p class="footnote">An effective pin is the model recorded by Dely. Missing model evidence is shown as unknown.</p></article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSATION ACTIVITY</p><h2>Codex model usage</h2></div><span class="pill">Recorded turns</span></div><p class="panel-caption">Includes Control, review and direct CLI work. These counts are not implementation shares.</p><div id="conversation-chart" class="bar-chart"></div><p class="footnote">Conversation IDs and turn IDs are deduplicated across native and Orca profiles.</p></article>
+    </section>
+    <section id="routing" class="routing-grid">
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">FOUR-TIER POLICY</p><h2>Routing coverage</h2></div><span class="pill">Recorded approvals</span></div><div id="grade-grid" class="grade-grid"></div><p class="footnote">Dely adoption uses approved Easy / Medium− / Medium+ tasks as its denominator. Hard is direct Sol; absent or legacy grades remain unknown.</p></article>
+      <article class="panel sources-panel"><div class="panel-heading"><div><p class="eyebrow">OBSERVABILITY</p><h2>Source health</h2></div></div><div id="sources"></div><p class="footnote">The date filter applies to timestamped records. Orca inventory rows without a timestamp remain a current snapshot.</p></article>
+    </section>
+    <section id="activity" class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">EXECUTION HISTORY</p><h2>Recent launches & workers</h2></div><span id="activity-count" class="pill">—</span></div><div class="table-scroll"><table><thead><tr><th>Workspace / launch</th><th>Grade</th><th>Model</th><th>Status</th><th>Evidence</th><th>Time</th></tr></thead><tbody id="activity-rows"></tbody></table></div><button id="more" class="text-button" hidden>Show more records</button></section>
+    <footer><span>Dely Monitor · read-only local UI</span><span>Routing compliance depends on recorded assessments; missing approvals are not silently treated as Hard.</span></footer>
+  </main>
+</body>
+</html>
