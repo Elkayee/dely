@@ -5,6 +5,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
+const { spawnSync } = require("child_process");
 const { parseArgs } = require("node:util");
 
 const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -85,6 +86,41 @@ function checkPrompt(state, home) {
   const prompt = read(file);
   if (prompt.turn !== state.turn || prompt.input_nonce !== state.input_nonce || !samePath(prompt.repo, state.repo)) {
     throw Error("User prompt changed; prepare and review the current request.");
+  }
+}
+
+function executionRepo(task, origin) {
+  if (!Object.hasOwn(task, "execution_repo")) return origin;
+  const target = task.execution_repo;
+  if (typeof target !== "string" || !path.isAbsolute(target) || !fs.statSync(target).isDirectory()) {
+    throw Error("execution_repo must be an existing absolute repository directory.");
+  }
+  const resolved = canonical(target);
+  if (!samePath(resolved, origin)) {
+    const common = (repo) => {
+      const result = spawnSync("git", ["-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        { encoding: "utf8", timeout: 10000, windowsHide: true });
+      if (result.status !== 0 || !result.stdout.trim()) throw Error("Cannot verify the execution repository.");
+      return canonical(result.stdout.trim());
+    };
+    if (!samePath(common(origin), common(resolved))) throw Error("execution_repo must belong to the Control repository.");
+  }
+  return resolved;
+}
+
+function checkExecutionRepo(state, home) {
+  const task = read(state.task_input);
+  if (!Object.hasOwn(task, "execution_repo")) {
+    if (state.execution_repo) throw Error("Execution repository was not prepared.");
+    return;
+  }
+  if (!state.execution_repo || state.execution_repo_path !== task.execution_repo ||
+      !samePath(executionRepo(task, state.repo), state.execution_repo) ||
+      (state.assessment && !samePath(state.assessment.task.repo, state.execution_repo))) {
+    throw Error("Execution repository changed; prepare and review again.");
+  }
+  if (JSON.stringify(instructions(state.execution_repo, home)) !== JSON.stringify(state.execution_instructions)) {
+    throw Error("Execution repository instructions changed; prepare and review again.");
   }
 }
 
@@ -213,12 +249,13 @@ function logRecords(file) {
 
 function dispatchEvidence(state, settings) {
   const assessment = state.assessment;
+  const repo = state.execution_repo || state.repo;
   const rows = logRecords(settings.journal).filter((row) => row.run === state.run);
   const route = rows.find((row) => row.event === "task_route" && row.repo &&
-    samePath(row.repo, state.repo) && row.specSha256 === assessment.task.spec_sha256 &&
+    samePath(row.repo, repo) && row.specSha256 === assessment.task.spec_sha256 &&
     row.contextSha256 === assessment.task.context_sha256 && row.difficulty === assessment.difficulty);
   return route && rows.find((row) => row.event === "dispatch" && row.repo &&
-    samePath(row.repo, state.repo) && row.phase === "implement" &&
+    samePath(row.repo, repo) && row.phase === "implement" &&
     row.promptSha256 === assessment.task.spec_sha256 && row.dispatchId);
 }
 
@@ -247,6 +284,7 @@ function validate(state, event, home, requireDispatch = true) {
   }
   if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
   checkPrompt(state, home);
+  checkExecutionRepo(state, home);
   const settings = checkedSettings(home);
   checkCatalogPaths(state);
   for (const [file, hash] of Object.entries(state.fingerprints)) {
@@ -314,7 +352,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
         path.basename(words[0] || "").replace(/\.exe$/i, "") === "node" && words[1] && !words[1].startsWith("-") &&
         fs.existsSync(words[1]) &&
         samePath(words[1], settings.dely) &&
-        ["preflight", "dispatch", "wait", "wait-bg", "cleanup", "notify"].includes(words[2]);
+        [undefined, "pins", "preflight", "dispatch", "wait", "wait-bg", "cleanup", "notify"].includes(words[2]);
     }
     validate(state, event, home, !coordinating);
     if (type === "PreToolUse" && !coordinating && (state.mutation_admitted !== true || state.stop_reported)) {
@@ -346,6 +384,7 @@ async function prepare(options, home) {
     throw Error("Task JSON needs mode, request and the current session skills array.");
   }
   const repo = canonical(options.repo);
+  const target = executionRepo(task, repo);
   if (task.skills.some((skill) => !path.isAbsolute(skill.path))) throw Error("Skill paths must come from the session's absolute catalog paths.");
   const directory = path.join(root(home), "tasks", crypto.randomBytes(12).toString("hex"));
   fs.mkdirSync(directory, { recursive: true });
@@ -379,6 +418,11 @@ async function prepare(options, home) {
     skill_selection: { source: "native-session", advice_status: "NOT_REQUESTED" },
     required_skills: required, instructions: instructions(repo, home),
   };
+  if (Object.hasOwn(task, "execution_repo")) {
+    state.execution_repo = target;
+    state.execution_repo_path = task.execution_repo;
+    state.execution_instructions = instructions(target, home);
+  }
   state.input_nonce = pending.turn === options.turn && /^[a-f0-9]{24}$/.test(pending.input_nonce || "") ?
     pending.input_nonce : crypto.randomBytes(12).toString("hex");
   if (task.mode === "implement") {
@@ -388,12 +432,13 @@ async function prepare(options, home) {
     fs.writeFileSync(specFile, task.spec, { flag: "wx", mode: 0o600 });
     write(contextFile, task.context);
     const routing = require(settings.routing);
-    const loadedTask = routing.loadTask(repo, specFile, contextFile);
+    const loadedTask = routing.loadTask(target, specFile, contextFile);
     if (routing.missingEvidence(loadedTask).length) throw Error("Complete and confirm the task context before implementation.");
     state.assessment = await routing.assess(loadedTask, { credentialRoot: settings.credential_root });
     write(path.join(directory, "assessment.json"), state.assessment);
   }
   checkSnapshot(snapshot);
+  checkExecutionRepo(state, home);
   if (JSON.stringify(instructions(repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during preparation.");
   state.fingerprints = { ...fingerprints([taskInput, skillInput, sessionRoster, sourceRoster,
     ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...snapshot.fingerprints };
@@ -414,6 +459,7 @@ function review(options, home) {
   const state = read(file);
   if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
   if (state.turn !== options.turn || state.status !== "PREPARED") throw Error("Prepare this turn before reviewing.");
+  checkExecutionRepo(state, home);
   checkCatalogPaths(state);
   for (const [p, hash] of Object.entries(state.fingerprints)) if (!unchanged(p, hash)) throw Error("Prepared inputs changed.");
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed.");
@@ -457,6 +503,7 @@ function review(options, home) {
   checkSnapshot(snapshot);
   checkSnapshot(state);
   checkedSettings(home);
+  checkExecutionRepo(state, home);
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during review.");
   if (state.mode === "implement") {
     const routing = require(settings.routing);

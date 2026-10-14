@@ -53,6 +53,117 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+function candidateFixture(t) {
+  const f = fixture(t);
+  const git = (...args) => {
+    const result = spawnSync("git", args, { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git("init", "--quiet", f.repo);
+  git("-C", f.repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+    "commit", "--quiet", "--allow-empty", "-m", "fixture");
+  const candidate = path.join(path.dirname(f.repo), "candidate");
+  git("-C", f.repo, "worktree", "add", "--quiet", "--detach", candidate, "HEAD");
+  fs.writeFileSync(path.join(candidate, "AGENTS.md"), "Keep candidate changes scoped.\n");
+  f.task.execution_repo = candidate;
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Work in this candidate" }, f.home);
+  return { ...f, candidate, git };
+}
+
+test("explicit candidate assessment retains the immutable Control prompt origin", async (t) => {
+  const f = candidateFixture(t);
+  const prepared = await f.prepare();
+  assert.equal(prepared.assessment.task.repo, fs.realpathSync(f.candidate));
+  f.review();
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.repo, fs.realpathSync(f.repo));
+  assert.equal(state.execution_repo, fs.realpathSync(f.candidate));
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  assert.equal(guard.hook({ ...f.event, cwd: f.candidate }, f.home).hookSpecificOutput.permissionDecision, "deny");
+  await assert.rejects(() => guard.prepare({ ...f.options, repo: f.candidate,
+    "task-json": JSON.stringify(f.task) }, f.home), /prompt changed/i);
+});
+
+test("candidate Dely evidence must match the reviewed target and both exact hashes", async (t) => {
+  const f = candidateFixture(t);
+  f.task.context.risks.routing = false;
+  const routing = require(routingPath), assess = routing.assess;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task, options) => assess(task, { ...options, apiKey: "" });
+  await f.prepare();
+  f.review({ difficulty: "medium_plus", run: "fixture_run", skills: '["required","dely:delivery"]' });
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const route = { event: "task_route", run: state.run, repo: f.candidate,
+    specSha256: state.assessment.task.spec_sha256, contextSha256: state.assessment.task.context_sha256,
+    difficulty: "medium_plus" };
+  const dispatch = { event: "dispatch", run: state.run, repo: f.candidate, phase: "implement",
+    promptSha256: route.specSha256, dispatchId: "fixture_dispatch" };
+  for (const wrong of [
+    [{ ...route, repo: f.repo }, { ...dispatch, repo: f.repo }],
+    [{ ...route, contextSha256: "wrong" }, dispatch],
+    [route, { ...dispatch, promptSha256: "wrong" }],
+  ]) {
+    fs.writeFileSync(f.settings.journal, wrong.map((row) => JSON.stringify(row)).join("\n") + "\n");
+    assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  }
+  fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+for (const phase of ["review", "mutation"]) {
+  test("candidate instructions changed before " + phase + " invalidate admission", async (t) => {
+    const f = candidateFixture(t);
+    await f.prepare();
+    if (phase === "mutation") f.review();
+    fs.appendFileSync(path.join(f.candidate, "AGENTS.md"), "New candidate restriction.\n");
+    if (phase === "review") assert.throws(f.review, /instructions changed/i);
+    else assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
+for (const kind of ["relative", "missing", "unrelated", "file", "null"]) {
+  test("explicit execution target rejects " + kind + " destinations", async (t) => {
+    const f = candidateFixture(t);
+    if (kind === "relative") f.task.execution_repo = "candidate";
+    if (kind === "missing") f.task.execution_repo = path.join(f.repo, "missing");
+    if (kind === "unrelated") {
+      f.task.execution_repo = path.join(path.dirname(f.repo), "unrelated");
+      fs.mkdirSync(f.task.execution_repo);
+      f.git("init", "--quiet", f.task.execution_repo);
+    }
+    if (kind === "file") f.task.execution_repo = f.skill;
+    if (kind === "null") f.task.execution_repo = null;
+    await assert.rejects(f.prepare);
+  });
+}
+
+test("retargeting a reviewed candidate alias with identical instructions is denied", async (t) => {
+  const f = candidateFixture(t);
+  const alias = path.join(path.dirname(f.repo), "candidate-alias");
+  fs.symlinkSync(f.candidate, alias, "junction");
+  f.task.execution_repo = alias;
+  await f.prepare();
+  f.review();
+  const other = path.join(path.dirname(f.repo), "other-candidate");
+  f.git("-C", f.repo, "worktree", "add", "--quiet", "--detach", other, "HEAD");
+  fs.copyFileSync(path.join(f.candidate, "AGENTS.md"), path.join(other, "AGENTS.md"));
+  fs.unlinkSync(alias);
+  fs.symlinkSync(other, alias, "junction");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+for (const field of ["execution_repo", "execution_repo_path"]) {
+  test("removing prepared " + field + " cannot fall back to the Control repository", async (t) => {
+    const f = candidateFixture(t);
+    await f.prepare();
+    f.review();
+    const file = guard.stateFile(f.home, "session"), state = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete state[field];
+    fs.writeFileSync(file, JSON.stringify(state));
+    assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
 for (const phase of ["assessment", "review"]) {
   test("same-turn prompt reset during " + phase + " cannot restore stale authority", async (t) => {
     const f = fixture(t);
@@ -800,6 +911,10 @@ test("Dely can bootstrap after review, but writes require dispatch for this exac
   const coordinating = { ...f.event, tool_name: "Bash",
     tool_input: { command: 'rtk proxy node "' + f.settings.dely + '" dispatch --run run-one' } };
   assert.deepEqual(guard.hook(coordinating, f.home), {});
+  for (const suffix of ["", " pins --repo " + JSON.stringify(f.repo)]) {
+    assert.deepEqual(guard.hook({ ...coordinating,
+      tool_input: { command: 'rtk proxy node "' + f.settings.dely + '"' + suffix } }, f.home), {});
+  }
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const route = { event: "task_route", run: state.run, repo: f.repo, difficulty: "easy",

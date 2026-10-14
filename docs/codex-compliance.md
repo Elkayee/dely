@@ -131,6 +131,22 @@ The task JSON shape is:
       "required_skills": ["The actual catalog name"]
     }
 
+For an isolated candidate in another worktree of the same Git repository,
+add `"execution_repo": "C:/absolute/candidate/path"` to the task JSON. Keep
+`prepare --repo` and `review --repo` on the original Control workspace: native
+hook `cwd` identifies the session, not a shell command's working directory.
+The adapter verifies that the absolute target exists and shares the original
+repository's Git common directory. An unrelated repository is rejected.
+
+Preparation retains the prompt origin and assesses the declared candidate.
+Use that candidate path with `dely dispatch --repo`, together with the generated
+spec and reviewed assessment. Dispatch evidence must match the candidate,
+Run, difficulty and exact spec/context hashes. Both worktrees' instructions
+are frozen; changing either instructions or the target path binding invalidates
+review. Omitting `execution_repo` keeps the existing single-workspace behavior.
+The exact installed helper's usage and `pins` reads remain available before
+dispatch; ordinary edits still require matching implementation evidence.
+
 Use mode advice for local skill review without implementation; omit spec/context.
 Preparation reports `skill_selection.source: native-session` and
 `advice_status: NOT_REQUESTED`. A deliberate skipped advice call is neither a
