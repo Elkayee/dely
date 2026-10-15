@@ -558,6 +558,7 @@ function startAgyWindows(repo, run, p, spec, title) {
     return { error: "AGY_MODEL_NOT_APPLIED: expected " + p.model + "; live footer does not confirm the requested model/level; no prompt dispatched", terminalHandle: handle };
   }
 
+  updatePendingStart(repo, run, { submissionAttempted: true });
   const started = orca([
     "orchestration", "worker-start",
     "--spec", spec,
@@ -581,7 +582,7 @@ function startAgyWindows(repo, run, p, spec, title) {
   return { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle, state: result.state };
 }
 
-function observedTurn(value, expectedDispatch) {
+function observedTurn(value, expectedDispatch, expectedModel) {
   const result = value || {};
   const projection = result.projection || {};
   const prompt = result.prompt || projection.prompt || {};
@@ -610,7 +611,7 @@ function observedTurn(value, expectedDispatch) {
     observation.status === "live" &&
     observation.exactWorker === true &&
     provider.id === "codex" &&
-    provider.model === "gpt-6-luna" &&
+    provider.model === expectedModel &&
     stage.worker === "ready" &&
     stage.dispatch === "dispatched" &&
     stage.detail === "input_accepted" &&
@@ -648,6 +649,12 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   }
   recordOwnedTerminal(run, handle);
 
+  updatePendingStart(repo, run, { terminalHandle: handle, launch: {
+    requested: { agent: p.agent, model: p.model, effort: p.effort },
+    effective: { agent: p.agent, model: p.model, effort: p.effort },
+    source: "native_terminal_command", command,
+  } });
+
   const ready = orca([
     "terminal", "wait", "--terminal", handle,
     "--for", "tui-idle", "--timeout-ms", "30000",
@@ -669,21 +676,28 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   const result = started.result || {};
   const id = result.dispatchId;
   if (!["ready", "outcome_unknown"].includes(result.state) || !id) {
+    if (id) {
+      recordOwnedTerminal(run, handle, id);
+      updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null });
+    }
     return {
       error: "Codex quota backup worker-start " +
         (result.failedStage || result.state || (started.error && started.error.message) || "unknown") +
         "; dispatch=" + (id || "none") + "; terminal=" + handle,
+      state: "outcome_unknown",
+      id: id || null,
       terminalHandle: handle,
     };
   }
   // An uncertain receipt with a Dispatch is inspected in place, never relaunched.
   recordOwnedTerminal(run, handle, id);
-  let startEvidence = observedTurn(result, id);
+  updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
+  let startEvidence = observedTurn(result, id, p.model);
   if (!startEvidence) {
     const promptDeadline = Date.now() + 60000;
     let promptVisible = false;
     while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
-      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id);
+      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id, p.model);
       if (startEvidence) break;
       const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
       const terminalState = (screen.result || {}).terminal || {};
@@ -695,6 +709,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
     if (!startEvidence && !promptVisible) {
       return {
         error: "Codex quota backup input was accepted but no started turn or visibly unsubmitted prompt was observed; dispatch=" + id + "; terminal=" + handle,
+        state: "outcome_unknown",
         id,
         terminalHandle: handle,
       };
@@ -705,13 +720,14 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
         return {
           error: "Codex quota backup bare Enter failed after a visible unsubmitted prompt; dispatch=" + id + "; terminal=" + handle + "; " +
             ((enter.error && enter.error.message) || "terminal send failed"),
+          state: "outcome_unknown",
           id,
           terminalHandle: handle,
         };
       }
-      const startDeadline = Date.now() + 30000;
+      const startDeadline = Date.now() + 60000;
       while (Date.now() < startDeadline && !startEvidence) {
-        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id);
+        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id, p.model);
         if (startEvidence) break;
         sleep(250);
       }
@@ -720,6 +736,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   if (!startEvidence) {
     return {
       error: "Codex quota backup prompt was submitted once but no working Codex turn evidence was observed; dispatch=" + id + "; terminal=" + handle,
+      state: "outcome_unknown",
       id,
       terminalHandle: handle,
     };
@@ -1172,6 +1189,24 @@ function runFolder(repo, run) {
   return path.join(repo, ".dely", "local", "runs", run);
 }
 
+function pendingStartPath(repo, run) {
+  return path.join(runFolder(repo, run), "pending-start.json");
+}
+
+function updatePendingStart(repo, run, fields) {
+  const file = pendingStartPath(repo, run);
+  if (!fs.existsSync(file)) return;
+  const pending = JSON.parse(fs.readFileSync(file, "utf8"));
+  for (const [key, value] of Object.entries(fields)) if (value !== undefined) pending[key] = value;
+  fs.writeFileSync(file, JSON.stringify(pending));
+}
+
+function unknownStart(f, attempt, reason) {
+  const identity = " dispatch=" + (attempt.id || "unknown") + " terminal=" + (attempt.terminalHandle || "unknown");
+  logEvent("outcome_unknown", { run: f.run, repo: f.repo, dispatchId: attempt.id || null, terminalHandle: attempt.terminalHandle || null, reason });
+  out("OUTCOME_UNKNOWN" + identity + "; " + reason + "; inspect the original attempt; do not resend its prompt", 8);
+}
+
 // Lists every file under dir. A missing dir is an empty listing; any other
 // read failure sets err to {code, dir} and the listing is incomplete.
 function listFiles(dir, top = true) {
@@ -1265,12 +1300,52 @@ function dispatch(f) {
 
   const sourceBytes = rawBytes.length;
   const sourceSha256 = crypto.createHash("sha256").update(rawBytes).digest("hex");
-  const receiptMarker = "rcpt_" + crypto.randomBytes(8).toString("hex");
+  const pendingFile = pendingStartPath(f.repo, f.run);
+  const requestKey = JSON.stringify([p.agent, p.model, p.effort, p.pinPhase, p.fallbackReason, p.fallbackStage]);
+  let pending = fs.existsSync(pendingFile) ? JSON.parse(fs.readFileSync(pendingFile, "utf8")) : null;
+  let resumed = null;
+  if (pending) {
+    if (pending.repo !== f.repo || pending.phase !== f.phase || pending.requestKey !== requestKey ||
+        pending.sourceSha256 !== sourceSha256 || pending.contextSha256 !== taskDecision.task.context_sha256) {
+      unknownStart(f, pending, "the pending attempt does not match the current reviewed task/pins");
+    }
+    if (!pending.id || !getOwnedTerminals(f.run).some((row) => row.terminalHandle === pending.terminalHandle && row.dispatchId === pending.id)) {
+      unknownStart(f, pending, "owned dispatch identity is not proven");
+    }
+    const result = (orca(["orchestration", "worker-show", "--dispatch", pending.id]).result || {});
+    const projection = result.projection || {};
+    if (!result.observation || result.observation.exactWorker !== true || !result.dispatch ||
+        result.dispatch.id !== pending.id || result.dispatch.runId !== f.run || result.dispatch.assigneeHandle !== pending.terminalHandle ||
+        !result.worker || result.worker.dispatchId !== pending.id || result.worker.agentTerminalHandle !== pending.terminalHandle ||
+        projection.dispatchId !== pending.id) {
+      unknownStart(f, pending, "the original worker identity is not verifiable");
+    }
+    const inactive = result.observation.status === "exited" ||
+      (projection.liveness || {}).verdict === "exited" || (projection.liveness || {}).verdict === "dead";
+    if (inactive) {
+      if (!result.dispatch.completedAt || !["completed", "failed", "abandoned"].includes(result.dispatch.status)) {
+        unknownStart(f, pending, "the inactive worker has no accepted settlement; complete Orca recovery first");
+      }
+      const release = releaseWorker(pending.id);
+      if (!["released", "already_released"].includes(release.state)) unknownStart(f, pending, "the inactive worker release is not confirmed");
+      fs.unlinkSync(pendingFile);
+      pending = null;
+    } else {
+      const provider = projection.provider || {};
+      if (provider.id !== "codex" || provider.model !== pending.pin.model || !observedTurn(result, pending.id, pending.pin.model)) {
+        unknownStart(f, pending, "the original Codex turn has not been proven with the requested model");
+      }
+      if (pending.pin.fallbackReason === "model_unavailable") taskRouting.verifyUnavailablePin(taskDecision, pending.pin);
+      p = pending.pin;
+      resumed = { id: pending.id, taskId: pending.taskId, terminalHandle: pending.terminalHandle, launch: pending.launch };
+    }
+  }
+  const receiptMarker = pending ? pending.receiptMarker : "rcpt_" + crypto.randomBytes(8).toString("hex");
 
   let dispatchSpec;
-  let snapshotPath = null;
-  let snapshotBytes = null;
-  let snapshotSha256 = null;
+  let snapshotPath = pending ? pending.snapshotPath : null;
+  let snapshotBytes = pending ? pending.snapshotBytes : null;
+  let snapshotSha256 = pending ? pending.snapshotSha256 : null;
 
   if (process.platform === "win32" && p.agent === "antigravity") {
     const tmpDelyDir = path.join(f.repo, ".tmp-dely");
@@ -1307,7 +1382,21 @@ function dispatch(f) {
       "The Orca preamble and this spec file are everything the worker needs; read no other skill.";
   }
 
-  let s = start(f.repo, f.run, p, dispatchSpec, f.phase);
+  const launch = () => {
+    if (p.agent === "codex") {
+      fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
+      fs.writeFileSync(pendingFile, JSON.stringify({ repo: f.repo, phase: f.phase, requestKey, pin: p,
+        sourceSha256, contextSha256: taskDecision.task.context_sha256, receiptMarker,
+        snapshotPath, snapshotBytes, snapshotSha256 }), { flag: "wx" });
+    }
+    const result = start(f.repo, f.run, p, dispatchSpec, f.phase);
+    if (p.agent === "codex") {
+      updatePendingStart(f.repo, f.run, { id: result.id, taskId: result.taskId, terminalHandle: result.terminalHandle, launch: result.launch });
+      if (result.error && !result.id && result.state !== "outcome_unknown") fs.unlinkSync(pendingFile);
+    }
+    return result;
+  };
+  let s = resumed || launch();
   if (s.modelUnavailable === true) {
     const requested = { agent: p.agent, model: p.model, effort: p.effort };
     try {
@@ -1320,10 +1409,14 @@ function dispatch(f) {
     logEvent("model_unavailable", { run: f.run, repo: f.repo, requested,
       effective: { agent: p.agent, model: p.model, effort: p.effort } });
     console.log("MODEL_UNAVAILABLE " + requested.model + " -> Codex gpt-6-luna/max");
-    s = start(f.repo, f.run, p, dispatchSpec, f.phase);
-    if (s.launch) s.launch.requested = requested;
+    s = launch();
+    if (s.launch) {
+      s.launch.requested = requested;
+      updatePendingStart(f.repo, f.run, { launch: s.launch });
+    }
   }
   if (s.error) {
+    if (s.state === "outcome_unknown") unknownStart(f, s, s.error);
     logEvent("error", { run: f.run, repo: f.repo, reason: s.error });
     out("FAILED " + s.error, 5);
   }
@@ -1410,6 +1503,7 @@ function dispatch(f) {
         receiptMarker,
         seconds: Math.round((Date.now() - t0) / 1000),
       });
+      if (fs.existsSync(pendingFile)) fs.unlinkSync(pendingFile);
       restoreControlFocus(f.run);
       console.log("receipt confirmed for " + s.id + " [" + receiptMarker + "]");
       out("DISPATCHED " + s.id, 0);

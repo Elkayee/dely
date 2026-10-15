@@ -5351,3 +5351,47 @@ unchanged, and the retained user-owned worker is preserved. Full Claude trust
 row 5 is NOT_RUN; a new AGY workspace independently stopped at its trust gate,
 and live checks used the already-trusted workspace. Control wake-mode rows are
 not triggered because their implementation and skill sections are unchanged.
+
+## 2026-10-15 — Reconcile uncertain Codex starts before replacement (0.27.3)
+
+The incident's helper stopped observing after 30 seconds and wrote an error
+before the worker began processing its prompt. Without a successful dispatch
+journal entry, inherited worker admission correctly denied implementation.
+
+The post-Enter observation deadline is now 60 seconds. Accepted input without
+started-turn evidence returns `OUTCOME_UNKNOWN` and retains a Run-local
+`pending-start.json`. Repeating the approved dispatch inspects the original
+worker and its original receipt; it sends no prompt. Matching task/context,
+pins, exact Orca identity, owned inventory and requested Codex model remain
+required. A replacement needs proven inactivity, accepted settlement and
+confirmed release.
+An uncertain release, changed input or unknown identity stays blocked.
+
+`scripts/test-codex-start.js` drives the real launch and dispatch functions
+with a fake clock and an Orca boundary fixture. The original helper failed
+all eight initial cases; the candidate passed them. Counterexamples include
+a 45-second start incorrectly timing out, accepted input treated as started,
+a late worker causing a second prompt, and replacement before release.
+The final focused instrument has 13 cases. The existing quota/absence/preflight
+fixture passed 48 checks; routing passed 18, native compliance passed 96 with
+`COMPLIANCE_ROUTING` set to the candidate module, and the loop guard passed.
+Its initial compliance run failed because the fixture defaults to a removed
+0.24.10 cache; supplying its existing routing override resolved that environment
+dependency without changing the tests. Two deliberate mutants (30-second
+deadline and accepting an uncertain release) failed the focused instrument.
+A fixture
+does not prove live Orca behavior; snapshot probe results are recorded below.
+
+The adapter patch previously packaged 0.24.10 although committed source was
+0.27.1. It is regenerated against the same frozen upstream commit using the
+candidate's tracked payload, so setup reproduces this candidate. Version
+0.27.2 is reserved by pre-existing changes in the original checkout; this
+isolated branch uses 0.27.3 and leaves those changes and its index untouched.
+Installed caches/hooks used by active plans are preserved.
+
+This is a local source commit, not a portable release or runtime cutover.
+The complete argv/rejected-message stub rows and live rows 4–7 are NOT_RUN;
+their multi-harness baseline and destructive/trust/quiet-worker scenarios are
+outside this focused verification. OMP/Pi are not installed. No full checklist
+PASS is claimed. A separate probe session inspects the committed archive;
+the focused instruments and the archive identity remain the local evidence.

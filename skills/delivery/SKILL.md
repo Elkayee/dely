@@ -254,6 +254,13 @@ Stop and relay the printed reason: the harness, the path, and that the human
 opens that harness there once to answer its own dialog; Dely never answers
 it. The failed worker is already stopped and released. When the human says
 it is done, rerun `dely preflight` in the same Run and continue from there.
+`OUTCOME_UNKNOWN`: retain the original Run, dispatch, terminal and prompt.
+Re-run the same approved `dely dispatch` to inspect that attempt in place;
+it sends no second prompt. A matching started Codex worker still needs its
+original receipt before dispatch admission. An inactive, settled worker permits a
+fresh attempt only after its release is confirmed. Unverifiable identity,
+changed task/pins or an uncertain release keep the attempt blocked. Keep
+the Run's `pending-start.json` until reconciliation succeeds.
 `FAILED`: one fresh `dely dispatch` with the same prompt file and the same
 retry limits. `DEADLINE`: a checkpoint — check `worker-list` and the last
 output; if the worker is progressing, wait again; a second `DEADLINE` with
