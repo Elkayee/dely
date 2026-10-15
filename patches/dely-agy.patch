@@ -1384,10 +1384,10 @@ index 58358951812037443851c46141800f6234ae7805..a98e45ef5d8b050640049cd3aaff6f28
 +| Harness fails or evidence is insufficient | Preserve the candidate, report the native outcome and role disposition |
 +| Idempotent release step is interrupted | Verify Git and pull-request state, then resume |
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f7a3ba616 100644
+index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..b6f17ff889aa11fc24f156c8c30df0525f6907a0 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
-@@ -1,756 +1,2168 @@
+@@ -1,756 +1,2177 @@
 -#!/usr/bin/env node
 -"use strict";
 -
@@ -2728,7 +2728,13 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +  return { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle, state: result.state };
 +}
 +
-+function observedTurn(value, expectedDispatch, expectedModel) {
++function nativeModelEvidence(expected) {
++  const native = require("./codex-turn.js").codexTurn({ ...expected, observedAt: Date.now() }, [process.env.CODEX_HOME,
++    process.env.ORCA_CODEX_HOME, path.join(os.homedir(), ".codex")]);
++  return native && native.model === expected.pin.model && native.effort === expected.pin.effort ? native : null;
++}
++
++function observedTurn(value, expected) {
 +  const result = value || {};
 +  const projection = result.projection || {};
 +  const prompt = result.prompt || projection.prompt || {};
@@ -2737,47 +2743,43 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +  const provider = projection.provider || {};
 +  const dispatch = result.dispatch || {};
 +  const worker = result.worker || {};
-+  if (!expectedDispatch || dispatch.id !== expectedDispatch ||
-+      worker.dispatchId !== expectedDispatch || projection.dispatchId !== expectedDispatch ||
-+      observation.exactWorker !== true || provider.id !== "codex" || provider.model !== expectedModel) {
++  if (!expected.id || dispatch.id !== expected.id || dispatch.runId !== expected.run ||
++      dispatch.assigneeHandle !== expected.terminalHandle || worker.agentTerminalHandle !== expected.terminalHandle ||
++      worker.dispatchId !== expected.id || projection.dispatchId !== expected.id || observation.exactWorker !== true) {
 +    return null;
 +  }
-+  if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
-+    return "turn_started";
-+  }
++  const native = nativeModelEvidence(expected);
++  if (!native) return null;
 +  const stage = projection.stage || {};
 +  const liveness = projection.liveness || {};
 +  const evidence = projection.evidence || {};
 +  if (
-+    expectedDispatch && dispatch.id === expectedDispatch &&
-+    worker.dispatchId === expectedDispatch && projection.dispatchId === expectedDispatch &&
-+    observation.exactWorker === true && evidence.durable === true &&
++    evidence.durable === true &&
 +    dispatch.status === "completed" && worker.state === "succeeded" &&
 +    stage.worker === "succeeded" && stage.dispatch === "completed" &&
 +    projection.outcome === "succeeded"
 +  ) {
-+    return "worker_completed";
++    return { kind: "worker_completed", ...native };
 +  }
 +  if (
 +    observation.status === "live" &&
-+    observation.exactWorker === true &&
 +    provider.id === "codex" &&
-+    provider.model === expectedModel &&
 +    stage.worker === "ready" &&
 +    stage.dispatch === "dispatched" &&
 +    stage.detail === "input_accepted" &&
-+    stage.activity === "working" &&
++    (stage.activity === "working" || result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) &&
 +    liveness.verdict === "live" &&
 +    liveness.source === "agent_status" &&
 +    evidence.durable === true &&
 +    evidence.liveStatus === "fresh"
 +  ) {
-+    return "legacy_working_projection";
++    return { kind: "native_turn_context", ...native };
 +  }
 +  return null;
 +}
 +
 +function startCodexQuotaTerminal(repo, run, p, spec, title) {
++  const launchedAt = Date.now();
 +  if (process.platform !== "win32") {
 +    return { error: "Codex quota backup launch is verified only on Windows" };
 +  }
@@ -2800,7 +2802,7 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +  }
 +  recordOwnedTerminal(run, handle);
 +
-+  updatePendingStart(repo, run, { terminalHandle: handle, launch: {
++  updatePendingStart(repo, run, { terminalHandle: handle, launchedAt, launch: {
 +    requested: { agent: p.agent, model: p.model, effort: p.effort },
 +    effective: { agent: p.agent, model: p.model, effort: p.effort },
 +    source: "native_terminal_command", command,
@@ -2843,12 +2845,14 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +  // An uncertain receipt with a Dispatch is inspected in place, never relaunched.
 +  recordOwnedTerminal(run, handle, id);
 +  updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
-+  let startEvidence = observedTurn(result, id, p.model);
++  const expected = { repo, run, id, terminalHandle: handle, pin: p, launchedAt,
++    receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/) || [])[0], spec };
++  let startEvidence = observedTurn(result, expected);
 +  if (!startEvidence) {
 +    const promptDeadline = Date.now() + 60000;
 +    let promptVisible = false;
 +    while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
-+      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id, p.model);
++      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, expected);
 +      if (startEvidence) break;
 +      const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
 +      const terminalState = (screen.result || {}).terminal || {};
@@ -2878,7 +2882,7 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +      }
 +      const startDeadline = Date.now() + 60000;
 +      while (Date.now() < startDeadline && !startEvidence) {
-+        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id, p.model);
++        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, expected);
 +        if (startEvidence) break;
 +        sleep(250);
 +      }
@@ -2904,7 +2908,8 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +      effective: pins,
 +      source: "native_terminal_command",
 +      command,
-+      startEvidence,
++      startEvidence: startEvidence.kind,
++      modelEvidence: startEvidence,
 +      workerStart: result.launch || null,
 +    },
 +  };
@@ -3473,7 +3478,10 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +    }
 +    const inactive = result.observation.status === "exited" ||
 +      (projection.liveness || {}).verdict === "exited" || (projection.liveness || {}).verdict === "dead";
-+    if (inactive) {
++    const expected = { ...pending, run: f.run };
++    const succeeded = result.dispatch.status === "completed" && result.worker.state === "succeeded";
++    if (inactive && !succeeded) {
++      if (!nativeModelEvidence(expected)) unknownStart(f, pending, "the inactive worker has no matching native model/effort evidence");
 +      if (!result.dispatch.completedAt || !["completed", "failed", "abandoned"].includes(result.dispatch.status)) {
 +        unknownStart(f, pending, "the inactive worker has no accepted settlement; complete Orca recovery first");
 +      }
@@ -3482,13 +3490,14 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f
 +      fs.unlinkSync(pendingFile);
 +      pending = null;
 +    } else {
-+      const provider = projection.provider || {};
-+      if (provider.id !== "codex" || provider.model !== pending.pin.model || !observedTurn(result, pending.id, pending.pin.model)) {
++      const observed = observedTurn(result, expected);
++      if (!observed) {
 +        unknownStart(f, pending, "the original Codex turn has not been proven with the requested model");
 +      }
 +      if (pending.pin.fallbackReason === "model_unavailable") taskRouting.verifyUnavailablePin(taskDecision, pending.pin);
 +      p = pending.pin;
-+      resumed = { id: pending.id, taskId: pending.taskId, terminalHandle: pending.terminalHandle, launch: pending.launch };
++      resumed = { id: pending.id, taskId: pending.taskId, terminalHandle: pending.terminalHandle,
++        launch: { ...pending.launch, startEvidence: observed.kind, modelEvidence: observed } };
 +    }
 +  }
 +  const receiptMarker = pending ? pending.receiptMarker : "rcpt_" + crypto.randomBytes(8).toString("hex");
@@ -4596,3 +4605,87 @@ index 0000000000000000000000000000000000000000..0f46006f90c1b0765c28632b076acc9b
 +}
 +
 +module.exports = { taskKey, recordTask };
+diff --git a/skills/delivery/scripts/codex-turn.js b/skills/delivery/scripts/codex-turn.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..bcb3a31df842e7edb4e8efcf5170df1f5ba53293
+--- /dev/null
++++ b/skills/delivery/scripts/codex-turn.js
+@@ -0,0 +1,78 @@
++"use strict";
++
++const fs = require("fs");
++const path = require("path");
++const crypto = require("crypto");
++
++const samePath = (a, b) => {
++  try {
++    const normalize = (value) => process.platform === "win32" ? value.toLowerCase() : value;
++    return normalize(fs.realpathSync(a)) === normalize(fs.realpathSync(b));
++  }
++  catch (_) { return false; }
++};
++
++// Only fresh sessions carrying this exact Dispatch and prompt can prove a pin.
++function codexTurn(expected, homes) {
++  if (!Number.isFinite(expected.launchedAt) || !expected.id ||
++      (!expected.receiptMarker && !expected.spec)) return null;
++  const files = new Set();
++  for (const home of new Set(homes.filter(Boolean))) {
++    for (const offset of [-1, 0, 1]) {
++      const day = new Date(expected.launchedAt + offset * 86400000).toISOString().slice(0, 10).split("-");
++      const directory = path.join(home, "sessions", ...day);
++      if (!fs.existsSync(directory)) continue;
++      for (const name of fs.readdirSync(directory)) {
++        if (!/^rollout-.*\.jsonl$/.test(name)) continue;
++        const file = path.join(directory, name);
++        if (fs.lstatSync(file).isSymbolicLink() || fs.statSync(file).mtimeMs < expected.launchedAt) continue;
++        files.add(fs.realpathSync(file));
++        if (files.size > 50) return null;
++      }
++    }
++  }
++  if (files.size > 50) return null;
++  const matches = new Map();
++  let bytes = 0;
++  for (const file of files) {
++    try {
++      const fd = fs.openSync(file, "r");
++      const head = Buffer.alloc(256 * 1024);
++      let size;
++      try { size = fs.readSync(fd, head, 0, head.length, 0); }
++      finally { fs.closeSync(fd); }
++      const first = head.subarray(0, size).toString("utf8").split("\n")[0];
++      const header = JSON.parse(first);
++      const meta = header.payload || {};
++      if (header.type !== "session_meta" || !samePath(meta.cwd, expected.repo) ||
++          !(Date.parse(meta.timestamp) >= expected.launchedAt && Date.parse(meta.timestamp) <= expected.observedAt)) continue;
++      const length = fs.statSync(file).size;
++      bytes += length;
++      if (bytes > 16 * 1024 * 1024) return null;
++      const raw = fs.readFileSync(file, "utf8");
++      const rows = raw.slice(0, raw.lastIndexOf("\n") + 1).split("\n").filter(Boolean).map(JSON.parse);
++      const user = rows.findLast((row) => row.type === "response_item" && row.payload?.role === "user" &&
++        (!row.payload.internal_chat_message_metadata_passthrough?.content_item_kinds ||
++          row.payload.internal_chat_message_metadata_passthrough.content_item_kinds.includes("user.text")));
++      const message = user?.payload;
++      const text = (message?.content || []).map((part) => part.text || "").join("\n");
++      if (!text.includes(expected.id) || !(expected.receiptMarker ? text.includes(expected.receiptMarker) : text.includes(expected.spec))) continue;
++      const context = rows.findLast((row) => row.type === "turn_context");
++      const turn = context?.payload;
++      const settings = turn?.collaboration_mode?.settings;
++      if (!turn?.turn_id || turn.turn_id !== message.internal_chat_message_metadata_passthrough?.turn_id ||
++          !(Date.parse(context.timestamp) >= Date.parse(meta.timestamp) && Date.parse(context.timestamp) <= expected.observedAt) || !samePath(turn.cwd, expected.repo) ||
++          typeof turn.model !== "string" || typeof turn.effort !== "string" ||
++          (settings?.model && settings.model !== turn.model) ||
++          (settings?.reasoning_effort && settings.reasoning_effort !== turn.effort)) continue;
++      const evidence = { session: meta.id || meta.session_id, turn: turn.turn_id,
++        model: turn.model, effort: turn.effort, timestamp: context.timestamp, source: file,
++        contextSha256: crypto.createHash("sha256").update(JSON.stringify(context)).digest("hex") };
++      if (!evidence.session) continue;
++      matches.set(JSON.stringify([evidence.session, evidence.turn, evidence.model, evidence.effort]), evidence);
++    } catch (_) { return null; }
++  }
++  return matches.size === 1 ? [...matches.values()][0] : null;
++}
++
++module.exports = { codexTurn };

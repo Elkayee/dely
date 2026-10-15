@@ -582,7 +582,13 @@ function startAgyWindows(repo, run, p, spec, title) {
   return { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle, state: result.state };
 }
 
-function observedTurn(value, expectedDispatch, expectedModel) {
+function nativeModelEvidence(expected) {
+  const native = require("./codex-turn.js").codexTurn({ ...expected, observedAt: Date.now() }, [process.env.CODEX_HOME,
+    process.env.ORCA_CODEX_HOME, path.join(os.homedir(), ".codex")]);
+  return native && native.model === expected.pin.model && native.effort === expected.pin.effort ? native : null;
+}
+
+function observedTurn(value, expected) {
   const result = value || {};
   const projection = result.projection || {};
   const prompt = result.prompt || projection.prompt || {};
@@ -591,47 +597,43 @@ function observedTurn(value, expectedDispatch, expectedModel) {
   const provider = projection.provider || {};
   const dispatch = result.dispatch || {};
   const worker = result.worker || {};
-  if (!expectedDispatch || dispatch.id !== expectedDispatch ||
-      worker.dispatchId !== expectedDispatch || projection.dispatchId !== expectedDispatch ||
-      observation.exactWorker !== true || provider.id !== "codex" || provider.model !== expectedModel) {
+  if (!expected.id || dispatch.id !== expected.id || dispatch.runId !== expected.run ||
+      dispatch.assigneeHandle !== expected.terminalHandle || worker.agentTerminalHandle !== expected.terminalHandle ||
+      worker.dispatchId !== expected.id || projection.dispatchId !== expected.id || observation.exactWorker !== true) {
     return null;
   }
-  if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
-    return "turn_started";
-  }
+  const native = nativeModelEvidence(expected);
+  if (!native) return null;
   const stage = projection.stage || {};
   const liveness = projection.liveness || {};
   const evidence = projection.evidence || {};
   if (
-    expectedDispatch && dispatch.id === expectedDispatch &&
-    worker.dispatchId === expectedDispatch && projection.dispatchId === expectedDispatch &&
-    observation.exactWorker === true && evidence.durable === true &&
+    evidence.durable === true &&
     dispatch.status === "completed" && worker.state === "succeeded" &&
     stage.worker === "succeeded" && stage.dispatch === "completed" &&
     projection.outcome === "succeeded"
   ) {
-    return "worker_completed";
+    return { kind: "worker_completed", ...native };
   }
   if (
     observation.status === "live" &&
-    observation.exactWorker === true &&
     provider.id === "codex" &&
-    provider.model === expectedModel &&
     stage.worker === "ready" &&
     stage.dispatch === "dispatched" &&
     stage.detail === "input_accepted" &&
-    stage.activity === "working" &&
+    (stage.activity === "working" || result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) &&
     liveness.verdict === "live" &&
     liveness.source === "agent_status" &&
     evidence.durable === true &&
     evidence.liveStatus === "fresh"
   ) {
-    return "legacy_working_projection";
+    return { kind: "native_turn_context", ...native };
   }
   return null;
 }
 
 function startCodexQuotaTerminal(repo, run, p, spec, title) {
+  const launchedAt = Date.now();
   if (process.platform !== "win32") {
     return { error: "Codex quota backup launch is verified only on Windows" };
   }
@@ -654,7 +656,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   }
   recordOwnedTerminal(run, handle);
 
-  updatePendingStart(repo, run, { terminalHandle: handle, launch: {
+  updatePendingStart(repo, run, { terminalHandle: handle, launchedAt, launch: {
     requested: { agent: p.agent, model: p.model, effort: p.effort },
     effective: { agent: p.agent, model: p.model, effort: p.effort },
     source: "native_terminal_command", command,
@@ -697,12 +699,14 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   // An uncertain receipt with a Dispatch is inspected in place, never relaunched.
   recordOwnedTerminal(run, handle, id);
   updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
-  let startEvidence = observedTurn(result, id, p.model);
+  const expected = { repo, run, id, terminalHandle: handle, pin: p, launchedAt,
+    receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/) || [])[0], spec };
+  let startEvidence = observedTurn(result, expected);
   if (!startEvidence) {
     const promptDeadline = Date.now() + 60000;
     let promptVisible = false;
     while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
-      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id, p.model);
+      startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, expected);
       if (startEvidence) break;
       const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
       const terminalState = (screen.result || {}).terminal || {};
@@ -732,7 +736,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
       }
       const startDeadline = Date.now() + 60000;
       while (Date.now() < startDeadline && !startEvidence) {
-        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, id, p.model);
+        startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, expected);
         if (startEvidence) break;
         sleep(250);
       }
@@ -758,7 +762,8 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
       effective: pins,
       source: "native_terminal_command",
       command,
-      startEvidence,
+      startEvidence: startEvidence.kind,
+      modelEvidence: startEvidence,
       workerStart: result.launch || null,
     },
   };
@@ -1327,7 +1332,10 @@ function dispatch(f) {
     }
     const inactive = result.observation.status === "exited" ||
       (projection.liveness || {}).verdict === "exited" || (projection.liveness || {}).verdict === "dead";
-    if (inactive) {
+    const expected = { ...pending, run: f.run };
+    const succeeded = result.dispatch.status === "completed" && result.worker.state === "succeeded";
+    if (inactive && !succeeded) {
+      if (!nativeModelEvidence(expected)) unknownStart(f, pending, "the inactive worker has no matching native model/effort evidence");
       if (!result.dispatch.completedAt || !["completed", "failed", "abandoned"].includes(result.dispatch.status)) {
         unknownStart(f, pending, "the inactive worker has no accepted settlement; complete Orca recovery first");
       }
@@ -1336,13 +1344,14 @@ function dispatch(f) {
       fs.unlinkSync(pendingFile);
       pending = null;
     } else {
-      const provider = projection.provider || {};
-      if (provider.id !== "codex" || provider.model !== pending.pin.model || !observedTurn(result, pending.id, pending.pin.model)) {
+      const observed = observedTurn(result, expected);
+      if (!observed) {
         unknownStart(f, pending, "the original Codex turn has not been proven with the requested model");
       }
       if (pending.pin.fallbackReason === "model_unavailable") taskRouting.verifyUnavailablePin(taskDecision, pending.pin);
       p = pending.pin;
-      resumed = { id: pending.id, taskId: pending.taskId, terminalHandle: pending.terminalHandle, launch: pending.launch };
+      resumed = { id: pending.id, taskId: pending.taskId, terminalHandle: pending.terminalHandle,
+        launch: { ...pending.launch, startEvidence: observed.kind, modelEvidence: observed } };
     }
   }
   const receiptMarker = pending ? pending.receiptMarker : "rcpt_" + crypto.randomBytes(8).toString("hex");

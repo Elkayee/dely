@@ -101,7 +101,7 @@ function Set-FixtureAssessment([string]$difficulty) {
     & $nodeExe $builder $module $repo $difficulty
     if ($LASTEXITCODE -ne 0) { throw "Could not prepare fixture assessment" }
 }
-$envNames = @("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "ORCA_CLI_COMMAND", "ORCA_FIXTURE_LOG", "ORCA_FIXTURE_SCENARIO", "ORCA_TERMINAL_HANDLE", "DELY_ACK_S", "DELY_POLL_S", "DELY_LOOP_GUARD_OVERRIDE", "NODE_OPTIONS")
+$envNames = @("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "ORCA_CLI_COMMAND", "ORCA_FIXTURE_LOG", "ORCA_FIXTURE_SCENARIO", "ORCA_FIXTURE_CLOCK", "ORCA_TERMINAL_HANDLE", "DELY_ACK_S", "DELY_POLL_S", "DELY_LOOP_GUARD_OVERRIDE", "NODE_OPTIONS")
 $oldEnv = @{}
 foreach ($name in $envNames) { $oldEnv[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
 
@@ -165,10 +165,29 @@ if (args[0] === "terminal" && args[1] === "create") {
   const command = commandIndex >= 0 ? String(created.args[commandIndex + 1] || "") : "";
   const codex = command.includes("codex.exe");
   const model = command.match(/--model\s+"([^"]+)"/);
+  const effort = command.match(/model_reasoning_effort=([^"\s]+)/);
   const working = entered && scenario !== "stage2-not-working";
+  const start = records.filter((r) => r.args[0] === "orchestration" && r.args[1] === "worker-start").slice(-1)[0];
+  const startValue = (key) => start ? start.args[start.args.indexOf(key) + 1] : null;
+  if (codex && working) {
+    const stamp = new Date(Date.now());
+    const cwd = String(startValue("--worktree")).replace(/^path:/, "");
+    const directory = path.join(process.env.USERPROFILE, ".codex", "sessions", ...stamp.toISOString().slice(0, 10).split("-"));
+    fs.mkdirSync(directory, { recursive: true });
+    const turn = "turn_" + scenario;
+    const rows = [
+      { type: "session_meta", payload: { id: "session_" + scenario, cwd, timestamp: stamp.toISOString() } },
+      { type: "response_item", payload: { role: "user", content: [{ text: "ctx_fixture " + startValue("--spec") }], internal_chat_message_metadata_passthrough: { turn_id: turn } } },
+      { type: "turn_context", timestamp: stamp.toISOString(), payload: { cwd, turn_id: turn,
+        model: scenario === "fast-completion-no-model" ? undefined : scenario === "medium-wrong-live-model" ? "gpt-6-luna" : model?.[1], effort: effort?.[1] } },
+    ];
+    const file = path.join(directory, "rollout-" + scenario + ".jsonl");
+    fs.writeFileSync(file, rows.map(JSON.stringify).join("\n") + "\n");
+    fs.utimesSync(file, stamp, stamp);
+  }
   result = {
-    dispatch: { id: "ctx_fixture", status: "dispatched" },
-    worker: { dispatchId: "ctx_fixture", state: "ready" },
+    dispatch: { id: "ctx_fixture", runId: startValue("--run"), assigneeHandle: "term_fixture", status: "dispatched" },
+    worker: { dispatchId: "ctx_fixture", agentTerminalHandle: "term_fixture", state: "ready" },
     observation: { status: "live", exactWorker: true, agentWait: null },
     projection: {
       dispatchId: "ctx_fixture",
@@ -182,7 +201,7 @@ if (args[0] === "terminal" && args[1] === "create") {
     const id = scenario === "fast-completion-other-dispatch" ? "ctx_other" : "ctx_fixture";
     const outcome = scenario === "fast-completion-failed" ? "failed" : "succeeded";
     result = {
-      dispatch: { id, status: "completed" }, worker: { dispatchId: id, state: outcome },
+      dispatch: { id, runId: startValue("--run"), assigneeHandle: "term_fixture", status: "completed" }, worker: { dispatchId: id, agentTerminalHandle: "term_fixture", state: outcome },
       observation: { status: "exited", exactWorker: true },
       projection: { dispatchId: id, provider: scenario === "fast-completion-no-model" ? null : { id: "codex", model: model ? model[1] : null },
         stage: { worker: outcome, dispatch: "completed", detail: "settled", activity: "unknown" },
@@ -226,8 +245,13 @@ process.stdout.write(JSON.stringify(response));
     $preload = Join-Path $fixtureRoot "fast-clock.js"
     @'
 const now = Date.now.bind(Date);
-let step = 0;
-Date.now = () => now() + (++step * 1000);
+const fs = require("fs");
+Date.now = () => {
+  const file = process.env.ORCA_FIXTURE_CLOCK;
+  const step = (fs.existsSync(file) ? Number(fs.readFileSync(file, "utf8")) : 0) + 1;
+  fs.writeFileSync(file, String(step));
+  return now() + step * 500;
+};
 Atomics.wait = () => "timed-out";
 const cp = require("child_process");
 const originalExec = cp.execFileSync;
@@ -255,6 +279,7 @@ cp.execFileSync = function(file, args, options) {
     [Environment]::SetEnvironmentVariable("TEMP", $tempRoot, "Process")
     [Environment]::SetEnvironmentVariable("TMP", $tempRoot, "Process")
     [Environment]::SetEnvironmentVariable("ORCA_CLI_COMMAND", $orcaShim, "Process")
+    [Environment]::SetEnvironmentVariable("ORCA_FIXTURE_CLOCK", (Join-Path $fixtureRoot "clock.txt"), "Process")
     [Environment]::SetEnvironmentVariable("ORCA_TERMINAL_HANDLE", "term_control", "Process")
     [Environment]::SetEnvironmentVariable("DELY_ACK_S", "60", "Process")
     [Environment]::SetEnvironmentVariable("DELY_POLL_S", "1", "Process")
@@ -302,7 +327,7 @@ cp.execFileSync = function(file, args, options) {
     $stage2Wait = @($stage2.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "wait" }) | Select-Object -First 1
     $stage2WaitSatisfied = $stage2Wait -and $stage2Wait.response.result.wait.satisfied -eq $true -and (Has-FlagValue $stage2Wait "--for" "tui-idle")
     $stage2Event = @($stage2.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
-    $stage2Pins = $stage2Event -and $stage2Event.pinPhase -eq "implement_backup_2" -and $stage2Event.fallbackStage -eq 1 -and $stage2Event.launch.pinPhase -eq "implement_backup_2" -and $stage2Event.launch.fallbackStage -eq 1 -and $stage2Event.launch.effective.agent -eq "codex" -and $stage2Event.launch.effective.model -eq "gpt-6-luna" -and $stage2Event.launch.effective.effort -eq "max" -and $stage2Event.launch.startEvidence -eq "legacy_working_projection"
+    $stage2Pins = $stage2Event -and $stage2Event.pinPhase -eq "implement_backup_2" -and $stage2Event.fallbackStage -eq 1 -and $stage2Event.launch.pinPhase -eq "implement_backup_2" -and $stage2Event.launch.fallbackStage -eq 1 -and $stage2Event.launch.effective.agent -eq "codex" -and $stage2Event.launch.effective.model -eq "gpt-6-luna" -and $stage2Event.launch.effective.effort -eq "max" -and $stage2Event.launch.startEvidence -eq "native_turn_context"
     $stage2CommandOk = $stage2Command -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"'
     $stage2AttachedOnce = $stage2Start -and (Has-FlagValue $stage2Start "--terminal" "term_fixture") -and -not (Has-FlagValue $stage2Start "--model" "gpt-6-luna") -and -not (Has-FlagValue $stage2Start "--effort" "max") -and $stage2Enter.Count -eq 1 -and $workingEvidence
     Assert-Case "Luna quota fallback handles a delayed prompt, one bare Enter, and fresh working evidence" ($stage2.ExitCode -eq 0 -and $stage2CommandOk -and $stage2WaitSatisfied -and $stage2AttachedOnce -and $stage2Pins -and $delayedPrompt) ($stage2.Output + " | command=$stage2Command")

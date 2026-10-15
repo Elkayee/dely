@@ -940,7 +940,8 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   const dispatch = { event: "dispatch", run, repo: f.repo, phase: "implement",
     terminalHandle: handle, dispatchId: "dispatch-test", promptSha256: "spec-hash",
     receiptMarker: "rcpt_1234567890abcdef",
-    launch: { effective: { agent: "codex", model: "gpt-6-luna" } } };
+    launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" },
+      modelEvidence: { session: f.event.session_id, turn: f.event.turn_id, model: "gpt-6-luna", effort: "max" } } };
   const event = { ...f.event, model: "gpt-6-luna" };
   assert.equal(guard.verifiedWorker(event, f.settings, handle), false);
   fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run, repo: f.repo,
@@ -950,6 +951,8 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   assert.equal(guard.verifiedWorker(event, f.settings, handle), false);
   const claim = { receipts: [dispatch.receiptMarker] };
   assert.equal(guard.verifiedWorker(event, f.settings, handle, claim), true);
+  assert.equal(guard.verifiedWorker({ ...event, session_id: "other-session" }, f.settings, handle, claim), false);
+  assert.equal(guard.verifiedWorker({ ...event, turn_id: "other-turn" }, f.settings, handle, claim), false);
   assert.equal(guard.verifiedWorker(event, f.settings, handle, { spec_sha256: dispatch.promptSha256 }), true);
   assert.equal(guard.verifiedWorker(f.event, f.settings, handle), false);
   assert.equal(guard.verifiedWorker(event, f.settings, "another-terminal"), false);
@@ -986,7 +989,8 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   });
   const dispatch = { event: "dispatch", run, repo: f.repo, phase: "implement",
     terminalHandle: handle, dispatchId: "prepared-dispatch", promptSha256: spec,
-    launch: { effective: { agent: "codex", model: "gpt-6-luna" } } };
+    launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" },
+      modelEvidence: { session: f.event.session_id, turn: f.event.turn_id, model: "gpt-6-luna", effort: "max" } } };
   fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run,
     repo: f.repo, specSha256: spec }].map(JSON.stringify).join("\n") + "\n");
   fs.writeFileSync(inventory, JSON.stringify({ owned: true, terminalHandle: handle,

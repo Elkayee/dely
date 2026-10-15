@@ -275,6 +275,9 @@ function verifiedWorker(event, settings, handle = process.env.ORCA_TERMINAL_HAND
     row.launch && row.launch.effective && row.launch.effective.agent === "codex" &&
     row.launch.effective.model === event.model && row.dispatchId);
   if (!dispatch || !/^[A-Za-z0-9_-]+$/.test(dispatch.run)) return false;
+  const native = dispatch.launch.modelEvidence;
+  if (!native || native.session !== event.session_id || native.turn !== event.turn_id ||
+      native.model !== event.model || native.effort !== dispatch.launch.effective.effort) return false;
   const deliveredSha256 = dispatch.snapshotSha256 ?? dispatch.promptSha256;
   if (!(claim.receipts || []).includes(dispatch.receiptMarker) && claim.spec_sha256 !== deliveredSha256) return false;
   const route = rows.find((row) => row.event === "task_route" && row.run === dispatch.run &&

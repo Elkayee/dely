@@ -44,13 +44,30 @@ function fixture() {
     if (kind === "orchestration worker-show") {
       const id = state.wrongIdentity ? "ctx_other" : state.id;
       const working = state.enteredAt !== null && state.clock - state.enteredAt >= state.delay;
+      if ((working || state.nativeForDead) && !state.nativeMissing) {
+        const directory = path.join(repo, ".codex/sessions/1970/01/01");
+        fs.mkdirSync(directory, { recursive: true });
+        const model = state.wrongModel || state.nativeWrongModel ? "gpt-5.6-terra" : pin.model;
+        const effort = state.nativeWrongEffort ? "low" : pin.effort;
+        const stamp = new Date(state.clock + (state.nativeFuture ? 120000 : 0)).toISOString();
+        const turn = "turn_fixture", spec = state.nativeWrongPrompt ? "unrelated task" : state.id + " " + state.spec;
+        const rows = [
+          { type: "session_meta", payload: { id: "session_fixture", cwd: repo, timestamp: new Date(state.nativeStale ? -1 : 0).toISOString() } },
+          { type: "response_item", payload: { role: "user", content: [{ text: spec }], internal_chat_message_metadata_passthrough: { turn_id: turn } } },
+          { type: "turn_context", timestamp: stamp, payload: { cwd: repo, turn_id: state.nativeWrongTurn ? "turn_other" : turn, model, effort, collaboration_mode: { settings: { model, reasoning_effort: effort } } } },
+        ];
+        if (state.nativeWrongRepo) rows[2].payload.cwd = root;
+        const file = path.join(directory, "rollout-fixture.jsonl");
+        fs.writeFileSync(file, rows.map(JSON.stringify).join("\n") + "\n");
+      }
       return { ok: true, result: {
         turnStart: working && state.turnStart ? "observed" : undefined,
-        dispatch: { id, runId: "fixture", assigneeHandle: "term_fixture", status: state.dead && !state.unsettled ? "failed" : "dispatched", completedAt: state.dead && !state.unsettled ? "2026-10-15T00:00:00Z" : null },
-        worker: { dispatchId: id, agentTerminalHandle: "term_fixture", state: state.dead ? "failed" : "ready" },
+        dispatch: { id, runId: state.wrongRun ? "other_run" : "fixture", assigneeHandle: state.wrongHandle ? "term_other" : "term_fixture", status: state.dead && !state.unsettled ? (state.succeeded ? "completed" : "failed") : "dispatched", completedAt: state.dead && !state.unsettled ? "2026-10-15T00:00:00Z" : null },
+        worker: { dispatchId: id, agentTerminalHandle: "term_fixture", state: state.dead ? (state.succeeded ? "succeeded" : "failed") : "ready" },
         observation: { status: state.dead ? "exited" : "live", exactWorker: !state.wrongIdentity },
         projection: { dispatchId: id, provider: { id: "codex", model: state.wrongModel || state.clock < (state.projectionDelay || 0) ? "gpt-6.1-sol" : pin.model },
-          stage: { worker: state.dead ? "exited" : "ready", dispatch: state.dead ? "failed" : "dispatched", detail: "input_accepted", activity: working ? "working" : "idle" },
+          stage: { worker: state.dead ? (state.succeeded ? "succeeded" : "failed") : "ready", dispatch: state.dead ? (state.succeeded ? "completed" : "failed") : "dispatched", detail: "input_accepted", activity: working ? "working" : "idle" },
+          outcome: state.succeeded ? "succeeded" : "in_progress",
           liveness: { verdict: state.dead ? "exited" : "live", source: "agent_status" }, evidence: { durable: true, liveStatus: "fresh" } },
       } };
     }
@@ -61,7 +78,7 @@ function fixture() {
   }
   const context = vm.createContext({
     require: (name) => name === "./task-routing.js" ? routing : name === "os" ? { ...os, tmpdir: () => repo, homedir: () => repo } : localRequire(name),
-    process: { platform: "win32", env: { APPDATA: repo, ORCA_TERMINAL_HANDLE: "term_control", DELY_ACK_S: "1", DELY_POLL_S: ".02" }, argv: [], exit: (code) => { throw { exit: code }; } },
+    process: { platform: "win32", env: { APPDATA: repo, CODEX_HOME: path.join(repo, ".codex"), ORCA_TERMINAL_HANDLE: "term_control", DELY_ACK_S: "1", DELY_POLL_S: ".02" }, argv: [], exit: (code) => { throw { exit: code }; } },
     console: { log: (line) => state.output.push(String(line)) }, Buffer, TextDecoder, SharedArrayBuffer,
     Atomics: { wait: (_a, _i, _v, ms) => { state.clock += ms; } },
     Date: class extends Date { static now() { return state.clock; } },
@@ -107,10 +124,10 @@ try {
     assert.equal(f.starts, 1); assert.equal(f.enters, 1);
     assert.equal(f.events.filter((e) => e.event === "dispatch").length, 1);
   });
-  check("a stale provider model is re-observed without replaying the prompt", () => {
+  check("the bound native turn resolves a stale provider model without prompt replay", () => {
     const f = fixture(); f.delay = 0; f.projectionDelay = 10000; f.turnStart = true;
     assert.match(f.run(), /DISPATCHED/);
-    assert.ok(f.clock >= f.projectionDelay);
+    assert.ok(f.clock < f.projectionDelay);
     assert.equal(f.starts, 1); assert.equal(f.enters, 1);
     assert.equal(f.events.filter((e) => e.event === "dispatch").length, 1);
   });
@@ -131,6 +148,25 @@ try {
     assert.doesNotMatch(f.run(), /DISPATCHED/);
     assert.equal(f.starts, 1);
     assert.equal(f.events.filter((e) => e.event === "dispatch").length, 0);
+  });
+  for (const field of ["wrongRun", "wrongHandle", "nativeMissing", "nativeWrongModel", "nativeWrongEffort", "nativeStale", "nativeFuture", "nativeWrongTurn", "nativeWrongPrompt", "nativeWrongRepo"]) check(field + " stays unknown despite matching projection and turn_started", () => {
+    const f = fixture(); f.delay = 0; f.turnStart = true; f[field] = true;
+    assert.doesNotMatch(f.run(), /DISPATCHED/);
+    assert.equal(f.starts, 1);
+    assert.equal(f.events.filter((e) => e.event === "dispatch").length, 0);
+  });
+  check("a succeeded pending worker is reconciled instead of executing the task twice", () => {
+    const f = fixture(); f.delay = Infinity; f.run();
+    f.dead = true; f.succeeded = true; f.nativeForDead = true;
+    assert.match(f.run(), /DISPATCHED ctx_fixture_1/);
+    assert.equal(f.starts, 1); assert.equal(f.enters, 1);
+    assert.equal(f.calls.filter((a) => a[1] === "worker-release").length, 0);
+  });
+  check("a succeeded worker with missing native proof cannot be replaced", () => {
+    const f = fixture(); f.delay = Infinity; f.run(); f.dead = true; f.succeeded = true;
+    assert.match(f.run(), /OUTCOME_UNKNOWN/);
+    assert.equal(f.starts, 1);
+    assert.equal(f.calls.filter((a) => a[1] === "worker-release").length, 0);
   });
   check("changed task input cannot bypass an uncertain attempt", () => {
     const f = fixture(); f.delay = Infinity; f.run();
@@ -172,7 +208,7 @@ try {
     assert.equal(f.starts, 1); assert.equal(f.calls.filter((a) => a[1] === "worker-release").length, 0);
   });
   check("a proven inactive released attempt permits one fresh worker", () => {
-    const f = fixture(); f.delay = Infinity; f.run(); f.dead = true;
+    const f = fixture(); f.delay = Infinity; f.run(); f.dead = true; f.nativeForDead = true;
     f.run();
     assert.equal(f.starts, 2);
     const release = f.calls.findIndex((a) => a[1] === "worker-release");

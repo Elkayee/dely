@@ -17,16 +17,24 @@ native model with session and turn identifiers in startup/prompt guidance and
 verified inherited PreToolUse responses. Missing model and unavailable native
 effort remain `NOT_EVALUATED`. Informational output changes no admission check.
 
-Codex start observations validate the exact Dispatch, worker and projected
-model before accepting `turn_started` or successful completion. Previously,
-those signals returned before the model and identity checks. A conflicting
-projection keeps the attempt unknown until matching evidence is observed;
-it never authorizes a replacement or prompt replay.
+Codex starts validate the Run, Dispatch and terminal before resolving a fresh
+native session carrying the exact Dispatch and receipt (or full preflight
+spec). Its current user turn, working directory, model and effort must match.
+The launch journal retains the native session/turn and context hash; inherited
+admission also binds those session/turn identifiers to the current native hook.
+A stale provider-model projection cannot override this evidence. Missing,
+ambiguous, stale, future or mismatched native evidence leaves the attempt unknown.
+
+The resolver scans at most fifty recent session files around the launch date,
+with bounded header/full-session reads. Older pending records lacking launch
+time cannot be promoted. A succeeded pending worker is reconciled against its
+original receipt rather than executing the task again; failed settled attempts
+still require matching native evidence and confirmed release before replacement.
 
 The focused startup regression was red for wrong-model and wrong-worker
 `turn_started` signals before the guard. Native-hook tests were red because
 model evidence was omitted; they also cover missing evidence and preserve
-denial of a wrong native model or unrelated prompt. Active plugin caches and
+denial of a wrong native model, session, turn or unrelated prompt. Active plugin caches and
 hook wiring remain frozen until their existing plans finish.
 
 ### 2026-10-15 — Medium+ uses Codex Sol at medium effort

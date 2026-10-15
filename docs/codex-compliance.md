@@ -211,6 +211,8 @@ terminal handle, effective Codex model, dispatch log, route log and Dely
 terminal inventory match, and the current user turn carries that dispatch's
 receipt marker or staged spec hash. A later unrelated prompt loses the
 exception. Prompt text claiming a worker role is insufficient.
+The dispatch's native session/turn evidence must match the current hook;
+matching only a model slug, terminal or copied receipt cannot inherit admission.
 This preserves the worker instruction to read only its supplied task spec.
 Session and prompt guidance expose the native hook's model, session and turn.
 A verified inherited PreToolUse call also reports those facts to the worker.
