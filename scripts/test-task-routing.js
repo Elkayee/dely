@@ -85,7 +85,7 @@ test("Jev client sends the documented HTTP wire format and exact model", async (
   } finally { server.close(); await once(server, "close"); }
 });
 
-test("Easy and Medium- start Flash, Medium+ starts Sonnet, Hard bypasses Dely", async () => {
+test("Easy and Medium- start Flash, Medium+ starts Sol/medium, Hard bypasses Dely", async () => {
   const easy = await routing.assess(task(), mock(result()));
   const minus = await routing.assess(task(), mock(result({ scope: "medium_minus" })));
   const plus = await routing.assess(task(), mock(result({ scope: "medium_minus", coordination: "medium_plus" })));
@@ -96,7 +96,13 @@ test("Easy and Medium- start Flash, Medium+ starts Sonnet, Hard bypasses Dely", 
   }
   assert.equal(minus.difficulty, "medium_minus");
   assert.equal(plus.difficulty, "medium_plus");
-  assert.equal(plus.route.primary.model, "claude-sonnet-5-5-high");
+  assert.deepEqual(plus.route.primary, { harness: "codex", model: "gpt-6.1-sol", effort: "medium" });
+  routing.verifyPin(plus, { agent: "codex", model: "gpt-6.1-sol", effort: "medium" }, {});
+  for (const pin of [
+    { agent: "antigravity", model: "claude-sonnet-5-5-high", effort: "default" },
+    { agent: "codex", model: "gpt-6.1-sol", effort: "high" },
+    { agent: "codex", model: "gpt-6-luna", effort: "max" },
+  ]) assert.throws(() => routing.verifyPin(plus, pin, {}), /reviewed difficulty route/);
   assert.equal(routing.selectedPhase(plus, {}), "implement");
   for (const a of [easy, minus, plus]) {
     assert.deepEqual(a.route.fallback, [{ harness: "codex", model: "gpt-6-luna", effort: "max" }]);

@@ -1,37 +1,87 @@
 diff --git a/.claude-plugin/plugin.json b/.claude-plugin/plugin.json
-index 4be3ea0..6e1c9cd 100644
+index 9460b7946c3361176533277bc3559a1ede851940..6e1c9cd97c253f7559e82227733cfd0191cf6956 100644
 --- a/.claude-plugin/plugin.json
 +++ b/.claude-plugin/plugin.json
-@@ -1,6 +1,6 @@
- {
-   "name": "dely",
+@@ -1,11 +1,11 @@
+-{
+-  "name": "dely",
 -  "version": "0.20.1",
+-  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
+-  "license": "MIT",
+-  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
+-  "author": {
+-    "name": "Hieu Phung",
+-    "url": "https://github.com/hieuphung97"
+-  }
+-}
++{
++  "name": "dely",
 +  "version": "0.27.3",
-   "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
-   "license": "MIT",
-   "keywords": ["delivery", "workflow", "review", "orca", "automation"],
++  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
++  "license": "MIT",
++  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
++  "author": {
++    "name": "Hieu Phung",
++    "url": "https://github.com/hieuphung97"
++  }
++}
 diff --git a/.codex-plugin/plugin.json b/.codex-plugin/plugin.json
-index a581e57..f3f5023 100644
+index 720371dabe571fea87f4709c3e8ac5494cb6ddde..f3f5023feaede85d5037dd6953c7da2ccf196833 100644
 --- a/.codex-plugin/plugin.json
 +++ b/.codex-plugin/plugin.json
-@@ -1,6 +1,6 @@
- {
-   "name": "dely",
+@@ -1,21 +1,21 @@
+-{
+-  "name": "dely",
 -  "version": "0.20.1",
+-  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
+-  "license": "MIT",
+-  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
+-  "author": {
+-    "name": "Hieu Phung",
+-    "url": "https://github.com/hieuphung97"
+-  },
+-  "homepage": "https://github.com/hieuphung97/dely",
+-  "repository": "https://github.com/hieuphung97/dely",
+-  "skills": "./skills/",
+-  "interface": {
+-    "displayName": "Delivery",
+-    "shortDescription": "Design, implement, review independently, close",
+-    "defaultPrompt": [
+-      "Use the delivery skill to classify and handle this change, and the setup skill to configure the project."
+-    ]
+-  }
+-}
++{
++  "name": "dely",
 +  "version": "0.27.3",
-   "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
-   "license": "MIT",
-   "keywords": ["delivery", "workflow", "review", "orca", "automation"],
++  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
++  "license": "MIT",
++  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
++  "author": {
++    "name": "Hieu Phung",
++    "url": "https://github.com/hieuphung97"
++  },
++  "homepage": "https://github.com/hieuphung97/dely",
++  "repository": "https://github.com/hieuphung97/dely",
++  "skills": "./skills/",
++  "interface": {
++    "displayName": "Delivery",
++    "shortDescription": "Design, implement, review independently, close",
++    "defaultPrompt": [
++      "Use the delivery skill to classify and handle this change, and the setup skill to configure the project."
++    ]
++  }
++}
 diff --git a/.env.example b/.env.example
 new file mode 100644
-index 0000000..7571fe4
+index 0000000000000000000000000000000000000000..7571fe4ce66d2048cab72f2bfefc672262706c22
 --- /dev/null
 +++ b/.env.example
 @@ -0,0 +1 @@
 +TYPESAFE_API_KEY=
 diff --git a/docs/task-risk-policy.md b/docs/task-risk-policy.md
 new file mode 100644
-index 0000000..1c9a8de
+index 0000000000000000000000000000000000000000..7c055564e254cb7b6eef94e40d06383ec49ef932
 --- /dev/null
 +++ b/docs/task-risk-policy.md
 @@ -0,0 +1,40 @@
@@ -67,8 +117,8 @@ index 0000000..1c9a8de
 +boundaries, owners, rollback and acceptance are already understood.
 +
 +Policy `jev-task-routing-v3` uses Flash 3.8 Medium/default for Easy and Medium-.
-+Medium+ keeps Sonnet 5.5 High/default, with Luna/max only for explicit quota or
-+a successful nonempty catalog proving the requested model absent. Hard stays
++Medium+ uses Codex Sol/medium, with Luna/max only for explicit quota. A
++successful nonempty AGY catalog proving a requested model absent also permits Luna/max. Hard stays
 +direct Codex Sol/xhigh. Reassess earlier policy records; never rewrite an old
 +assessment to make it look newly evaluated.
 +
@@ -76,137 +126,379 @@ index 0000000..1c9a8de
 +tests, incomplete evaluations and latest-session snapshots from ordinary task
 +history; a successful probe does not establish an ordinary usage percentage.
 diff --git a/harnesses.json b/harnesses.json
-index 1a09884..e4e504f 100644
+index 133492ead44a2bf3ddcf39a02320c328d78be08d..e4e504f967081d402cdbf612abe69ae2058c640c 100644
 --- a/harnesses.json
 +++ b/harnesses.json
-@@ -7,6 +7,7 @@
-       "binary": "claude",
-       "status": "supported",
-       "controlWake": "background",
-+      "limits": "Put @AGENTS.md in CLAUDE.md.",
-       "trust": "dialog",
-       "discovery": {
-         "models": "claude -p \"/model\" --output-format json",
-@@ -25,7 +26,7 @@
-         "needsImport": true,
-         "importLine": "@AGENTS.md"
-       },
+@@ -1,181 +1,255 @@
+-{
+-  "effortRequiresModel": true,
+-  "harnesses": [
+-    {
+-      "name": "Claude Code",
+-      "id": "claude",
+-      "binary": "claude",
+-      "status": "supported",
+-      "controlWake": "background",
+-      "trust": "dialog",
+-      "discovery": {
+-        "models": "claude -p \"/model\" --output-format json",
+-        "effort": "claude -p \"/effort\" --output-format json",
+-        "answeredLocally": true
+-      },
+-      "modelFlag": true,
+-      "effortFlag": true,
+-      "permissionDefault": "--dangerously-skip-permissions",
+-      "forbiddenHeadless": [
+-        "claude -p"
+-      ],
+-      "instructionsFile": {
+-        "file": "CLAUDE.md",
+-        "readsAgentsMd": false,
+-        "needsImport": true,
+-        "importLine": "@AGENTS.md"
+-      },
 -      "notes": "worker-start --model pin honoured. The two discovery probes are answered locally (num_turns 0, total_cost_usd 0, no model turn); do not treat them as a dispatch. Trust is a dialog. A fresh repository shows the trust dialog even with --dangerously-skip-permissions, with No, exit preselected, reproduced 2026-09-11 on Claude Code 2.1.268; a worktree of an already-trusted repository inherits trust and shows none, which is what the withdrawn 2026-09-04 probe actually measured — do not re-propose that 2026-09-04 reading. Claude Code 2.1.273 and 2.1.274 word the dialog 'Quick safety check: Is this a project you created or one you trust?' with 'No, exit' preselected, so Enter refuses and exits the harness. Orca's prompt delivery sends Enter into that dialog, which is why a NO_ACK or PREFLIGHT FAIL quote on an untrusted path ends at a shell prompt and may hold only the tail 'Security guide' within the helper's 400-character quote (measured 2026-09-16 and 2026-09-17)."
-+      "notes": "worker-start --model pin honoured. The two discovery probes are answered locally (num_turns 0, total_cost_usd 0, no model turn); do not treat them as a dispatch. Claude Code 2.1.273 and 2.1.274 word the trust dialog 'Quick safety check: Is this a project you created or one you trust?' with 'No, exit' preselected, so Enter refuses and exits the harness. Orca's prompt delivery sends Enter into that dialog, which is why a NO_ACK or PREFLIGHT FAIL quote on an untrusted path ends at a shell prompt and may hold only the tail 'Security guide' within the helper's 400-character quote (measured 2026-09-16 and 2026-09-17). Decision sections: 2026-09-14, 2026-09-16, 2026-09-17."
-     },
-     {
-       "name": "Codex CLI",
-@@ -33,6 +34,7 @@
-       "binary": "codex",
-       "status": "supported",
-       "controlWake": "waker",
-+      "limits": "Use Codex CLI 0.159.2 or newer with Orca 1.4.217 or newer. As Control, it can start the next Dely step before the last one finishes.",
-       "trust": "dialog",
-       "discovery": {
-         "models": "codex debug models",
-@@ -54,14 +56,15 @@
-           "CLAUDE.md"
-         ]
-       },
+-    },
+-    {
+-      "name": "Codex CLI",
+-      "id": "codex",
+-      "binary": "codex",
+-      "status": "supported",
+-      "controlWake": "waker",
+-      "trust": "dialog",
+-      "discovery": {
+-        "models": "codex debug models",
+-        "effort": null,
+-        "omitVisibility": "hide",
+-        "effortFrom": "supported_reasoning_levels"
+-      },
+-      "modelFlag": true,
+-      "effortFlag": true,
+-      "permissionDefault": "--dangerously-bypass-approvals-and-sandbox",
+-      "forbiddenHeadless": [
+-        "codex exec"
+-      ],
+-      "instructionsFile": {
+-        "file": "AGENTS.md",
+-        "readsAgentsMd": true,
+-        "needsImport": false,
+-        "inert": [
+-          "CLAUDE.md"
+-        ]
+-      },
 -      "notes": "Codex CLI 0.154.0 shows its own trust dialog on a fresh directory ('Do you trust the contents of this directory?'), measured 2026-09-16 during the 0.19.0 checklist; trust is dialog, not orca-preflight. Control wakes by waker. Discovery: slugs with visibility hide are not offered; effort levels are supported_reasoning_levels on each slug, not one vocabulary per harness. Native AGENTS.md reader; CLAUDE.md is inert (not imported). '› 1. Yes, continue' is preselected, so Enter grants trust (measured 2026-09-16 on 0.154.0). 2026-09-11, Orca 1.4.199: a gpt-5.6-terra medium Control slept, 3 turns for a two-worker cycle. 2026-09-16, 0.20.0 candidate: a gpt-5.6-sol high Control ended its turn after each wait-bg, one request per wait, and notify started a new turn. 2026-09-17, 0.20.0: a gpt-5.6-terra medium Control kept its turn open in 2 of 2 runs, looping orca terminal wait about every 35 s (6 requests in a 118 s wait); in one of them it launched dely wait-bg inside a new Orca terminal, so the waiter watched the wrong terminal and failed. A gpt-5.6-sol medium Control slept (requests only in the first 18 s of each wait, 3 turns). Whether a Codex Control sleeps is not a stable property of the model; record the Control model with each probe row. Codex's default model is now gpt-6-astra high, not measured as Control."
-+      "notes": "Discovery: slugs with visibility hide are not offered; effort levels are supported_reasoning_levels on each slug, not one vocabulary per harness. Native AGENTS.md reader; CLAUDE.md is inert (not imported). 2026-09-11, Orca 1.4.199: a gpt-5.6-terra medium Control slept, 3 turns for a two-worker cycle. 2026-09-16, 0.20.0 candidate: a gpt-5.6-sol high Control ended its turn after each wait-bg, one request per wait, and notify started a new turn. 2026-09-17, 0.20.0: a gpt-5.6-terra medium Control kept its turn open in 2 of 2 runs, looping orca terminal wait about every 35 s (6 requests in a 118 s wait); in one of them it launched dely wait-bg inside a new Orca terminal, so the waiter watched the wrong terminal and failed. A gpt-5.6-sol medium Control slept (requests only in the first 18 s of each wait, 3 turns). Codex's default model is now gpt-6-astra high, not measured as Control. 2026-09-30, Codex CLI 0.159.2 failed Orca 1.4.215's worker readiness check: worker-start fails at agent_readiness after its 60 s timeout, with and without -c on its argv; Orca 1.4.215 recognises a ready Codex by the screen text OpenAI Codex followed by model: and directory:, and the 0.159.2 start screen shows neither label. A Codex preflight passed on Orca 1.4.215 on 2026-09-27 with the Codex version unrecorded, so the measured failure is specific to 0.159.2 on 1.4.215. Decision sections: 2026-09-11, 2026-09-16, 2026-09-17, 2026-09-30."
-     },
-     {
-       "name": "Grok Build",
-       "id": "grok",
-       "binary": "grok",
+-    },
+-    {
+-      "name": "Grok Build",
+-      "id": "grok",
+-      "binary": "grok",
 -      "status": "deferred",
-+      "status": "supported",
-       "controlWake": "waker",
-+      "limits": "Answer the trust question once in every project. As a worker, you cannot choose the model. As Control, a free account ran out of usage mid-delivery.",
-       "trust": "dialog",
-       "discovery": null,
-       "modelFlag": false,
-@@ -75,17 +78,22 @@
-         "readsAgentsMd": true,
-         "needsImport": false
-       },
--      "notes": "Deferred. Control wakes by waker. Grok Build 1.0.30 asks a y/n security question in a fresh repository (measured 2026-09-14), so trust is dialog, not none. Opens at the composer with no workspace-trust surface (measured 2026-08-29; unconfirmed by the 2026-09-11 method that retracted the Claude result — re-measure before relying on it). Grok validates root plugin.json (name and description only). worker-start --model does not support this id; models come from Orca's per-agent default arguments. PATH agent collides with this binary, so Cursor must not be documented as agent. No discovery command is offered while deferred."
-+      "notes": "On 1.0.44 a README-only fresh repo showed no trust dialog; every repository with AGENTS.md shows one. Native AGENTS.md. Discovery is null: there is no launch-time pin. Decision sections: 2026-09-30."
-     },
-     {
-       "name": "Antigravity CLI",
-       "id": "antigravity",
-       "binary": "agy",
--      "status": "deferred",
-+      "status": "supported",
-       "controlWake": "waker",
-+      "limits": "Choose the effort through the model name. Avoid gemini-3-flash-preview. As a worker, the first launch in a new folder can lose the task and show 'not signed in' while signed in; Dely retries once, then asks you to open agy there.",
-       "trust": "dialog",
+-      "controlWake": "waker",
+-      "trust": "dialog",
 -      "discovery": null,
 -      "modelFlag": false,
+-      "effortFlag": false,
+-      "permissionDefault": "--permission-mode bypassPermissions",
+-      "forbiddenHeadless": [
+-        "grok --prompt-file"
+-      ],
+-      "instructionsFile": {
+-        "file": "AGENTS.md",
+-        "readsAgentsMd": true,
+-        "needsImport": false
+-      },
+-      "notes": "Deferred. Control wakes by waker. Grok Build 1.0.30 asks a y/n security question in a fresh repository (measured 2026-09-14), so trust is dialog, not none. Opens at the composer with no workspace-trust surface (measured 2026-08-29; unconfirmed by the 2026-09-11 method that retracted the Claude result — re-measure before relying on it). Grok validates root plugin.json (name and description only). worker-start --model does not support this id; models come from Orca's per-agent default arguments. PATH agent collides with this binary, so Cursor must not be documented as agent. No discovery command is offered while deferred."
+-    },
+-    {
+-      "name": "Antigravity CLI",
+-      "id": "antigravity",
+-      "binary": "agy",
+-      "status": "deferred",
+-      "controlWake": "waker",
+-      "trust": "dialog",
+-      "discovery": null,
+-      "modelFlag": false,
+-      "effortFlag": false,
+-      "permissionDefault": "--dangerously-skip-permissions",
+-      "forbiddenHeadless": [
+-        "agy -p",
+-        "agy --print"
+-      ],
+-      "instructionsFile": {
+-        "file": "AGENTS.md",
+-        "readsAgentsMd": true,
+-        "needsImport": false,
+-        "doNotOffer": [
+-          "GEMINI.md"
+-        ]
+-      },
+-      "notes": "Deferred. worker-start --agent agy returns agent_unconfigured; the id that resolves is antigravity. Control wakes by waker. 0.18.0 launched via an adopt path after output quiescence because a plain worker-start typed the prompt before the TUI was ready (0 of 4 on 2026-09-11); 0.19.0 deleted that path, so Antigravity workers no longer launch. Discovery while supported was agy models (TSV, offer the slug column) and effort low|medium|high from CLI help; some slugs already end in -high/-medium/-low — do not strip those suffixes. Native AGENTS.md; do not offer GEMINI.md. Root plugin.json is the agy package (name and description only; additionalProperties false). Install is agy plugin install of the git URL or a local path; the CLI has no plugin update. Do not write ~/.gemini. worker-start --model does not support this id; models come from Orca's per-agent default arguments."
+-    },
+-    {
+-      "name": "Kiro CLI",
+-      "id": "kiro",
+-      "binary": "kiro-cli",
+-      "status": "deferred",
+-      "controlWake": "unsupported",
+-      "trust": "dialog",
+-      "discovery": null,
+-      "modelFlag": false,
+-      "effortFlag": false,
+-      "permissionDefault": "none",
+-      "forbiddenHeadless": [
+-        "kiro-cli chat --no-interactive"
+-      ],
+-      "instructionsFile": {
+-        "file": "AGENTS.md",
+-        "readsAgentsMd": true,
+-        "needsImport": false
+-      },
+-      "notes": "Deferred. worker-start --agent kiro-cli returns agent_unconfigured; the id that resolves is kiro. Control wake is unsupported. permissionDefault is none; --trust-all-tools is forbidden on the launch argv because it opens a confirmation whose default is No, exit, and Orca's Enter kills the session. Once the TUI is idle, /tools trust-all was observed to trust tools for the session with no confirmation dialog. Headless kiro-cli chat --no-interactive is not a Dely worker. Native AGENTS.md. Discovery while supported was kiro-cli chat --list-models --format json (offer each model_id) and effort from kiro-cli chat --help; live 2.16.2 may offer only auto. Install is npx skills targeting the kiro-cli agent at global scope. No workspace-trust surface (measured 2026-08-29; unconfirmed by the 2026-09-11 method that retracted the Claude result — re-measure before relying on it). Do not write ~/.kiro or create custom agents. worker-start --model does not support this id; models come from Orca's per-agent default arguments."
+-    },
+-    {
+-      "name": "Cursor Agent CLI",
+-      "id": "cursor",
+-      "binary": "cursor-agent",
+-      "status": "supported",
+-      "controlWake": "background",
+-      "trust": "dialog",
+-      "discovery": {
+-        "models": "cursor-agent models",
+-        "effort": null,
+-        "modelSlugBefore": " - "
+-      },
+-      "modelFlag": true,
+-      "effortFlag": false,
+-      "permissionDefault": "--force",
+-      "forbiddenHeadless": [
+-        "cursor-agent -p",
+-        "cursor-agent --print"
+-      ],
+-      "instructionsFile": {
+-        "file": "AGENTS.md",
+-        "readsAgentsMd": true,
+-        "needsImport": false,
+-        "alsoApplies": [
+-          "CLAUDE.md"
+-        ]
+-      },
+-      "notes": "worker-start --model pin honoured; omit --effort (there is no effort flag; write the literal default). worker-start --agent cursor-agent returns agent_unconfigured; the id that resolves is cursor. Offer the model slug before ' - '. Do not invent an effort vocabulary, strip effort suffixes from slugs, or synthesize parameterized [effort=…] forms. Native AGENTS.md reader; the CLI also applies CLAUDE.md as a rule, so that file is not inert, but the import write offer stays on entries with needsImport. Never PATH agent (collides with Grok). Never -w/--worktree. Do not put --trust or an unpinned --sandbox on the launch argv. Trust dialog on a fresh directory, measured 2026-09-16 and 2026-09-17 on Cursor Agent 2026.09.10-fd3934a and 2026.09.15-d2fe57e: '⚠ Workspace Trust Required … Do you trust the contents of this directory?' with '▶ [a] Trust this workspace' preselected over '[q] Quit', so `a` or Enter grants trust, and the screen shows '⏳ Trusting workspace...' before the composer. Text sent in that state was dropped while `orca terminal send` returned ok; wait for the composer before sending a prompt."
+-    },
+-    {
+-      "name": "GitHub Copilot CLI",
+-      "id": "copilot",
+-      "binary": "copilot",
+-      "status": "deferred",
+-      "controlWake": "background",
+-      "trust": "dialog",
+-      "discovery": null,
+-      "modelFlag": false,
+-      "effortFlag": false,
+-      "permissionDefault": "--allow-all",
+-      "forbiddenHeadless": [
+-        "copilot -p",
+-        "copilot --prompt"
+-      ],
+-      "instructionsFile": {
+-        "file": "AGENTS.md",
+-        "readsAgentsMd": true,
+-        "needsImport": false,
+-        "alsoApplies": [
+-          "CLAUDE.md"
+-        ]
+-      },
+-      "notes": "Deferred. Control wakes by background. --allow-all is the documented equivalent of --allow-all-tools --allow-all-paths --allow-all-urls, with --yolo as its alias. No non-interactive model listing: copilot models fails with Invalid command format; copilot -p \"/model\" dispatched a real turn (auto-routed to claude-haiku-4.5). An unavailable --model value prints Using \"auto\" instead and continues. Effort while supported was from copilot --help: none|minimal|low|medium|high|xhigh|max. Native AGENTS.md and CLAUDE.md reader (--no-custom-instructions disables both). Trust: Confirm folder trust still opens with --allow-all (1. Yes preselected; never 2, which remembers the folder). Restore interrupted sessions then lists sessions from other folders; Esc starts fresh, Enter is a wrong-session hazard. Measured 2026-08-31 on Copilot CLI 1.0.82: Orca documented no copilot launcher id, so Control composed copilot --allow-all --effort high by hand. Install uses existing manifests into ~/.copilot/installed-plugins/dely/dely/; no sidecar. worker-start --model does not support this id; models come from Orca's per-agent default arguments."
+-    }
+-  ]
+-}
++{
++  "effortRequiresModel": true,
++  "harnesses": [
++    {
++      "name": "Claude Code",
++      "id": "claude",
++      "binary": "claude",
++      "status": "supported",
++      "controlWake": "background",
++      "limits": "Put @AGENTS.md in CLAUDE.md.",
++      "trust": "dialog",
++      "discovery": {
++        "models": "claude -p \"/model\" --output-format json",
++        "effort": "claude -p \"/effort\" --output-format json",
++        "answeredLocally": true
++      },
++      "modelFlag": true,
++      "effortFlag": true,
++      "permissionDefault": "--dangerously-skip-permissions",
++      "forbiddenHeadless": [
++        "claude -p"
++      ],
++      "instructionsFile": {
++        "file": "CLAUDE.md",
++        "readsAgentsMd": false,
++        "needsImport": true,
++        "importLine": "@AGENTS.md"
++      },
++      "notes": "worker-start --model pin honoured. The two discovery probes are answered locally (num_turns 0, total_cost_usd 0, no model turn); do not treat them as a dispatch. Claude Code 2.1.273 and 2.1.274 word the trust dialog 'Quick safety check: Is this a project you created or one you trust?' with 'No, exit' preselected, so Enter refuses and exits the harness. Orca's prompt delivery sends Enter into that dialog, which is why a NO_ACK or PREFLIGHT FAIL quote on an untrusted path ends at a shell prompt and may hold only the tail 'Security guide' within the helper's 400-character quote (measured 2026-09-16 and 2026-09-17). Decision sections: 2026-09-14, 2026-09-16, 2026-09-17."
++    },
++    {
++      "name": "Codex CLI",
++      "id": "codex",
++      "binary": "codex",
++      "status": "supported",
++      "controlWake": "waker",
++      "limits": "Use Codex CLI 0.159.2 or newer with Orca 1.4.217 or newer. As Control, it can start the next Dely step before the last one finishes.",
++      "trust": "dialog",
++      "discovery": {
++        "models": "codex debug models",
++        "effort": null,
++        "omitVisibility": "hide",
++        "effortFrom": "supported_reasoning_levels"
++      },
++      "modelFlag": true,
++      "effortFlag": true,
++      "permissionDefault": "--dangerously-bypass-approvals-and-sandbox",
++      "forbiddenHeadless": [
++        "codex exec"
++      ],
++      "instructionsFile": {
++        "file": "AGENTS.md",
++        "readsAgentsMd": true,
++        "needsImport": false,
++        "inert": [
++          "CLAUDE.md"
++        ]
++      },
++      "notes": "Discovery: slugs with visibility hide are not offered; effort levels are supported_reasoning_levels on each slug, not one vocabulary per harness. Native AGENTS.md reader; CLAUDE.md is inert (not imported). 2026-09-11, Orca 1.4.199: a gpt-5.6-terra medium Control slept, 3 turns for a two-worker cycle. 2026-09-16, 0.20.0 candidate: a gpt-5.6-sol high Control ended its turn after each wait-bg, one request per wait, and notify started a new turn. 2026-09-17, 0.20.0: a gpt-5.6-terra medium Control kept its turn open in 2 of 2 runs, looping orca terminal wait about every 35 s (6 requests in a 118 s wait); in one of them it launched dely wait-bg inside a new Orca terminal, so the waiter watched the wrong terminal and failed. A gpt-5.6-sol medium Control slept (requests only in the first 18 s of each wait, 3 turns). Codex's default model is now gpt-6-astra high, not measured as Control. 2026-09-30, Codex CLI 0.159.2 failed Orca 1.4.215's worker readiness check: worker-start fails at agent_readiness after its 60 s timeout, with and without -c on its argv; Orca 1.4.215 recognises a ready Codex by the screen text OpenAI Codex followed by model: and directory:, and the 0.159.2 start screen shows neither label. A Codex preflight passed on Orca 1.4.215 on 2026-09-27 with the Codex version unrecorded, so the measured failure is specific to 0.159.2 on 1.4.215. Decision sections: 2026-09-11, 2026-09-16, 2026-09-17, 2026-09-30."
++    },
++    {
++      "name": "Grok Build",
++      "id": "grok",
++      "binary": "grok",
++      "status": "supported",
++      "controlWake": "waker",
++      "limits": "Answer the trust question once in every project. As a worker, you cannot choose the model. As Control, a free account ran out of usage mid-delivery.",
++      "trust": "dialog",
++      "discovery": null,
++      "modelFlag": false,
++      "effortFlag": false,
++      "permissionDefault": "--permission-mode bypassPermissions",
++      "forbiddenHeadless": [
++        "grok --prompt-file"
++      ],
++      "instructionsFile": {
++        "file": "AGENTS.md",
++        "readsAgentsMd": true,
++        "needsImport": false
++      },
++      "notes": "On 1.0.44 a README-only fresh repo showed no trust dialog; every repository with AGENTS.md shows one. Native AGENTS.md. Discovery is null: there is no launch-time pin. Decision sections: 2026-09-30."
++    },
++    {
++      "name": "Antigravity CLI",
++      "id": "antigravity",
++      "binary": "agy",
++      "status": "supported",
++      "controlWake": "waker",
++      "limits": "Choose the effort through the model name. Avoid gemini-3-flash-preview. As a worker, the first launch in a new folder can lose the task and show 'not signed in' while signed in; Dely retries once, then asks you to open agy there.",
++      "trust": "dialog",
 +      "discovery": {
 +        "models": "agy models",
 +        "effort": null,
 +        "modelSlugBefore": "\t"
 +      },
 +      "modelFlag": true,
-       "effortFlag": false,
-       "permissionDefault": "--dangerously-skip-permissions",
-       "forbiddenHeadless": [
-@@ -100,14 +108,15 @@
-           "GEMINI.md"
-         ]
-       },
--      "notes": "Deferred. worker-start --agent agy returns agent_unconfigured; the id that resolves is antigravity. Control wakes by waker. 0.18.0 launched via an adopt path after output quiescence because a plain worker-start typed the prompt before the TUI was ready (0 of 4 on 2026-09-11); 0.19.0 deleted that path, so Antigravity workers no longer launch. Discovery while supported was agy models (TSV, offer the slug column) and effort low|medium|high from CLI help; some slugs already end in -high/-medium/-low — do not strip those suffixes. Native AGENTS.md; do not offer GEMINI.md. Root plugin.json is the agy package (name and description only; additionalProperties false). Install is agy plugin install of the git URL or a local path; the CLI has no plugin update. Do not write ~/.gemini. worker-start --model does not support this id; models come from Orca's per-agent default arguments."
++      "effortFlag": false,
++      "permissionDefault": "--dangerously-skip-permissions",
++      "forbiddenHeadless": [
++        "agy -p",
++        "agy --print"
++      ],
++      "instructionsFile": {
++        "file": "AGENTS.md",
++        "readsAgentsMd": true,
++        "needsImport": false,
++        "doNotOffer": [
++          "GEMINI.md"
++        ]
++      },
 +      "notes": "Orca accepts --model; --effort is rejected or dropped. A worker preflight on a new path showed 'not signed in' while signed in, on a lost first launch. Decision sections: 2026-09-30."
-     },
-     {
-       "name": "Kiro CLI",
-       "id": "kiro",
-       "binary": "kiro-cli",
-       "status": "deferred",
--      "controlWake": "unsupported",
++    },
++    {
++      "name": "Kiro CLI",
++      "id": "kiro",
++      "binary": "kiro-cli",
++      "status": "deferred",
 +      "controlWake": "waker",
 +      "limits": "Workers never start in Orca.",
-       "trust": "dialog",
-       "discovery": null,
-       "modelFlag": false,
-@@ -121,7 +130,7 @@
-         "readsAgentsMd": true,
-         "needsImport": false
-       },
--      "notes": "Deferred. worker-start --agent kiro-cli returns agent_unconfigured; the id that resolves is kiro. Control wake is unsupported. permissionDefault is none; --trust-all-tools is forbidden on the launch argv because it opens a confirmation whose default is No, exit, and Orca's Enter kills the session. Once the TUI is idle, /tools trust-all was observed to trust tools for the session with no confirmation dialog. Headless kiro-cli chat --no-interactive is not a Dely worker. Native AGENTS.md. Discovery while supported was kiro-cli chat --list-models --format json (offer each model_id) and effort from kiro-cli chat --help; live 2.16.2 may offer only auto. Install is npx skills targeting the kiro-cli agent at global scope. No workspace-trust surface (measured 2026-08-29; unconfirmed by the 2026-09-11 method that retracted the Claude result — re-measure before relying on it). Do not write ~/.kiro or create custom agents. worker-start --model does not support this id; models come from Orca's per-agent default arguments."
++      "trust": "dialog",
++      "discovery": null,
++      "modelFlag": false,
++      "effortFlag": false,
++      "permissionDefault": "none",
++      "forbiddenHeadless": [
++        "kiro-cli chat --no-interactive"
++      ],
++      "instructionsFile": {
++        "file": "AGENTS.md",
++        "readsAgentsMd": true,
++        "needsImport": false
++      },
 +      "notes": "Workers never pass Orca's readiness check. Decision sections: 2026-09-30."
-     },
-     {
-       "name": "Cursor Agent CLI",
-@@ -129,6 +138,7 @@
-       "binary": "cursor-agent",
-       "status": "supported",
-       "controlWake": "background",
-+      "limits": "Choose the effort through the model name, for example cursor-grok-4.6-high.",
-       "trust": "dialog",
-       "discovery": {
-         "models": "cursor-agent models",
-@@ -150,14 +160,15 @@
-           "CLAUDE.md"
-         ]
-       },
--      "notes": "worker-start --model pin honoured; omit --effort (there is no effort flag; write the literal default). worker-start --agent cursor-agent returns agent_unconfigured; the id that resolves is cursor. Offer the model slug before ' - '. Do not invent an effort vocabulary, strip effort suffixes from slugs, or synthesize parameterized [effort=…] forms. Native AGENTS.md reader; the CLI also applies CLAUDE.md as a rule, so that file is not inert, but the import write offer stays on entries with needsImport. Never PATH agent (collides with Grok). Never -w/--worktree. Do not put --trust or an unpinned --sandbox on the launch argv. Trust dialog on a fresh directory, measured 2026-09-16 and 2026-09-17 on Cursor Agent 2026.09.10-fd3934a and 2026.09.15-d2fe57e: '⚠ Workspace Trust Required … Do you trust the contents of this directory?' with '▶ [a] Trust this workspace' preselected over '[q] Quit', so `a` or Enter grants trust, and the screen shows '⏳ Trusting workspace...' before the composer. Text sent in that state was dropped while `orca terminal send` returned ok; wait for the composer before sending a prompt."
-+      "notes": "worker-start --model pin honoured; omit --effort (there is no effort flag; write the literal default). worker-start --agent cursor-agent returns agent_unconfigured; the id that resolves is cursor. Offer the model slug before ' - '. Trust dialog on a fresh directory, measured 2026-09-16 and 2026-09-17 on Cursor Agent 2026.09.10-fd3934a and 2026.09.15-d2fe57e: '⚠ Workspace Trust Required … Do you trust the contents of this directory?' with '▶ [a] Trust this workspace' preselected over '[q] Quit', so `a` or Enter grants trust, and the screen shows '⏳ Trusting workspace...' before the composer. Text sent in that state was dropped while `orca terminal send` returned ok; wait for the composer before sending a prompt. Decision sections: 2026-08-27, 2026-09-04, 2026-09-14, 2026-09-16, 2026-09-17."
-     },
-     {
-       "name": "GitHub Copilot CLI",
-       "id": "copilot",
-       "binary": "copilot",
--      "status": "deferred",
++    },
++    {
++      "name": "Cursor Agent CLI",
++      "id": "cursor",
++      "binary": "cursor-agent",
 +      "status": "supported",
-       "controlWake": "background",
++      "controlWake": "background",
++      "limits": "Choose the effort through the model name, for example cursor-grok-4.6-high.",
++      "trust": "dialog",
++      "discovery": {
++        "models": "cursor-agent models",
++        "effort": null,
++        "modelSlugBefore": " - "
++      },
++      "modelFlag": true,
++      "effortFlag": false,
++      "permissionDefault": "--force",
++      "forbiddenHeadless": [
++        "cursor-agent -p",
++        "cursor-agent --print"
++      ],
++      "instructionsFile": {
++        "file": "AGENTS.md",
++        "readsAgentsMd": true,
++        "needsImport": false,
++        "alsoApplies": [
++          "CLAUDE.md"
++        ]
++      },
++      "notes": "worker-start --model pin honoured; omit --effort (there is no effort flag; write the literal default). worker-start --agent cursor-agent returns agent_unconfigured; the id that resolves is cursor. Offer the model slug before ' - '. Trust dialog on a fresh directory, measured 2026-09-16 and 2026-09-17 on Cursor Agent 2026.09.10-fd3934a and 2026.09.15-d2fe57e: '⚠ Workspace Trust Required … Do you trust the contents of this directory?' with '▶ [a] Trust this workspace' preselected over '[q] Quit', so `a` or Enter grants trust, and the screen shows '⏳ Trusting workspace...' before the composer. Text sent in that state was dropped while `orca terminal send` returned ok; wait for the composer before sending a prompt. Decision sections: 2026-08-27, 2026-09-04, 2026-09-14, 2026-09-16, 2026-09-17."
++    },
++    {
++      "name": "GitHub Copilot CLI",
++      "id": "copilot",
++      "binary": "copilot",
++      "status": "supported",
++      "controlWake": "background",
 +      "limits": "At the first launch, answer No, thanks to the app prompt; until then a launch can leave the task unsent. Answer the folder trust question once in every project and choose to remember the folder; Orca does not see it, so a missed one shows as NO_ACK. As a worker, you cannot choose the model.",
-       "trust": "dialog",
-       "discovery": null,
-       "modelFlag": false,
-@@ -175,7 +186,70 @@
-           "CLAUDE.md"
-         ]
-       },
--      "notes": "Deferred. Control wakes by background. --allow-all is the documented equivalent of --allow-all-tools --allow-all-paths --allow-all-urls, with --yolo as its alias. No non-interactive model listing: copilot models fails with Invalid command format; copilot -p \"/model\" dispatched a real turn (auto-routed to claude-haiku-4.5). An unavailable --model value prints Using \"auto\" instead and continues. Effort while supported was from copilot --help: none|minimal|low|medium|high|xhigh|max. Native AGENTS.md and CLAUDE.md reader (--no-custom-instructions disables both). Trust: Confirm folder trust still opens with --allow-all (1. Yes preselected; never 2, which remembers the folder). Restore interrupted sessions then lists sessions from other folders; Esc starts fresh, Enter is a wrong-session hazard. Measured 2026-08-31 on Copilot CLI 1.0.82: Orca documented no copilot launcher id, so Control composed copilot --allow-all --effort high by hand. Install uses existing manifests into ~/.copilot/installed-plugins/dely/dely/; no sidecar. worker-start --model does not support this id; models come from Orca's per-agent default arguments."
++      "trust": "dialog",
++      "discovery": null,
++      "modelFlag": false,
++      "effortFlag": false,
++      "permissionDefault": "--allow-all",
++      "forbiddenHeadless": [
++        "copilot -p",
++        "copilot --prompt"
++      ],
++      "instructionsFile": {
++        "file": "AGENTS.md",
++        "readsAgentsMd": true,
++        "needsImport": false,
++        "alsoApplies": [
++          "CLAUDE.md"
++        ]
++      },
 +      "notes": "Direct installs copy existing manifests into ~/.copilot/installed-plugins/_direct/<source>/ (directory named after the local source directory or sanitized git URL); no sidecar. Copilot 1.0.89 app promo ('Now generally available! … Install it now?' with Yes, install preselected) cleared itself after about 30 s. Decision sections: 2026-08-31, 2026-09-30."
 +    },
 +    {
@@ -271,12 +563,12 @@ index 1a09884..e4e504f 100644
 +        ]
 +      },
 +      "notes": "A Model or Effort cell containing whitespace fails closed, except a Model cell '<selector> <level>' with Effort default, which applies that level. With a pi key, Pi loads only the extensions it lists, so the key must list ./extensions/dely-pin.ts. Orca reports model null, so dispatch skips the check. Decision sections: 2026-09-28, 2026-10-01."
-     }
-   ]
- }
++    }
++  ]
++}
 diff --git a/package.json b/package.json
 new file mode 100644
-index 0000000..48476f0
+index 0000000000000000000000000000000000000000..48476f074ece916a9f11c4de2b675a4e83c90d82
 --- /dev/null
 +++ b/package.json
 @@ -0,0 +1,9 @@
@@ -290,18 +582,366 @@ index 0000000..48476f0
 +  }
 +}
 diff --git a/skills/delivery/SKILL.md b/skills/delivery/SKILL.md
-index 96fc5e4..0c086fb 100644
+index 58358951812037443851c46141800f6234ae7805..a98e45ef5d8b050640049cd3aaff6f283fb03da7 100644
 --- a/skills/delivery/SKILL.md
 +++ b/skills/delivery/SKILL.md
-@@ -1,18 +1,67 @@
- ---
- name: delivery
+@@ -1,349 +1,448 @@
+----
+-name: delivery
 -description: Deliver a change through an approved design contract, sequential implementation, independent review and exact-HEAD release. Use for any Bounded or Architectural change — including a small, one-line behavioral fix, which is the canonical Bounded case — so it gets design approval and independent review. Not for a Spike, which investigates and recommends without starting a delivery run.
+----
+-
+-# Delivery
+-
+-Dely accepts a request that may still be vague, brings it to an approved
+-design contract, then automates sequential implementation, independent
+-review, and pull-request preparation. It is a thin control protocol, not an
+-orchestrator, SDLC framework, or second source of Git state.
+-
+-Read `AGENTS.md` in the repository for this project's gate commands, artifact
+-paths, default branch, and per-phase harness/model/effort pins. This skill
+-never names them.
+-
+-## Two human gates
+-
+-1. Approve the design contract before candidate mutation.
+-2. Merge or publish after Dely has prepared the reviewed pull request.
+-
+-Dely pauses outside those gates only for a scope or architecture change, a
+-destructive action, new authority, replan, or an unavailable required runtime.
+-
+-## The control session
+-
+-The current interactive session is Control. It owns the approval invariant,
+-task boundaries, exception handling, dispatch supervision, and release. It
+-does not implement or review the candidate, and does not prescribe question
+-count, order, format, or skill-selection precedence. Native Plan Mode and
+-active design skills govern their own surfaces under the harness's
+-precedence; neither bypasses approval. Before mutation, Control obtains
+-explicit human approval of a design contract. One approval covers that
+-scope; a material change needs a new one. Control surfaces uncertainty that
+-could materially change intent, acceptance, authority, public contract,
+-architecture, or consequential risk. Material assumptions must be explicit.
+-
+-## Shape
+-
+-Use the smallest contract that safely holds the change. Risk may promote an
+-otherwise small change; diff size never demotes data-loss, security,
+-permission, or public-compatibility risk.
+-
+-| Shape | Use | Artifact | Review |
+-| --- | --- | --- | --- |
+-| Spike | Investigation only; no candidate is delivered | Approved probe and recommendation; no delivery run | none |
+-| Bounded | Small change, clear behaviour and ownership | Approved in-chat design and short execution envelope | one whole-change review |
+-| Architectural | Multiple behaviours, public-contract change, architecture decision, or promoted risk | Approved decision record, task plan, execution envelope | task review per task, then one integration review |
+-
+-An approved design contract states intent and success criteria; scope and
+-authority; affected public contract or architecture; consequential risks and
+-material assumptions; and a plausible counterexample that distinguishes
+-correct behaviour from a present-but-wrong implementation. If no executable
+-instrument can discriminate, the contract names the manual inspection and
+-its limit.
+-
+-Architectural work uses `templates/decision-record.md` (durable) and
+-`templates/plan.md` (transient, deleted in the release commit, before the
+-release-binding review). Commit both before implementation begins — that
+-commit is the review baseline.
+-
+-### Acceptance
+-
+-One table: each requirement, the instrument that proves it, the plausible
+-wrong implementation that instrument rejects, and where that rejection was
+-observed.
+-
+-**An acceptance row is invalid until its instrument discriminates.** A row
+-that passes both before and after the change proves nothing and will be
+-found at review. Baseline-red is not enough: red only because the feature
+-is absent says nothing about catching an implementation that is present,
+-runs, returns a pass, and is wrong. Each row names such a wrong
+-implementation. "The feature is absent" does not satisfy Counterexample.
+-Where none exists, the row says so and a human reads the diff.
+-
+-Record what the instruments cannot observe. Prefer the simplest instrument
+-that proves the contract. Any claim about extent — a scope, a count, a set
+-of call sites — names the command that produced it, reports its output, and
+-enumerates rather than samples. Naming the command is not the measurement;
+-the command must have been run.
+-
+-## Execution envelope
+-
+-Before mutation, Control resolves deployment preferences against the live
+-harness surface, starts Orca and verifies its required capabilities,
+-records the dirty baseline and exact-path ownership, and creates a feature
+-branch when starting on the default branch. The envelope freezes owned
+-scope and paths; protected pre-existing dirty paths; acceptance criteria,
+-counterexample, and focused instruments; branch, base, remote, and
+-pull-request target; resolved harness, model, and effort for dispatched
+-roles; and authority to branch, commit owned paths, run gates, push, and
+-open or update a pull request. It never authorises merge, force-push,
+-stash, reset, cleanup, or an edit outside owned scope. Dely stages and
+-commits only contract-owned paths. It never stashes, resets, cleans, or
+-silently absorbs the user's existing changes. If a path carries protected
+-baseline changes and Dely must also modify it, Control pauses rather than
+-combining ownership.
+-
+-## Orca and the helper
+-
+-Orca is the required execution plane. It launches and supervises fresh
+-native harness TUIs with the resolved harness, model, and effort.
+-Orchestration is a required Orca capability. `dely:delivery` starts Orca,
+-then Control loads `orca skills get orchestration` and follows its
+-supervised loop. It stops only when the CLI is missing, the runtime cannot
+-start, or a required capability is absent — there is no direct dispatch and
+-no headless fallback of any kind. The launcher is `scripts/dely` relative
+-to this skill. Control learns the helper's interface by running
+-`scripts/dely` with no arguments, which prints its identity and usage,
+-and does not read `scripts/dely.js`. Control's wake mode is that harness's
+-`controlWake` in `../../harnesses.json`. The preflight step runs in setup
+-and again after a `NO_ACK`; a delivery does not preflight before its first
+-dispatch.
+-
+-Write the prompt to an untracked file **inside the worktree**. Never inline
+-it in a shell argument: prompts carry backticks, quotes and newlines, and a
+-shell argument mangles them. A path outside the workspace can trigger a
+-second permission surface some harnesses still prompt for even when tool
+-approval is skipped. Do not stage that file. After the worker returns,
+-delete it: Control owns that dispatch artifact, not `git clean`. The handoff
+-is a file in the worktree; its path travels as `payload.reportPath` and the
+-message body stays short. `--spec` and `--body` are shell arguments, which
+-this skill already forbids for prompts.
+-
+-The dispatch prompt carries the task, its scope, and the evidence required.
+-It does not define role dispositions or the conditions for reaching one —
+-those belong to this skill, and a prompt that restates them narrows or
+-contradicts them. Where the design contract states an acceptance row, the
+-prompt carries that row as written. Every dispatch goes through
+-`dely dispatch`. Control does not compose a worker launch or call
+-`worker-start` by hand. The helper reads the pins from `AGENTS.md` and
+-appends the acknowledgement instruction and a sentence that the Orca
+-preamble and the spec file are everything the worker needs and that it
+-should read no other skill. The `worker-start` receipt records
+-`launch.requested` and `launch.effective`; it does not establish that the
+-worker can serve the request or that it cannot. Orca applies the execution
+-plane's configured permission default and does not add a sandbox the project
+-did not pin.
+-
+-**Name the model and effort on every dispatch.** The helper passes
+-`--model`/`--effort` when `../../harnesses.json` says that harness takes
+-them, and omits a flag whose value is `default`. On a harness that takes
+-neither, a Model written there is silently not applied: write `default` and
+-set the model in Orca's agent default arguments. A worker left on a harness
+-default is an unpinned environment: it lives in the harness's own config,
+-it changes without announcing itself, and the dispatch that relies on it
+-looks identical to one that pinned the same value deliberately.
+-
+-**Never act on an Orca nudge.** After `DISPATCHED`, wait by the wake mode
+-of **this Control's own harness** — not the harness of the worker being
+-waited on. `--control` is this session's harness id, the same id whatever
+-worker is in flight. **background** runs
+-`dely wait --run <run> --control <self>` as a background command and ends
+-the turn; **waker** runs `dely wait-bg --run <run> --control <self>` as its
+-last command, then ends the turn (a waker Control never runs `dely wait`);
+-**unsupported** cannot be Control. The helper reads the harness of the Orca
+-terminal it runs in and refuses a waker even when `--control` names another
+-one, so `REFUSED … (called with --control …)` means use `wait-bg`.
+-
+-**Result handling.** `SETTLED`: process the batch, do the guide's completion
+-accounting, and acknowledge. `ATTENTION` has two routes, and the difference
+-is whether the plane can still see the worker. With `nextAction.kind` other
+-than `none`, run the argv Orca printed and skip that id next time. With
+-`nextAction: none` and `attention.requiresAction`, the plane has lost sight
+-of the worker rather than asked for something: read it with `worker-read`
+-and `worker-show`, and if the process is gone, `worker-stop`, then
+-`worker-abandon` when the stop reports `stop_unknown`, then
+-`worker-release`, then one fresh `dely dispatch` with the same prompt file.
+-A second time on the same input goes to the human. An absent `nextAction` is
+-absent, not `none` with attention — that row is not `ATTENTION` and the wait
+-continues. `STALLED`: read the output, then wait again or recover.
+-`NO_ACK`: run setup's `dely preflight` in the same Run. If every pin passes,
+-one fresh `dely dispatch` with the same prompt file; never retry into the same
+-terminal, and never reuse a settled terminal; a second failure on the same
+-input goes to the human. Any `PREFLIGHT … FAIL`: do not dispatch to any
+-pin — a failed pin's cause is already known and another dispatch only
+-repeats it.
+-Stop and relay the printed reason: the harness, the path, and that the human
+-opens that harness there once to answer its own dialog; Dely never answers
+-it. The failed worker is already stopped and released. When the human says
+-it is done, rerun `dely preflight` in the same Run and continue from there.
+-`FAILED`: one fresh `dely dispatch` with the same prompt file and the same
+-retry limits. `DEADLINE`: a checkpoint — check `worker-list` and the last
+-output; if the worker is progressing, wait again; a second `DEADLINE` with
+-no progress goes to the human. `ERROR`: go to the human. The worker reports
+-once with `worker_done` and an `--outcome`; completion comes from that
+-`worker_done` — do not infer it from reading the worker's terminal. Each
+-delivery opens its own Run with an objective
+-(`orca orchestration run-create --objective`) rather than reusing another's,
+-so a stale report cannot settle a new wait.
+-
+-Investigation is one read-only diagnostic dispatch inheriting the
+-`implement` pin; it may reproduce, inspect, and report, but does not edit,
+-commit, launch workers, or expand scope.
+-
+-Stop and ask the human when: a result maps to no route or more than one; the
+-worker **failed** rather than returned a stop status — a non-zero exit with
+-no result, an exhausted quota, an authentication error — which is not
+-`BLOCKED` and must not be treated as one; Orca is unavailable or a required
+-capability is absent; an action needs authority policy reserves to the
+-human; or the same worker fails twice on the same input. Say what you know,
+-what you tried, and what the options are. Do not pick one.
+-
+-## Implementation
+-
+-Control creates a separate task only when that unit has its own test cycle
+-and a reviewer could accept it while rejecting its neighbor. Same-shaped
+-mechanical changes are batched. Tightly coupled work stays one task and one
+-implementer. Each independent task gets a fresh implementer TUI.
+-
+-An implementer reads the decision record, the plan, and the baseline — not
+-the design session's transcript. It owns only its task, runs a focused
+-acceptance instrument, and creates one task-scoped commit. For behaviour
+-with a deterministic executable test it uses TDD; the portable invariant is
+-smaller: observe a discriminating failure for the intended reason before
+-changing behaviour. A shell probe, parser fixture, or diff inspection may
+-be the correct instrument for configuration, documentation, generated
+-files, or environment-bound integration.
+-
+-The counterexample named in each acceptance row is observed red and cited.
+-That observation is not the behaviour's own absence: one is the feature
+-absent, the other is an implementation that is present, runs, returns a
+-pass, and is wrong.
+-
+-Implement the whole task before handing back. Stop and return `BLOCKED` or
+-`NEEDS_REPLAN` instead of a partial solution when the record contradicts
+-the code, the contract is ambiguous, work outside the task becomes
+-necessary, an existing test disproves an assumption, or the task no longer
+-fits one session. A task needing continuation is a decomposition failure.
+-
+-### Handoff
+-
+-```text
+-Status: DONE | BLOCKED | NEEDS_REPLAN
+-Harness:            name, model, effort, sandbox
+-Session:            the dispatch id
+-Baseline:
+-Changed paths:
+-Contract coverage:
+-Verification:
+-Deviations from plan:
+-Residue:
+-Git state:
+-END OF HANDOFF
+-```
+-
+-`END OF HANDOFF` is the last line and load-bearing: the only thing that
+-distinguishes a handoff from one cut off mid-write. Under `Residue`, a claim
+-of nothing left needs evidence: name the check that returned empty. Under
+-`Verification`, cite the dispatch-bound command, output, and outcome that
+-Orca recovers for that task — the transcript or terminal it selects, and
+-any cursor mechanics, are Orca's concern, not this skill's. Do not
+-transcribe output by hand. Where Orca cannot recover a dispatch item, treat
+-the worker's own account as the thing under check rather than as the check,
+-and say so.
+-
+-## Review
+-
+-Review independence is role independence: a fresh session that did not
+-implement and does not edit the candidate. It gets the decision record (or
+-Bounded design), the baseline, and the diff. The phase adds no sandbox by
+-default; `AGENTS.md` may pin one for a concrete risk. Review depth is
+-adaptive: Bounded work gets one independent whole-change review. Each
+-Architectural task gets an independent task review. After all tasks are
+-accepted, a different fresh reviewer performs one integration review of
+-task interactions, complete-contract coverage, deferred findings, candidate
+-identity, and release readiness. Only that final review is release-binding
+-for Architectural work; Bounded work has no earlier task review and no
+-duplicate integration review. No worker runs while a review of the same
+-working tree runs. The working tree and its gate surface are shared mutable
+-state, and a review reproduces gates in that tree, so a concurrent edit
+-makes another task's work look like this one's result.
+-
+-**Reproduce, do not accept.** Run the gates yourself. A claim you did not
+-reproduce is not evidence. The reviewer observes the counterexample
+-discriminate for itself — an implementation that is present, runs, returns
+-a pass, and is wrong. An instrument red only because the behaviour was
+-absent is not that observation.
+-
+-Classify findings: **Blocking** — contract failure, regression, data or
+-security risk. **Important** — missing required behaviour, test, or
+-reconciliation. **Minor** — useful, does not block. **Out of scope** —
+-recorded, not absorbed. Return exactly one role disposition: `ACCEPT`,
+-`CHANGES_REQUESTED`, or `BLOCKED`. State what the review did not verify —
+-what it did not reproduce or read. A contradiction you cannot resolve is
+-`CHANGES_REQUESTED`. Do not open remediation over wording when
+-deterministic checks already prove the contract.
+-
+-### Remediation
+-
+-One pass is one remediation pass per finding, not per review. For an
+-in-contract `CHANGES_REQUESTED` finding, the **original implementer**
+-verifies it, fixes the root cause, reruns the affected instruments and
+-closure gates, and writes a separate remediation commit — this is the
+-single original-party remediation. Control owns the plan and the decision
+-record for the whole run, including remediating findings inside them.
+-Amending them is not implementing the candidate. The **reviewer that raised
+-the finding** checks its reproduction and the fix-only diff, and
+-scope-checks a Control amendment the same way. If that scoped re-review
+-does not accept, Control routes to `REPLAN_OR_SPLIT` — it does not start
+-another repair loop. `BLOCKED` preserves the candidate and escalates the
+-unresolved dependency or authority question to Control separately from a
+-failed worker process; it is not remediated by the original implementer. A
+-fresh replacement reviewer is used only when the original reviewer is
+-unavailable or contested, and for the Architectural integration review.
+-
+-## Release
+-
+-Control performs release with native Git and forge tools; release dispatches
+-no LLM worker and makes no post-review candidate edit.
+-
+-1. Complete implementation and, for Architectural work, its task reviews.
+-2. Reconcile owning documentation, delete the plan, and commit the
+-   complete candidate.
+-3. Run the focused instruments and project closure gates on exact HEAD.
+-4. Push the feature branch and create or update a draft pull request.
+-5. Run the applicable final review while remote CI runs on that same HEAD.
+-6. Require both that review's `ACCEPT` and required checks green.
+-7. Mark the pull request ready and report it for human merge.
+-
+-Any candidate mutation after the applicable final review invalidates that
+-verdict; Control reruns the affected gates and review on the new exact HEAD.
+-Affected gates are those that can observe the change class; a project may
+-name that subset. Dely never merges, force-pushes, or publishes outside the
+-approved target and authority. If project policy cannot publish work in
+-progress, Dely delays the push and pull request until the applicable review
+-accepts.
+-
+-Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`. It
+-stays opt-in on the presence of `~/.dely/` and is never created by Dely.
+-Control closes a delivery with `dely log --run <run> --json '<object>'`,
+-after release or when it stops early, rather than assembling a line by hand.
+-`dely` with no arguments prints which copy is running, and its usage.
+-
+-## Failure and recovery
+-
+-Recovery uses Orca records, Git, CI, and pull-request state — never inferred
+-from an ambiguous, missing, or merely transport-level outcome.
+-
+-| Failure | Disposition |
+-| --- | --- |
+-| In-contract implementation defect | Original implementer remediates |
+-| Scoped remediation re-review does not accept | `REPLAN_OR_SPLIT` |
+-| Scope or architecture must change | Return to the design gate |
+-| New authority or destructive action is required | Ask the human |
+-| Orca or a required capability is unavailable | Stop; no headless fallback |
+-| any `PREFLIGHT … FAIL` | Dispatch to no pin; relay harness, path and dialog to the human; rerun preflight in the same Run when told |
+-| Harness fails or evidence is insufficient | Preserve the candidate, report the native outcome and role disposition |
+-| Idempotent release step is interrupted | Verify Git and pull-request state, then resume |
++---
++name: delivery
 +description: Deliver a change through an approved design contract, sequential implementation, independent review and exact-HEAD release. Use for any Bounded or Architectural change — including a small, one-line behavioral fix, which is the canonical Bounded case — so it gets design approval and independent review. Not for a Spike, which investigates and recommends without starting a delivery run; a Spike that dispatches workers still opens its own Run and keeps their files in its folder.
- ---
-
- # Delivery
-
++---
++
++# Delivery
++
 +## Local task assessment before delivery
 +
 +This deployment classifies implementation work before starting a Dely Run.
@@ -313,7 +953,7 @@ index 96fc5e4..0c086fb 100644
 +decision, then pass `--assessment-file <assessment>` on every dispatch.
 +
 +- Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash Medium/default.
-+- Medium+ (`medium_plus`): AGY Sonnet 5.5 High/default.
++- Medium+ (`medium_plus`): Codex GPT-6.1 Sol/medium.
 +- Every delegated grade has one explicit primary-quota fallback: Codex
 +  Luna/max at stage 1. There is no second quota stage.
 +- A successful AGY catalog that lacks the requested model routes directly to
@@ -341,7 +981,7 @@ index 96fc5e4..0c086fb 100644
 +The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
 +Reassess old policy records; the undivided `medium` label is not accepted.
 +
-+The existing model rows remain: `implement` supplies Sonnet,
++The existing model rows remain: `implement` supplies Codex Sol/medium,
 +`implement_backup` supplies Flash, and `implement_backup_2` supplies Luna.
 +Flash's row is selected for an Easy/Medium- primary without a quota reason.
 +Pass `--assessment-file` and `--spec-file` together on a task's `dely preflight`
@@ -351,54 +991,112 @@ index 96fc5e4..0c086fb 100644
 +coordination calls and may read mandatory instructions outside the repository.
 +They do no implementation and need no separate Jev task review.
 +
- Dely accepts a request that may still be vague, brings it to an approved
- design contract, then automates sequential implementation, independent
- review, and pull-request preparation. It is a thin control protocol, not an
- orchestrator, SDLC framework, or second source of Git state.
-
- Read `AGENTS.md` in the repository for this project's gate commands, artifact
--paths, default branch, and per-phase harness/model/effort pins. This skill
--never names them.
++Dely accepts a request that may still be vague, brings it to an approved
++design contract, then automates sequential implementation, independent
++review, and pull-request preparation. It is a thin control protocol, not an
++orchestrator, SDLC framework, or second source of Git state.
++
++Read `AGENTS.md` in the repository for this project's gate commands, artifact
 +paths, and default branch. Per-phase harness/model/effort pins come from
 +`.dely/`, which `dely pins` resolves. This skill never names them.
-
- ## Two human gates
-
-@@ -25,8 +74,8 @@ destructive action, new authority, replan, or an unavailable required runtime.
- ## The control session
-
- The current interactive session is Control. It owns the approval invariant,
--task boundaries, exception handling, dispatch supervision, and release. It
--does not implement or review the candidate, and does not prescribe question
++
++## Two human gates
++
++1. Approve the design contract before candidate mutation.
++2. Merge or publish after Dely has prepared the reviewed pull request.
++
++Dely pauses outside those gates only for a scope or architecture change, a
++destructive action, new authority, replan, or an unavailable required runtime.
++
++## The control session
++
++The current interactive session is Control. It owns the approval invariant,
 +task boundaries, exception handling, dispatch supervision, review, and release.
 +It does not implement a delegated candidate, and does not prescribe question
- count, order, format, or skill-selection precedence. Native Plan Mode and
- active design skills govern their own surfaces under the harness's
- precedence; neither bypasses approval. Before mutation, Control obtains
-@@ -88,7 +137,8 @@ branch when starting on the default branch. The envelope freezes owned
- scope and paths; protected pre-existing dirty paths; acceptance criteria,
- counterexample, and focused instruments; branch, base, remote, and
- pull-request target; resolved harness, model, and effort for dispatched
--roles; and authority to branch, commit owned paths, run gates, push, and
++count, order, format, or skill-selection precedence. Native Plan Mode and
++active design skills govern their own surfaces under the harness's
++precedence; neither bypasses approval. Before mutation, Control obtains
++explicit human approval of a design contract. One approval covers that
++scope; a material change needs a new one. Control surfaces uncertainty that
++could materially change intent, acceptance, authority, public contract,
++architecture, or consequential risk. Material assumptions must be explicit.
++
++## Shape
++
++Use the smallest contract that safely holds the change. Risk may promote an
++otherwise small change; diff size never demotes data-loss, security,
++permission, or public-compatibility risk.
++
++| Shape | Use | Artifact | Review |
++| --- | --- | --- | --- |
++| Spike | Investigation only; no candidate is delivered | Approved probe and recommendation; no delivery run | none |
++| Bounded | Small change, clear behaviour and ownership | Approved in-chat design and short execution envelope | one whole-change review |
++| Architectural | Multiple behaviours, public-contract change, architecture decision, or promoted risk | Approved decision record, task plan, execution envelope | task review per task, then one integration review |
++
++An approved design contract states intent and success criteria; scope and
++authority; affected public contract or architecture; consequential risks and
++material assumptions; and a plausible counterexample that distinguishes
++correct behaviour from a present-but-wrong implementation. If no executable
++instrument can discriminate, the contract names the manual inspection and
++its limit.
++
++Architectural work uses `templates/decision-record.md` (durable) and
++`templates/plan.md` (transient, deleted in the release commit, before the
++release-binding review). Commit both before implementation begins — that
++commit is the review baseline.
++
++### Acceptance
++
++One table: each requirement, the instrument that proves it, the plausible
++wrong implementation that instrument rejects, and where that rejection was
++observed.
++
++**An acceptance row is invalid until its instrument discriminates.** A row
++that passes both before and after the change proves nothing and will be
++found at review. Baseline-red is not enough: red only because the feature
++is absent says nothing about catching an implementation that is present,
++runs, returns a pass, and is wrong. Each row names such a wrong
++implementation. "The feature is absent" does not satisfy Counterexample.
++Where none exists, the row says so and a human reads the diff.
++
++Record what the instruments cannot observe. Prefer the simplest instrument
++that proves the contract. Any claim about extent — a scope, a count, a set
++of call sites — names the command that produced it, reports its output, and
++enumerates rather than samples. Naming the command is not the measurement;
++the command must have been run.
++
++## Execution envelope
++
++Before mutation, Control resolves deployment preferences against the live
++harness surface, starts Orca and verifies its required capabilities,
++records the dirty baseline and exact-path ownership, and creates a feature
++branch when starting on the default branch. The envelope freezes owned
++scope and paths; protected pre-existing dirty paths; acceptance criteria,
++counterexample, and focused instruments; branch, base, remote, and
++pull-request target; resolved harness, model, and effort for dispatched
 +roles, from `dely pins --repo <path>` with each phase's source (`local`,
 +`team` or `control`); and authority to branch, commit owned paths, run gates, push, and
- open or update a pull request. It never authorises merge, force-push,
- stash, reset, cleanup, or an edit outside owned scope. Dely stages and
- commits only contract-owned paths. It never stashes, resets, cleans, or
-@@ -110,16 +160,24 @@ to this skill. Control learns the helper's interface by running
- and does not read `scripts/dely.js`. Control's wake mode is that harness's
- `controlWake` in `../../harnesses.json`. The preflight step runs in setup
- and again after a `NO_ACK`; a delivery does not preflight before its first
--dispatch.
--
--Write the prompt to an untracked file **inside the worktree**. Never inline
--it in a shell argument: prompts carry backticks, quotes and newlines, and a
--shell argument mangles them. A path outside the workspace can trigger a
--second permission surface some harnesses still prompt for even when tool
--approval is skipped. Do not stage that file. After the worker returns,
--delete it: Control owns that dispatch artifact, not `git clean`. The handoff
--is a file in the worktree; its path travels as `payload.reportPath` and the
--message body stays short. `--spec` and `--body` are shell arguments, which
++open or update a pull request. It never authorises merge, force-push,
++stash, reset, cleanup, or an edit outside owned scope. Dely stages and
++commits only contract-owned paths. It never stashes, resets, cleans, or
++silently absorbs the user's existing changes. If a path carries protected
++baseline changes and Dely must also modify it, Control pauses rather than
++combining ownership.
++
++## Orca and the helper
++
++Orca is the required execution plane. It launches and supervises fresh
++native harness TUIs with the resolved harness, model, and effort.
++Orchestration is a required Orca capability. `dely:delivery` starts Orca,
++then Control loads `orca skills get orchestration` and follows its
++supervised loop. It stops only when the CLI is missing, the runtime cannot
++start, or a required capability is absent — there is no direct dispatch and
++no headless fallback of any kind. The launcher is `scripts/dely` relative
++to this skill. Control learns the helper's interface by running
++`scripts/dely` with no arguments, which prints its identity and usage,
++and does not read `scripts/dely.js`. Control's wake mode is that harness's
++`controlWake` in `../../harnesses.json`. The preflight step runs in setup
++and again after a `NO_ACK`; a delivery does not preflight before its first
 +dispatch. Run `dely preflight` and `dely dispatch` with no tool timeout, or
 +one of at least 300 s.
 +
@@ -417,30 +1115,25 @@ index 96fc5e4..0c086fb 100644
 +folder is deleted when a worker returns; it is kept until the run closes. A
 +Spike that dispatches workers opens its own Run, dispatches through `dely
 +dispatch` the same way, and closes when it reports its recommendation. `--spec` and `--body` are shell arguments, which
- this skill already forbids for prompts.
-
- The dispatch prompt carries the task, its scope, and the evidence required.
-@@ -128,8 +186,8 @@ those belong to this skill, and a prompt that restates them narrows or
- contradicts them. Where the design contract states an acceptance row, the
- prompt carries that row as written. Every dispatch goes through
- `dely dispatch`. Control does not compose a worker launch or call
--`worker-start` by hand. The helper reads the pins from `AGENTS.md` and
--appends the acknowledgement instruction and a sentence that the Orca
++this skill already forbids for prompts.
++
++The dispatch prompt carries the task, its scope, and the evidence required.
++It does not define role dispositions or the conditions for reaching one —
++those belong to this skill, and a prompt that restates them narrows or
++contradicts them. Where the design contract states an acceptance row, the
++prompt carries that row as written. Every dispatch goes through
++`dely dispatch`. Control does not compose a worker launch or call
 +`worker-start` by hand. The helper resolves the pins from `.dely/` as
 +`dely:setup` describes and appends the acknowledgement instruction and a sentence that the Orca
- preamble and the spec file are everything the worker needs and that it
- should read no other skill. The `worker-start` receipt records
- `launch.requested` and `launch.effective`; it does not establish that the
-@@ -139,12 +197,20 @@ did not pin.
-
- **Name the model and effort on every dispatch.** The helper passes
- `--model`/`--effort` when `../../harnesses.json` says that harness takes
--them, and omits a flag whose value is `default`. On a harness that takes
--neither, a Model written there is silently not applied: write `default` and
--set the model in Orca's agent default arguments. A worker left on a harness
--default is an unpinned environment: it lives in the harness's own config,
--it changes without announcing itself, and the dispatch that relies on it
--looks identical to one that pinned the same value deliberately.
++preamble and the spec file are everything the worker needs and that it
++should read no other skill. The `worker-start` receipt records
++`launch.requested` and `launch.effective`; it does not establish that the
++worker can serve the request or that it cannot. Orca applies the execution
++plane's configured permission default and does not add a sandbox the project
++did not pin.
++
++**Name the model and effort on every dispatch.** The helper passes
++`--model`/`--effort` when `../../harnesses.json` says that harness takes
 +them, and omits a flag whose value is `default`. A harness whose entry
 +has `effortInModel` and `modelFlag` receives a pinned Effort joined to the
 +Model by that string in `--model` (`selector:level`), never `--effort`; Effort
@@ -455,27 +1148,18 @@ index 96fc5e4..0c086fb 100644
 +left on a harness default is an unpinned environment: it lives in the harness's
 +own config, it changes without announcing itself, and the dispatch that relies
 +on it looks identical to one that pinned the same value deliberately.
-
- **Never act on an Orca nudge.** After `DISPATCHED`, wait by the wake mode
- of **this Control's own harness** — not the harness of the worker being
-@@ -157,28 +223,44 @@ last command, then ends the turn (a waker Control never runs `dely wait`);
- terminal it runs in and refuses a waker even when `--control` names another
- one, so `REFUSED … (called with --control …)` means use `wait-bg`.
-
--**Result handling.** `SETTLED`: process the batch, do the guide's completion
--accounting, and acknowledge. `ATTENTION` has two routes, and the difference
--is whether the plane can still see the worker. With `nextAction.kind` other
--than `none`, run the argv Orca printed and skip that id next time. With
--`nextAction: none` and `attention.requiresAction`, the plane has lost sight
--of the worker rather than asked for something: read it with `worker-read`
--and `worker-show`, and if the process is gone, `worker-stop`, then
--`worker-abandon` when the stop reports `stop_unknown`, then
--`worker-release`, then one fresh `dely dispatch` with the same prompt file.
--A second time on the same input goes to the human. An absent `nextAction` is
--absent, not `none` with attention — that row is not `ATTENTION` and the wait
--continues. `STALLED`: read the output, then wait again or recover.
--`NO_ACK`: run setup's `dely preflight` in the same Run. If every pin passes,
--one fresh `dely dispatch` with the same prompt file; never retry into the same
++
++**Never act on an Orca nudge.** After `DISPATCHED`, wait by the wake mode
++of **this Control's own harness** — not the harness of the worker being
++waited on. `--control` is this session's harness id, the same id whatever
++worker is in flight. **background** runs
++`dely wait --run <run> --control <self>` as a background command and ends
++the turn; **waker** runs `dely wait-bg --run <run> --control <self>` as its
++last command, then ends the turn (a waker Control never runs `dely wait`);
++**unsupported** cannot be Control. The helper reads the harness of the Orca
++terminal it runs in and refuses a waker even when `--control` names another
++one, so `REFUSED … (called with --control …)` means use `wait-bg`.
++
 +**Result handling.** `SETTLED`: the helper has already released each worker
 +whose accepted `worker_done` is in the batch and lists Orca's answer under
 +`release`; Control does not release those itself and never closes a worker
@@ -500,16 +1184,13 @@ index 96fc5e4..0c086fb 100644
 +read the output, then wait again or recover. `NO_ACK`: run setup's
 +`dely preflight` in the same Run. If every pin passes, one fresh
 +`dely dispatch` with the same prompt file; never retry into the same
- terminal, and never reuse a settled terminal; a second failure on the same
--input goes to the human. Any `PREFLIGHT … FAIL`: do not dispatch to any
--pin — a failed pin's cause is already known and another dispatch only
--repeats it.
++terminal, and never reuse a settled terminal; a second failure on the same
 +input goes to the human. Any `PREFLIGHT … FAIL`: do not dispatch to any pin
 +— a failed pin's cause is already known and another dispatch only repeats it.
- Stop and relay the printed reason: the harness, the path, and that the human
- opens that harness there once to answer its own dialog; Dely never answers
- it. The failed worker is already stopped and released. When the human says
- it is done, rerun `dely preflight` in the same Run and continue from there.
++Stop and relay the printed reason: the harness, the path, and that the human
++opens that harness there once to answer its own dialog; Dely never answers
++it. The failed worker is already stopped and released. When the human says
++it is done, rerun `dely preflight` in the same Run and continue from there.
 +`OUTCOME_UNKNOWN`: retain the original Run, dispatch, terminal and prompt.
 +Re-run the same approved `dely dispatch` to inspect that attempt in place;
 +it sends no second prompt. A matching started Codex worker still needs its
@@ -517,37 +1198,115 @@ index 96fc5e4..0c086fb 100644
 +fresh attempt only after its release is confirmed. Unverifiable identity,
 +changed task/pins or an uncertain release keep the attempt blocked. Keep
 +the Run's `pending-start.json` until reconciliation succeeds.
- `FAILED`: one fresh `dely dispatch` with the same prompt file and the same
- retry limits. `DEADLINE`: a checkpoint — check `worker-list` and the last
- output; if the worker is progressing, wait again; a second `DEADLINE` with
-@@ -259,7 +341,7 @@ and say so.
- Review independence is role independence: a fresh session that did not
- implement and does not edit the candidate. It gets the decision record (or
- Bounded design), the baseline, and the diff. The phase adds no sandbox by
--default; `AGENTS.md` may pin one for a concrete risk. Review depth is
++`FAILED`: one fresh `dely dispatch` with the same prompt file and the same
++retry limits. `DEADLINE`: a checkpoint — check `worker-list` and the last
++output; if the worker is progressing, wait again; a second `DEADLINE` with
++no progress goes to the human. `ERROR`: go to the human. The worker reports
++once with `worker_done` and an `--outcome`; completion comes from that
++`worker_done` — do not infer it from reading the worker's terminal. Each
++delivery opens its own Run with an objective
++(`orca orchestration run-create --objective`) rather than reusing another's,
++so a stale report cannot settle a new wait.
++
++Investigation is one read-only diagnostic dispatch inheriting the
++`implement` pin; it may reproduce, inspect, and report, but does not edit,
++commit, launch workers, or expand scope.
++
++Stop and ask the human when: a result maps to no route or more than one; the
++worker **failed** rather than returned a stop status — a non-zero exit with
++no result, an exhausted quota, an authentication error — which is not
++`BLOCKED` and must not be treated as one; Orca is unavailable or a required
++capability is absent; an action needs authority policy reserves to the
++human; or the same worker fails twice on the same input. Say what you know,
++what you tried, and what the options are. Do not pick one.
++
++## Implementation
++
++Control creates a separate task only when that unit has its own test cycle
++and a reviewer could accept it while rejecting its neighbor. Same-shaped
++mechanical changes are batched. Tightly coupled work stays one task and one
++implementer. Each independent task gets a fresh implementer TUI.
++
++An implementer reads the decision record, the plan, and the baseline — not
++the design session's transcript. It owns only its task, runs a focused
++acceptance instrument, and creates one task-scoped commit. For behaviour
++with a deterministic executable test it uses TDD; the portable invariant is
++smaller: observe a discriminating failure for the intended reason before
++changing behaviour. A shell probe, parser fixture, or diff inspection may
++be the correct instrument for configuration, documentation, generated
++files, or environment-bound integration.
++
++The counterexample named in each acceptance row is observed red and cited.
++That observation is not the behaviour's own absence: one is the feature
++absent, the other is an implementation that is present, runs, returns a
++pass, and is wrong.
++
++Implement the whole task before handing back. Stop and return `BLOCKED` or
++`NEEDS_REPLAN` instead of a partial solution when the record contradicts
++the code, the contract is ambiguous, work outside the task becomes
++necessary, an existing test disproves an assumption, or the task no longer
++fits one session. A task needing continuation is a decomposition failure.
++
++### Handoff
++
++```text
++Status: DONE | BLOCKED | NEEDS_REPLAN
++Harness:            name, model, effort, sandbox
++Session:            the dispatch id
++Baseline:
++Changed paths:
++Contract coverage:
++Verification:
++Deviations from plan:
++Residue:
++Git state:
++END OF HANDOFF
++```
++
++`END OF HANDOFF` is the last line and load-bearing: the only thing that
++distinguishes a handoff from one cut off mid-write. Under `Residue`, a claim
++of nothing left needs evidence: name the check that returned empty. Under
++`Verification`, cite the dispatch-bound command, output, and outcome that
++Orca recovers for that task — the transcript or terminal it selects, and
++any cursor mechanics, are Orca's concern, not this skill's. Do not
++transcribe output by hand. Where Orca cannot recover a dispatch item, treat
++the worker's own account as the thing under check rather than as the check,
++and say so.
++
++## Review
++
++Review independence is role independence: a fresh session that did not
++implement and does not edit the candidate. It gets the decision record (or
++Bounded design), the baseline, and the diff. The phase adds no sandbox by
 +default; a project may pin one for a concrete risk in `AGENTS.md`. Review depth is
- adaptive: Bounded work gets one independent whole-change review. Each
- Architectural task gets an independent task review. After all tasks are
- accepted, a different fresh reviewer performs one integration review of
-@@ -288,21 +370,31 @@ deterministic checks already prove the contract.
-
- ### Remediation
-
--One pass is one remediation pass per finding, not per review. For an
--in-contract `CHANGES_REQUESTED` finding, the **original implementer**
--verifies it, fixes the root cause, reruns the affected instruments and
--closure gates, and writes a separate remediation commit — this is the
--single original-party remediation. Control owns the plan and the decision
--record for the whole run, including remediating findings inside them.
--Amending them is not implementing the candidate. The **reviewer that raised
--the finding** checks its reproduction and the fix-only diff, and
--scope-checks a Control amendment the same way. If that scoped re-review
--does not accept, Control routes to `REPLAN_OR_SPLIT` — it does not start
--another repair loop. `BLOCKED` preserves the candidate and escalates the
--unresolved dependency or authority question to Control separately from a
--failed worker process; it is not remediated by the original implementer. A
--fresh replacement reviewer is used only when the original reviewer is
--unavailable or contested, and for the Architectural integration review.
++adaptive: Bounded work gets one independent whole-change review. Each
++Architectural task gets an independent task review. After all tasks are
++accepted, a different fresh reviewer performs one integration review of
++task interactions, complete-contract coverage, deferred findings, candidate
++identity, and release readiness. Only that final review is release-binding
++for Architectural work; Bounded work has no earlier task review and no
++duplicate integration review. No worker runs while a review of the same
++working tree runs. The working tree and its gate surface are shared mutable
++state, and a review reproduces gates in that tree, so a concurrent edit
++makes another task's work look like this one's result.
++
++**Reproduce, do not accept.** Run the gates yourself. A claim you did not
++reproduce is not evidence. The reviewer observes the counterexample
++discriminate for itself — an implementation that is present, runs, returns
++a pass, and is wrong. An instrument red only because the behaviour was
++absent is not that observation.
++
++Classify findings: **Blocking** — contract failure, regression, data or
++security risk. **Important** — missing required behaviour, test, or
++reconciliation. **Minor** — useful, does not block. **Out of scope** —
++recorded, not absorbed. Return exactly one role disposition: `ACCEPT`,
++`CHANGES_REQUESTED`, or `BLOCKED`. State what the review did not verify —
++what it did not reproduce or read. A contradiction you cannot resolve is
++`CHANGES_REQUESTED`. Do not open remediation over wording when
++deterministic checks already prove the contract.
++
++### Remediation
++
 +One pass is one remediation pass per finding, not per review. The original
 +parties are defined by pin and briefing, not by session: the helper releases
 +every worker at settlement, so remediation and re-review are fresh
@@ -573,15 +1332,31 @@ index 96fc5e4..0c086fb 100644
 +authority question to Control separately from a failed worker process; it is
 +not remediated. The Architectural integration review is always a fresh
 +reviewer.
-
- ## Release
-
-@@ -328,8 +420,15 @@ accepts.
-
- Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`. It
- stays opt-in on the presence of `~/.dely/` and is never created by Dely.
--Control closes a delivery with `dely log --run <run> --json '<object>'`,
--after release or when it stops early, rather than assembling a line by hand.
++
++## Release
++
++Control performs release with native Git and forge tools; release dispatches
++no LLM worker and makes no post-review candidate edit.
++
++1. Complete implementation and, for Architectural work, its task reviews.
++2. Reconcile owning documentation, delete the plan, and commit the
++   complete candidate.
++3. Run the focused instruments and project closure gates on exact HEAD.
++4. Push the feature branch and create or update a draft pull request.
++5. Run the applicable final review while remote CI runs on that same HEAD.
++6. Require both that review's `ACCEPT` and required checks green.
++7. Mark the pull request ready and report it for human merge.
++
++Any candidate mutation after the applicable final review invalidates that
++verdict; Control reruns the affected gates and review on the new exact HEAD.
++Affected gates are those that can observe the change class; a project may
++name that subset. Dely never merges, force-pushes, or publishes outside the
++approved target and authority. If project policy cannot publish work in
++progress, Dely delays the push and pull request until the applicable review
++accepts.
++
++Maintenance logging is machine-local and opt-in at `~/.dely/log.jsonl`. It
++stays opt-in on the presence of `~/.dely/` and is never created by Dely.
 +At close, after release or when the run stops early, Control deletes the
 +Run's folder `<repo>/.dely/local/runs/<run>/`, then runs
 +`dely log --run <run> --repo <path> --json '<object>'` rather than
@@ -591,56 +1366,819 @@ index 96fc5e4..0c086fb 100644
 +and the path it failed on); it deletes nothing. It also releases every worker
 +Orca still lists as `reclaimable` for the Run and records each answer under
 +`release` (`releaseError` when the listing failed).
- `dely` with no arguments prints which copy is running, and its usage.
-
- ## Failure and recovery
++`dely` with no arguments prints which copy is running, and its usage.
++
++## Failure and recovery
++
++Recovery uses Orca records, Git, CI, and pull-request state — never inferred
++from an ambiguous, missing, or merely transport-level outcome.
++
++| Failure | Disposition |
++| --- | --- |
++| In-contract implementation defect | Original implementer remediates |
++| Scoped remediation re-review does not accept | `REPLAN_OR_SPLIT` |
++| Scope or architecture must change | Return to the design gate |
++| New authority or destructive action is required | Ask the human |
++| Orca or a required capability is unavailable | Stop; no headless fallback |
++| any `PREFLIGHT … FAIL` | Dispatch to no pin; relay harness, path and dialog to the human; rerun preflight in the same Run when told |
++| Harness fails or evidence is insufficient | Preserve the candidate, report the native outcome and role disposition |
++| Idempotent release step is interrupted | Verify Git and pull-request state, then resume |
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index b1af067..6501113 100644
+index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..6e417b0febe22195c28146f903fdd6fd4c903cbb 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
-@@ -1,24 +1,29 @@
- #!/usr/bin/env node
- "use strict";
-
+@@ -1,756 +1,2163 @@
+-#!/usr/bin/env node
+-"use strict";
+-
 -const { execFileSync } = require("child_process");
-+const { execFileSync, spawnSync } = require("child_process");
- const crypto = require("crypto");
- const fs = require("fs");
- const os = require("os");
- const path = require("path");
-
+-const crypto = require("crypto");
+-const fs = require("fs");
+-const os = require("os");
+-const path = require("path");
+-
 -const ACK_S = Number(process.env.DELY_ACK_S || 60);
-+const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
-+const ACK_S = seconds(process.env.DELY_ACK_S, process.platform === "win32" ? 180 : 60);
- const POLL_S = Number(process.env.DELY_POLL_S || 15);
- const PROGRESS_S = Number(process.env.DELY_PROGRESS_S || 60);
+-const POLL_S = Number(process.env.DELY_POLL_S || 15);
+-const PROGRESS_S = Number(process.env.DELY_PROGRESS_S || 60);
 -const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
- const PREFLIGHT_S = seconds(process.env.DELY_PREFLIGHT_S, 150);
- const NOTIFY_RETRY_S = seconds(process.env.DELY_NOTIFY_RETRY_S, 30);
- const NOTIFY_GIVEUP_S = seconds(process.env.DELY_NOTIFY_GIVEUP_S, 1800);
-+const positiveInt = (v, d) => (Number.isFinite(+v) && +v > 0 ? Math.floor(+v) : d);
-+const CONTROL_STEP_LIMIT = positiveInt(process.env.DELY_CONTROL_STEP_LIMIT, 12);
-+const SAME_FAILURE_LIMIT = positiveInt(process.env.DELY_SAME_FAILURE_LIMIT, 2);
-
- function orca(args) {
-   const bin = process.env.ORCA_CLI_COMMAND || "orca";
+-const PREFLIGHT_S = seconds(process.env.DELY_PREFLIGHT_S, 150);
+-const NOTIFY_RETRY_S = seconds(process.env.DELY_NOTIFY_RETRY_S, 30);
+-const NOTIFY_GIVEUP_S = seconds(process.env.DELY_NOTIFY_GIVEUP_S, 1800);
+-
+-function orca(args) {
+-  const bin = process.env.ORCA_CLI_COMMAND || "orca";
 -  const argv = /\.m?js$/i.test(bin) ? [bin, ...args, "--json"] : [...args, "--json"];
 -  const cmd = /\.m?js$/i.test(bin) ? process.execPath : bin;
-+  const isScript = /\.m?js$/i.test(bin);
-+  const argv = isScript ? [bin, ...args, "--json"] : [...args, "--json"];
-+  const cmd = isScript ? process.execPath : bin;
-+  const commandKind = args.slice(0, 2).filter((x) => x && !String(x).startsWith("-")).join(" ") || "orca";
-   try {
-     const out = execFileSync(cmd, argv, {
-       encoding: "utf8",
-@@ -28,11 +33,25 @@ function orca(args) {
-     });
-     return JSON.parse(out || "{}");
-   } catch (e) {
+-  try {
+-    const out = execFileSync(cmd, argv, {
+-      encoding: "utf8",
+-      stdio: ["ignore", "pipe", "pipe"],
+-      maxBuffer: 64 << 20,
+-      env: process.env,
+-    });
+-    return JSON.parse(out || "{}");
+-  } catch (e) {
 -    try {
 -      return JSON.parse(String(e.stdout || "{}"));
 -    } catch (_) {
 -      return { ok: false, error: { message: String((e.stderr || e.message || "").trim() || e) } };
+-    }
+-  }
+-}
+-
+-function flags(argv) {
+-  const f = {};
+-  for (let i = 0; i < argv.length; i++) {
+-    if (argv[i].startsWith("--")) {
+-      const n = argv[i + 1];
+-      if (n != null && !String(n).startsWith("--")) {
+-        f[argv[i].slice(2)] = n;
+-        i++;
+-      } else {
+-        f[argv[i].slice(2)] = true;
+-      }
+-    }
+-  }
+-  return f;
+-}
+-
+-const PACKAGE_ROOT = path.resolve(__dirname, "../../..");
+-const HARNESSES_PATH = path.join(PACKAGE_ROOT, "harnesses.json");
+-
+-let _harnesses;
+-function loadHarnesses() {
+-  if (_harnesses) return _harnesses;
+-  let raw;
+-  try {
+-    raw = fs.readFileSync(HARNESSES_PATH, "utf8");
+-  } catch (e) {
+-    fail("cannot read " + HARNESSES_PATH + ": " + (e.message || e));
+-  }
+-  let data;
+-  try {
+-    data = JSON.parse(raw);
+-  } catch (e) {
+-    fail("cannot parse " + HARNESSES_PATH + ": " + (e.message || e));
+-  }
+-  if (!data || !Array.isArray(data.harnesses)) {
+-    fail(HARNESSES_PATH + " has no harnesses array");
+-  }
+-  _harnesses = data.harnesses;
+-  return _harnesses;
+-}
+-
+-function effortRequiresModel() {
+-  let raw;
+-  try {
+-    raw = JSON.parse(fs.readFileSync(HARNESSES_PATH, "utf8"));
+-  } catch (_) {
+-    return true;
+-  }
+-  return raw && raw.effortRequiresModel !== false;
+-}
+-
+-function harnessById(id) {
+-  return loadHarnesses().find((h) => h.id === id);
+-}
+-
+-function pin(repo, phase) {
+-  const md = fs.readFileSync(path.join(repo, "AGENTS.md"), "utf8");
+-  const row = md.split("\n").find((l) => new RegExp("^\\|\\s*`?" + phase + "`?\\s*\\|").test(l));
+-  if (!row) throw new Error("no " + phase + " pin in AGENTS.md");
+-  const [, harness, model, effort] = row.split("|").slice(1).map((c) => c.trim().replace(/`/g, ""));
+-  const h = loadHarnesses().find((x) => x.name === harness);
+-  if (!h) throw new Error("unknown harness " + harness);
+-  return { phase, agent: h.id, model, effort, modelFlag: h.modelFlag, effortFlag: h.effortFlag };
+-}
+-
+-const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+-const out = (line, code) => {
+-  console.log(typeof line === "string" ? line : JSON.stringify(line));
+-  if (code != null) process.exit(code);
+-};
+-
+-let _sha;
+-function delySha() {
+-  if (_sha !== undefined) return _sha;
+-  try {
+-    _sha = String(
+-      execFileSync("git", ["-C", PACKAGE_ROOT, "rev-parse", "HEAD"], {
+-        encoding: "utf8",
+-        stdio: ["ignore", "pipe", "pipe"],
+-      })
+-    ).trim();
+-    if (!_sha) _sha = null;
+-  } catch (_) {
+-    _sha = null;
+-  }
+-  return _sha;
+-}
+-
+-let _orcaVer;
+-function orcaVersion() {
+-  if (_orcaVer !== undefined) return _orcaVer;
+-  try {
+-    _orcaVer = ((orca(["status"]).result || {}).runtime || {}).appVersion || null;
+-  } catch (_) {
+-    _orcaVer = null;
+-  }
+-  return _orcaVer;
+-}
+-
+-// Append one JSON object to ~/.dely/log.jsonl when that directory already
+-// exists. Never mkdir. A write failure must not change exit, print, or flow.
+-function logEvent(event, extra) {
+-  extra = extra || {};
+-  try {
+-    if (!fs.statSync(path.join(os.homedir(), ".dely")).isDirectory()) return;
+-    const rec = {
+-      ts: new Date().toISOString(),
+-      run: extra.run == null ? null : extra.run,
+-      repo: extra.repo == null ? null : extra.repo,
+-      sha: delySha(),
+-      orca: orcaVersion(),
+-      event,
+-    };
+-    for (const k of Object.keys(extra)) {
+-      if (k in rec) continue;
+-      rec[k] = extra[k];
+-    }
+-    fs.appendFileSync(path.join(os.homedir(), ".dely", "log.jsonl"), JSON.stringify(rec) + "\n");
+-  } catch (_) {
+-    /* observer */
+-  }
+-}
+-
+-function fail(reason, extra) {
+-  logEvent("error", Object.assign({ reason }, extra || {}));
+-  out("ERROR " + reason, 9);
+-}
+-
+-function printIdentity() {
+-  let version = "unknown";
+-  try {
+-    version = JSON.parse(
+-      fs.readFileSync(path.join(PACKAGE_ROOT, ".claude-plugin/plugin.json"), "utf8")
+-    ).version;
+-  } catch (_) {
+-    /* missing or unreadable */
+-  }
+-  let skill = "unreadable";
+-  try {
+-    skill = crypto
+-      .createHash("sha256")
+-      .update(fs.readFileSync(path.join(PACKAGE_ROOT, "skills/delivery/SKILL.md")))
+-      .digest("hex");
+-  } catch (_) {
+-    /* missing */
+-  }
+-  console.log("dely " + version + " sha " + (delySha() || "null") + " sha256 " + skill);
+-}
+-
+-function start(repo, run, p, spec, title) {
+-  const args = [
+-    "orchestration",
+-    "worker-start",
+-    "--spec",
+-    spec,
+-    "--worktree",
+-    "path:" + repo,
+-    "--run",
+-    run,
+-    "--task-title",
+-    title,
+-    "--agent",
+-    p.agent,
+-  ];
+-  const wantsModel = p.modelFlag && p.model !== "default";
+-  const wantsEffort = p.effortFlag && p.effort !== "default";
+-  if (effortRequiresModel() && wantsEffort && !wantsModel) {
+-    return {
+-      error:
+-        "effort " + p.effort + " pinned with model default for " + p.agent +
+-        "; --effort requires --model, so set a model or set effort to default",
+-    };
+-  }
+-  if (wantsModel) args.push("--model", p.model);
+-  if (wantsEffort) args.push("--effort", p.effort);
+-  const r = orca(args);
+-  const id = r.result && r.result.dispatchId;
+-  if (!id) {
+-    return { error: (r.error && r.error.message) || String((r.result && r.result.failedStage) || "worker-start") };
+-  }
+-  return { id };
+-}
+-
+-function namesDispatch(m, id) {
+-  return JSON.stringify(m).includes(id);
+-}
+-
+-function clip(s) {
+-  return String(s || "")
+-    .replace(/\s+/g, " ")
+-    .trim()
+-    .slice(-400);
+-}
+-
+-function messageText(m) {
+-  if (m == null) return "";
+-  if (typeof m === "string") return m;
+-  const blocks = Array.isArray(m.blocks) ? m.blocks : [];
+-  let last = "";
+-  let toolOut = "";
+-  for (const b of blocks) {
+-    if (!b || typeof b !== "object") continue;
+-    if (b.type === "text" && typeof b.text === "string" && b.text.trim()) last = b.text;
+-    else if (!toolOut && b.type === "tool-result" && typeof b.output === "string" && b.output.trim()) {
+-      toolOut = b.output;
+-    }
+-  }
+-  return last || toolOut;
+-}
+-
+-function screenLines(id) {
+-  const r = orca(["orchestration", "worker-read", "--dispatch", id, "--source", "auto", "--limit", "200"]);
+-  const res = r.result || {};
+-  if (res.terminal && Array.isArray(res.terminal.tail)) {
+-    return res.terminal.tail.filter((l) => String(l || "").trim());
+-  }
+-  const msgs = (res.transcript && res.transcript.messages) || [];
+-  for (let i = msgs.length - 1; i >= 0; i--) {
+-    const t = messageText(msgs[i]);
+-    if (String(t).trim()) return [t];
+-  }
+-  return [];
+-}
+-
+-function screenText(id) {
+-  return screenLines(id).join("\n");
+-}
+-
+-function lastText(id) {
+-  return clip(screenText(id));
+-}
+-
+-function preflight(f) {
+-  const pins = ["implement", "review"].map((ph) => pin(f.repo, ph));
+-  const uniq = pins.filter(
+-    (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
+-  );
+-  const spec =
+-    "Preflight only. Do not read, edit or run anything in the repository. Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
+-  const open = {};
+-  let failed = 0;
+-  for (const p of uniq) {
+-    const s = start(f.repo, f.run, p, spec, "preflight-" + p.phase);
+-    if (s.error) {
+-      logEvent("preflight", {
+-        run: f.run,
+-        repo: f.repo,
+-        phase: p.phase,
+-        agent: p.agent,
+-        result: "FAIL",
+-        seconds: 0,
+-        reason: "start: " + s.error,
+-      });
+-      out("PREFLIGHT " + p.phase + " " + p.agent + " FAIL start: " + s.error);
+-      failed++;
+-    } else open[s.id] = Object.assign({ messaged: false }, p);
+-  }
+-  const drop = (id, rec, line) => {
+-    logEvent("preflight", {
+-      run: f.run,
+-      repo: f.repo,
+-      phase: rec.phase,
+-      agent: rec.agent,
+-      result: "FAIL",
+-      seconds: Math.round((Date.now() - t0) / 1000),
+-      reason: line.replace(/^PREFLIGHT \S+ \S+ FAIL /, ""),
+-    });
+-    out(line);
+-    orca(["orchestration", "worker-stop", "--dispatch", id]);
+-    orca(["orchestration", "worker-release", "--dispatch", id]);
+-    delete open[id];
+-    failed++;
+-  };
+-  const pollDead = () => {
+-    const rows = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []);
+-    for (const [id, rec] of Object.entries(open)) {
+-      if (rec.messaged) continue;
+-      const w = rows.find((x) => x.dispatchId === id);
+-      if (!w) continue;
+-      const stage = (w.projection || {}).stage || {};
+-      let why = "";
+-      if (w.dispatchStatus === "failed") why = "worker failed: " + (stage.detail || "failed");
+-      else if (stage.worker === "start_unknown") why = "worker never started a turn: " + (stage.detail || "start_unknown");
+-      if (!why) continue;
+-      drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL " + why + "; last output: " + lastText(id));
+-    }
+-  };
+-  const t0 = Date.now();
+-  while (Object.keys(open).length && Date.now() - t0 < PREFLIGHT_S * 1000) {
+-    const r = orca([
+-      "orchestration",
+-      "check",
+-      "--wait",
+-      "--run",
+-      f.run,
+-      "--timeout-ms",
+-      String(Math.max(1, Math.floor(POLL_S * 1000))),
+-    ]);
+-    if (r.ok === false) {
+-      const why = (r.error && r.error.message) || "check failed";
+-      for (const [id, rec] of Object.entries(open)) drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL " + why);
+-      process.exit(failed ? 1 : 0);
+-    }
+-    const res = r.result || {};
+-    if (res.deliveryId) {
+-      for (const m of res.messages || []) {
+-        const hit = Object.keys(open).find((id) => namesDispatch(m, id));
+-        if (hit) open[hit].messaged = true;
+-        if (hit && m.type === "worker_done") {
+-          const secs = Math.round((Date.now() - t0) / 1000);
+-          logEvent("preflight", {
+-            run: f.run,
+-            repo: f.repo,
+-            phase: open[hit].phase,
+-            agent: open[hit].agent,
+-            result: "PASS",
+-            seconds: secs,
+-          });
+-          out("PREFLIGHT " + open[hit].phase + " " + open[hit].agent + " PASS " + secs + "s");
+-          orca(["orchestration", "worker-release", "--dispatch", hit]);
+-          delete open[hit];
+-        }
+-      }
+-      orca(["orchestration", "check", "--run", f.run, "--ack", res.deliveryId]);
+-    }
+-    pollDead();
+-  }
+-  for (const [id, rec] of Object.entries(open)) {
+-    drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL no worker_done in " + PREFLIGHT_S + "s; last output: " + lastText(id));
+-  }
+-  process.exit(failed ? 1 : 0);
+-}
+-
+-function dispatch(f) {
+-  const p = pin(f.repo, f.phase);
+-  const spec =
+-    fs.readFileSync(path.resolve(f.repo, f["spec-file"]), "utf8") +
+-    "\n\nFirst action, before anything else: send a heartbeat with subject `ack`. The Orca preamble and this spec file are everything the worker needs; read no other skill.";
+-  const s = start(f.repo, f.run, p, spec, f.phase);
+-  if (s.error) {
+-    logEvent("error", { run: f.run, repo: f.repo, reason: s.error });
+-    out("FAILED " + s.error, 5);
+-  }
+-  const interval = Math.max(20, Math.min(5000, Math.floor(POLL_S * 1000)));
+-  const t0 = Date.now();
+-  for (; Date.now() - t0 < ACK_S * 1000; sleep(interval)) {
+-    const peek = orca(["orchestration", "check", "--peek", "--run", f.run]);
+-    if (((peek.result || {}).messages || []).some((m) => namesDispatch(m, s.id))) {
+-      logEvent("dispatch", {
+-        run: f.run,
+-        repo: f.repo,
+-        phase: p.phase,
+-        agent: p.agent,
+-        dispatchId: s.id,
+-        seconds: Math.round((Date.now() - t0) / 1000),
+-      });
+-      out("DISPATCHED " + s.id, 0);
+-    }
+-    const row = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []).find((w) => w.dispatchId === s.id);
+-    if (row && row.dispatchStatus === "failed") break;
+-  }
+-  const raw = screenText(s.id);
+-  const secs = Math.round((Date.now() - t0) / 1000);
+-  orca(["orchestration", "worker-stop", "--dispatch", s.id]);
+-  orca(["orchestration", "worker-release", "--dispatch", s.id]);
+-  logEvent("no_ack", { run: f.run, repo: f.repo, dispatchId: s.id, seconds: secs, text: raw });
+-  out("NO_ACK " + s.id + " stopped after " + secs + "s; last output: " + clip(raw), 4);
+-}
+-
+-function advance(track, id) {
+-  const t = track[id] || (track[id] = { cursor: null, at: Date.now() });
+-  for (let page = 0; page < 20; page++) {
+-    const args = ["orchestration", "worker-read", "--dispatch", id, "--source", "auto", "--limit", "200"];
+-    if (t.cursor) args.push("--cursor", t.cursor);
+-    const r = orca(args);
+-    if (r.ok === false) {
+-      t.error = (r.error && r.error.message) || "worker-read failed";
+-      break;
+-    }
+-    const res = r.result || {};
+-    if (res.source) t.source = res.source;
+-    const body = res.transcript || res.terminal || {};
+-    const cursor = body.nextCursor || null;
+-    const n = Number(body.returnedMessageCount || body.returnedLineCount || 0);
+-    if (cursor && cursor !== t.cursor) t.at = Date.now();
+-    if (cursor) t.cursor = cursor;
+-    if (!body.limited || n === 0) break;
+-  }
+-  return (Date.now() - t.at) / 60000;
+-}
+-
+-// The harness this process is actually running in, read from the Orca terminal
+-// that launched it. --control is what the caller says it is; this is what it is.
+-// Measured on Orca 1.4.203: a Codex Control passed --control cursor and
+-// --control claude, naming the workers it waited on, and a guard that trusted
+-// the flag let a waker Control run a blocking wait. Null outside Orca.
+-function selfHarness() {
+-  const me = process.env.ORCA_TERMINAL_HANDLE;
+-  if (!me) return null;
+-  const terms = ((orca(["terminal", "list"]).result || {}).terminals || []);
+-  const t = terms.find((x) => x && x.handle === me);
+-  return (t && t.agentIdentity) || null;
+-}
+-
+-function wait(f) {
+-  if (process.env.DELY_WAITER !== "1") {
+-    const self = selfHarness();
+-    const who = self || f.control;
+-    const wake = (harnessById(who) || {}).controlWake || "unknown";
+-    if (wake !== "background") {
+-      const said = self && self !== f.control ? " (called with --control " + f.control + ")" : "";
+-      out("REFUSED " + who + " wakes by " + wake + said + "; use dely wait-bg", 3);
+-    }
+-  }
+-  const deadline = Date.now() + Number(f["timeout-min"] || 60) * 60000;
+-  const stallMin = Number(f["stall-min"] || 10);
+-  const skip = String(f.skip || "").split(",").filter(Boolean);
+-  const as = f.as ? ["--terminal", f.as] : [];
+-  const track = {};
+-  let lastProgressCheck = 0;
+-  while (Date.now() < deadline) {
+-    const r = orca([
+-      "orchestration",
+-      "check",
+-      ...as,
+-      "--wait",
+-      "--run",
+-      f.run,
+-      "--timeout-ms",
+-      String(Math.max(1, Math.floor(POLL_S * 1000))),
+-    ]);
+-    if (r.ok === false) fail((r.error && r.error.message) || "check failed", { run: f.run });
+-    const res = r.result || {};
+-    if (res.deliveryId) {
+-      const msgs = res.messages || [];
+-      if (msgs.some((m) => ["worker_done", "escalation", "question"].includes(m.type))) {
+-        logEvent("settled", {
+-          run: f.run,
+-          deliveryId: res.deliveryId,
+-          messages: msgs.map((m) => ({ type: m.type, subject: m.subject })),
+-        });
+-        out(
+-          {
+-            SETTLED: res.deliveryId,
+-            messages: msgs.map((m) => ({
+-              id: m.id,
+-              type: m.type,
+-              from: m.from_handle,
+-              subject: m.subject,
+-              payload: m.payload,
+-            })),
+-          },
+-          0
+-        );
+-      }
+-      orca(["orchestration", "check", ...as, "--run", f.run, "--ack", res.deliveryId]);
+-      continue;
+-    }
+-    const rows = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []).filter(
+-      (w) => !skip.includes(w.dispatchId)
+-    );
+-    // dispatched is load-bearing: pending+requiresAction is the start
+-    // transient; completed+release is a settled worker awaiting release.
+-    const act = rows.filter((w) => {
+-      const proj = w.projection || {};
+-      // An absent optional field is an absent field, not a value: a row with
+-      // no projection, or a projection with no nextAction, is not attention.
+-      const kind = (proj.nextAction || {}).kind || "none";
+-      const needs = (proj.attention || {}).requiresAction === true;
+-      return w.dispatchStatus === "dispatched" && (kind !== "none" || needs);
+-    });
+-    if (act.length) {
+-      const payload = act.map((w) => ({
+-        dispatchId: w.dispatchId,
+-        liveness: (w.projection || {}).liveness,
+-        nextAction: (w.projection || {}).nextAction,
+-        attention: (w.projection || {}).attention,
+-      }));
+-      logEvent("attention", { run: f.run, workers: payload });
+-      out({ ATTENTION: payload }, 8);
+-    }
+-    if (Date.now() - lastProgressCheck < PROGRESS_S * 1000) continue;
+-    lastProgressCheck = Date.now();
+-    for (const w of rows.filter((w) => w.dispatchStatus === "dispatched")) {
+-      const idle = advance(track, w.dispatchId);
+-      const rec = track[w.dispatchId] || {};
+-      if (!rec.error && rec.source !== "transcript") continue;
+-      if (idle >= stallMin) {
+-        const raw = screenText(w.dispatchId);
+-        const why = rec.error ? rec.error : "no new output for " + Math.floor(idle) + " min";
+-        logEvent("stalled", {
+-          run: f.run,
+-          dispatchId: w.dispatchId,
+-          idleMinutes: Math.floor(idle),
+-          liveness: (w.projection || {}).liveness,
+-          text: raw,
+-        });
+-        out(
+-          "STALLED " +
+-            w.dispatchId +
+-            " " +
+-            why +
+-            "; liveness " +
+-            JSON.stringify((w.projection || {}).liveness) +
+-            "; last output: " +
+-            clip(raw),
+-          6
+-        );
+-      }
+-    }
+-  }
+-  logEvent("deadline", { run: f.run });
+-  out("DEADLINE", 7);
+-}
+-
+-function waitBg(f) {
+-  const me = process.env.ORCA_TERMINAL_HANDLE;
+-  if (!me) fail("not inside an Orca terminal", { run: f.run });
+-  const file = path.resolve(f.out || path.join(os.tmpdir(), "dely-wait-" + f.run + ".out"));
+-  const lock = file + ".lock";
+-  const recorded = () => {
+-    try {
+-      const j = JSON.parse(fs.readFileSync(lock, "utf8"));
+-      return (j && j.terminal) || "";
+-    } catch (_) {
+-      return "";
+-    }
+-  };
+-  const live = (handle) => {
+-    if (!handle) return false;
+-    const terms = ((orca(["terminal", "list"]).result || {}).terminals || []);
+-    return terms.some((t) => t && t.handle === handle);
+-  };
+-  const writeLock = (handle) => {
+-    try {
+-      fs.writeFileSync(lock, JSON.stringify({ terminal: handle || "" }));
+-    } catch (_) {
+-      /* vanished or unwritable */
+-    }
+-  };
+-  try {
+-    fs.writeFileSync(lock, JSON.stringify({ terminal: "" }), { flag: "wx" });
+-  } catch (_) {
+-    if (live(recorded())) {
+-      logEvent("wait_bg", { run: f.run, which: "ALREADY_WAITING", path: file });
+-      out("ALREADY_WAITING: a dely wait is running for this Run; end your turn, it will wake you.", 0);
+-    }
+-    writeLock("");
+-  }
+-  try {
+-    fs.unlinkSync(file);
+-  } catch (_) {
+-    /* no prior output */
+-  }
+-  const q = JSON.stringify;
+-  const self = q(__filename);
+-  const bin = q(process.execPath);
+-  const extra = ["control", "skip", "stall-min", "timeout-min"]
+-    .filter((k) => f[k] && f[k] !== true)
+-    .map((k) => " --" + k + " " + q(f[k]))
+-    .join("");
+-  const cmd =
+-    "DELY_WAITER=1 " +
+-    bin +
+-    " " +
+-    self +
+-    " wait --run " +
+-    q(f.run) +
+-    " --as " +
+-    q(me) +
+-    extra +
+-    " > " +
+-    q(file) +
+-    " 2>&1; rm -f " +
+-    q(lock) +
+-    "; " +
+-    bin +
+-    " " +
+-    self +
+-    " notify --run " +
+-    q(f.run) +
+-    " --as " +
+-    q(me) +
+-    " --out " +
+-    q(file) +
+-    "; exit";
+-  const r = orca(["terminal", "create", "--worktree", "path:" + process.cwd(), "--title", "dely-wait", "--command", cmd]);
+-  if (r.ok === false) {
+-    try {
+-      fs.unlinkSync(lock);
+-    } catch (_) {
+-      /* lock */
+-    }
+-    fail((r.error && r.error.message) || "terminal create failed", { run: f.run });
+-  }
+-  writeLock((r.result && r.result.terminal && r.result.terminal.handle) || "");
+-  logEvent("wait_bg", { run: f.run, which: "WAITING", path: file });
+-  out("WAITING", 0);
+-}
+-
+-function notify(f) {
+-  const run = (orca(["orchestration", "run-show", "--id", f.run]).result || {}).run || {};
+-  const to = run.coordinator_handle || f.as;
+-  const text = "dely wait finished for " + f.run + ". Finish your current step, then read " + f.out + " and continue.";
+-  const retryMs = Math.max(1, Math.floor(NOTIFY_RETRY_S * 1000));
+-  const giveUpMs = NOTIFY_GIVEUP_S * 1000;
+-  for (const t0 = Date.now(); ; ) {
+-    const r = orca(["terminal", "send", "--terminal", to, "--text", text, "--enter"]);
+-    if (r.ok !== false) {
+-      logEvent("notify", { run: f.run, target: to, result: "sent" });
+-      return;
+-    }
+-    const msg = (r.error && r.error.message) || "";
+-    if (!/agent_prompt_blocked/.test(msg)) {
+-      logEvent("notify", { run: f.run, target: to, result: "failed" });
+-      return;
+-    }
+-    const left = giveUpMs - (Date.now() - t0);
+-    if (left <= 0) {
+-      logEvent("notify", { run: f.run, target: to, result: "gave_up" });
+-      process.exit(1);
+-    }
+-    sleep(Math.min(retryMs, left));
+-  }
+-}
+-
+-function logCmd(f) {
+-  let payload;
+-  try {
+-    payload = JSON.parse(f.json);
+-  } catch (e) {
+-    fail("cannot parse --json: " + (e.message || e), { run: f.run });
+-  }
+-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+-    fail("--json must be an object", { run: f.run });
+-  }
+-  logEvent("delivery", Object.assign({}, payload, { run: f.run, repo: f.repo || payload.repo || null }));
+-  process.exit(0);
+-}
+-
+-const COMMANDS = {
+-  preflight: { required: [["repo", "PATH"], ["run", "RUN"]], optional: [] },
+-  dispatch: {
+-    required: [
+-      ["repo", "PATH"],
+-      ["run", "RUN"],
+-      ["phase", "implement|review"],
+-      ["spec-file", "FILE"],
+-    ],
+-    optional: [],
+-  },
+-  wait: {
+-    required: [["run", "RUN"], ["control", "HARNESS"]],
+-    optional: [
+-      ["as", "TERMINAL"],
+-      ["skip", "IDS"],
+-      ["stall-min", "N"],
+-      ["timeout-min", "N"],
+-    ],
+-  },
+-  "wait-bg": {
+-    required: [["run", "RUN"], ["control", "HARNESS"]],
+-    optional: [
+-      ["out", "FILE"],
+-      ["skip", "IDS"],
+-      ["stall-min", "N"],
+-      ["timeout-min", "N"],
+-    ],
+-  },
+-  notify: {
+-    required: [["run", "RUN"], ["out", "FILE"]],
+-    optional: [["as", "TERMINAL"]],
+-  },
+-  log: {
+-    required: [["run", "RUN"], ["json", "OBJ"]],
+-    optional: [["repo", "PATH"]],
+-  },
+-};
+-
+-function usageLine(name) {
+-  const spec = COMMANDS[name];
+-  const bits = spec.required.map(([k, v]) => "--" + k + " " + v);
+-  const opts = spec.optional.map(([k, v]) => "[--" + k + " " + v + "]");
+-  return "  dely " + name + " " + bits.concat(opts).join(" ");
+-}
+-
+-function printUsage() {
+-  console.log("usage:");
+-  for (const name of Object.keys(COMMANDS)) console.log(usageLine(name));
+-  console.log("  dely <subcommand> --help");
+-}
+-
+-const [cmd, ...rest] = process.argv.slice(2);
+-const table = { preflight, dispatch, wait, "wait-bg": waitBg, notify, log: logCmd };
+-if (!cmd) {
+-  printIdentity();
+-  printUsage();
+-  process.exit(0);
+-}
+-if (!COMMANDS[cmd]) {
+-  printUsage();
+-  process.exit(2);
+-}
+-const f = flags(rest);
+-if (f.help === true) {
+-  const i = rest.indexOf("--help");
+-  if (!(i > 0 && String(rest[i - 1]).startsWith("--"))) {
+-    console.log(usageLine(cmd));
+-    process.exit(0);
+-  }
+-}
+-const missing = COMMANDS[cmd].required.filter(([k]) => !f[k]).map(([k]) => "--" + k);
+-if (missing.length) {
+-  console.log("missing " + missing.join(", "));
+-  console.log(usageLine(cmd));
+-  process.exit(2);
+-}
+-table[cmd](f);
++#!/usr/bin/env node
++"use strict";
++
++const { execFileSync, spawnSync } = require("child_process");
++const crypto = require("crypto");
++const fs = require("fs");
++const os = require("os");
++const path = require("path");
++
++const seconds = (v, d) => (Number.isFinite(+v) && +v > 0 ? +v : d);
++const ACK_S = seconds(process.env.DELY_ACK_S, process.platform === "win32" ? 180 : 60);
++const POLL_S = Number(process.env.DELY_POLL_S || 15);
++const PROGRESS_S = Number(process.env.DELY_PROGRESS_S || 60);
++const PREFLIGHT_S = seconds(process.env.DELY_PREFLIGHT_S, 150);
++const NOTIFY_RETRY_S = seconds(process.env.DELY_NOTIFY_RETRY_S, 30);
++const NOTIFY_GIVEUP_S = seconds(process.env.DELY_NOTIFY_GIVEUP_S, 1800);
++const positiveInt = (v, d) => (Number.isFinite(+v) && +v > 0 ? Math.floor(+v) : d);
++const CONTROL_STEP_LIMIT = positiveInt(process.env.DELY_CONTROL_STEP_LIMIT, 12);
++const SAME_FAILURE_LIMIT = positiveInt(process.env.DELY_SAME_FAILURE_LIMIT, 2);
++
++function orca(args) {
++  const bin = process.env.ORCA_CLI_COMMAND || "orca";
++  const isScript = /\.m?js$/i.test(bin);
++  const argv = isScript ? [bin, ...args, "--json"] : [...args, "--json"];
++  const cmd = isScript ? process.execPath : bin;
++  const commandKind = args.slice(0, 2).filter((x) => x && !String(x).startsWith("-")).join(" ") || "orca";
++  try {
++    const out = execFileSync(cmd, argv, {
++      encoding: "utf8",
++      stdio: ["ignore", "pipe", "pipe"],
++      maxBuffer: 64 << 20,
++      env: process.env,
++    });
++    return JSON.parse(out || "{}");
++  } catch (e) {
 +    if (e.stdout && String(e.stdout).trim()) {
 +      try {
 +        const parsed = JSON.parse(String(e.stdout).trim());
@@ -648,7 +2186,7 @@ index b1af067..6501113 100644
 +          return parsed;
 +        }
 +      } catch (_) {}
-     }
++    }
 +    const code = e.code || (e.status != null ? "EXIT_" + e.status : "SPAWN_ERROR");
 +    const stderrMsg = (e.stderr && String(e.stderr).trim()) || "";
 +    const msg = code + " executing " + commandKind + (stderrMsg ? ": " + stderrMsg : "");
@@ -660,16 +2198,65 @@ index b1af067..6501113 100644
 +        message: msg,
 +      },
 +    };
-   }
- }
-
-@@ -92,21 +111,157 @@ function harnessById(id) {
- }
-
- function pin(repo, phase) {
--  const md = fs.readFileSync(path.join(repo, "AGENTS.md"), "utf8");
--  const row = md.split("\n").find((l) => new RegExp("^\\|\\s*`?" + phase + "`?\\s*\\|").test(l));
--  if (!row) throw new Error("no " + phase + " pin in AGENTS.md");
++  }
++}
++
++function flags(argv) {
++  const f = {};
++  for (let i = 0; i < argv.length; i++) {
++    if (argv[i].startsWith("--")) {
++      const n = argv[i + 1];
++      if (n != null && !String(n).startsWith("--")) {
++        f[argv[i].slice(2)] = n;
++        i++;
++      } else {
++        f[argv[i].slice(2)] = true;
++      }
++    }
++  }
++  return f;
++}
++
++const PACKAGE_ROOT = path.resolve(__dirname, "../../..");
++const HARNESSES_PATH = path.join(PACKAGE_ROOT, "harnesses.json");
++
++let _harnesses;
++function loadHarnesses() {
++  if (_harnesses) return _harnesses;
++  let raw;
++  try {
++    raw = fs.readFileSync(HARNESSES_PATH, "utf8");
++  } catch (e) {
++    fail("cannot read " + HARNESSES_PATH + ": " + (e.message || e));
++  }
++  let data;
++  try {
++    data = JSON.parse(raw);
++  } catch (e) {
++    fail("cannot parse " + HARNESSES_PATH + ": " + (e.message || e));
++  }
++  if (!data || !Array.isArray(data.harnesses)) {
++    fail(HARNESSES_PATH + " has no harnesses array");
++  }
++  _harnesses = data.harnesses;
++  return _harnesses;
++}
++
++function effortRequiresModel() {
++  let raw;
++  try {
++    raw = JSON.parse(fs.readFileSync(HARNESSES_PATH, "utf8"));
++  } catch (_) {
++    return true;
++  }
++  return raw && raw.effortRequiresModel !== false;
++}
++
++function harnessById(id) {
++  return loadHarnesses().find((h) => h.id === id);
++}
++
++function pin(repo, phase) {
 +  // Preserve the checkout's modern per-phase pins; quota rows remain local POC deployment choices.
 +  if (phase === "implement" || phase === "review") {
 +    let mainLocal = null;
@@ -713,25 +2300,24 @@ index b1af067..6501113 100644
 +    if (row) break;
 +  }
 +  if (!row) throw new Error("no " + phase + " pin in project or global AGENTS.md");
-   const [, harness, model, effort] = row.split("|").slice(1).map((c) => c.trim().replace(/`/g, ""));
-   const h = loadHarnesses().find((x) => x.name === harness);
-   if (!h) throw new Error("unknown harness " + harness);
--  return { phase, agent: h.id, model, effort, modelFlag: h.modelFlag, effortFlag: h.effortFlag };
++  const [, harness, model, effort] = row.split("|").slice(1).map((c) => c.trim().replace(/`/g, ""));
++  const h = loadHarnesses().find((x) => x.name === harness);
++  if (!h) throw new Error("unknown harness " + harness);
 +  return { phase, agent: h.id, model, effort, modelFlag: h.modelFlag, effortFlag: h.effortFlag, effortInModel: h.effortInModel, modelPin: h.modelPin };
- }
-
- const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
++}
++
++const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 +let currentCommand = null;
 +let currentFlags = null;
- const out = (line, code) => {
-   console.log(typeof line === "string" ? line : JSON.stringify(line));
++const out = (line, code) => {
++  console.log(typeof line === "string" ? line : JSON.stringify(line));
 +  if (code != null && currentCommand && currentFlags && currentFlags.run) {
 +    if (code === 0) guardSuccess(currentFlags.run, currentCommand);
 +    else guardFailure(currentFlags.run, currentCommand, line);
 +  }
-   if (code != null) process.exit(code);
- };
-
++  if (code != null) process.exit(code);
++};
++
 +function guardPath(run) {
 +  if (!run) return null;
 +  const key = crypto.createHash("sha256").update(String(run)).digest("hex").slice(0, 24);
@@ -822,26 +2408,86 @@ index b1af067..6501113 100644
 +  writeGuard(f.run, state);
 +}
 +
- let _sha;
- function delySha() {
-   if (_sha !== undefined) return _sha;
-@@ -160,8 +315,10 @@ function logEvent(event, extra) {
- }
-
- function fail(reason, extra) {
--  logEvent("error", Object.assign({ reason }, extra || {}));
--  out("ERROR " + reason, 9);
++let _sha;
++function delySha() {
++  if (_sha !== undefined) return _sha;
++  try {
++    _sha = String(
++      execFileSync("git", ["-C", PACKAGE_ROOT, "rev-parse", "HEAD"], {
++        encoding: "utf8",
++        stdio: ["ignore", "pipe", "pipe"],
++      })
++    ).trim();
++    if (!_sha) _sha = null;
++  } catch (_) {
++    _sha = null;
++  }
++  return _sha;
++}
++
++let _orcaVer;
++function orcaVersion() {
++  if (_orcaVer !== undefined) return _orcaVer;
++  try {
++    _orcaVer = ((orca(["status"]).result || {}).runtime || {}).appVersion || null;
++  } catch (_) {
++    _orcaVer = null;
++  }
++  return _orcaVer;
++}
++
++// Append one JSON object to ~/.dely/log.jsonl when that directory already
++// exists. Never mkdir. A write failure must not change exit, print, or flow.
++function logEvent(event, extra) {
++  extra = extra || {};
++  try {
++    if (!fs.statSync(path.join(os.homedir(), ".dely")).isDirectory()) return;
++    const rec = {
++      ts: new Date().toISOString(),
++      run: extra.run == null ? null : extra.run,
++      repo: extra.repo == null ? null : extra.repo,
++      sha: delySha(),
++      orca: orcaVersion(),
++      event,
++    };
++    for (const k of Object.keys(extra)) {
++      if (k in rec) continue;
++      rec[k] = extra[k];
++    }
++    fs.appendFileSync(path.join(os.homedir(), ".dely", "log.jsonl"), JSON.stringify(rec) + "\n");
++  } catch (_) {
++    /* observer */
++  }
++}
++
++function fail(reason, extra) {
 +  extra = extra || {};
 +  const text = orcaHint(reason, extra.run);
 +  logEvent("error", Object.assign({ reason: text }, extra));
 +  out("ERROR " + text, 9);
- }
-
- function printIdentity() {
-@@ -185,7 +342,447 @@ function printIdentity() {
-   console.log("dely " + version + " sha " + (delySha() || "null") + " sha256 " + skill);
- }
-
++}
++
++function printIdentity() {
++  let version = "unknown";
++  try {
++    version = JSON.parse(
++      fs.readFileSync(path.join(PACKAGE_ROOT, ".claude-plugin/plugin.json"), "utf8")
++    ).version;
++  } catch (_) {
++    /* missing or unreadable */
++  }
++  let skill = "unreadable";
++  try {
++    skill = crypto
++      .createHash("sha256")
++      .update(fs.readFileSync(path.join(PACKAGE_ROOT, "skills/delivery/SKILL.md")))
++      .digest("hex");
++  } catch (_) {
++    /* missing */
++  }
++  console.log("dely " + version + " sha " + (delySha() || "null") + " sha256 " + skill);
++}
++
 +function ownedStatePath(run) {
 +  return path.join(os.tmpdir(), "dely-run-" + run + ".jsonl");
 +}
@@ -1259,7 +2905,7 @@ index b1af067..6501113 100644
 +  };
 +}
 +
- function start(repo, run, p, spec, title) {
++function start(repo, run, p, spec, title) {
 +  const wantsModel = p.modelFlag && p.model !== "default";
 +  const joinsEffort = wantsModel && p.effortInModel && p.effort !== "default";
 +  const wantsEffort = p.effortFlag && p.effort !== "default";
@@ -1279,41 +2925,36 @@ index b1af067..6501113 100644
 +    return startAgyWindows(repo, run, p, spec, title);
 +  }
 +
-+  if (p.fallbackReason === "quota" || p.fallbackReason === "model_unavailable") {
++  if ((process.platform === "win32" && p.agent === "codex" && p.model === "gpt-6.1-sol" && p.effort === "medium") || p.fallbackReason === "quota" || p.fallbackReason === "model_unavailable") {
 +    return startCodexQuotaTerminal(repo, run, p, spec, title);
 +  }
 +
-   const args = [
-     "orchestration",
-     "worker-start",
-@@ -200,27 +797,150 @@ function start(repo, run, p, spec, title) {
-     "--agent",
-     p.agent,
-   ];
--  const wantsModel = p.modelFlag && p.model !== "default";
--  const wantsEffort = p.effortFlag && p.effort !== "default";
--  if (effortRequiresModel() && wantsEffort && !wantsModel) {
--    return {
--      error:
--        "effort " + p.effort + " pinned with model default for " + p.agent +
--        "; --effort requires --model, so set a model or set effort to default",
--    };
--  }
--  if (wantsModel) args.push("--model", p.model);
++  const args = [
++    "orchestration",
++    "worker-start",
++    "--spec",
++    spec,
++    "--worktree",
++    "path:" + repo,
++    "--run",
++    run,
++    "--task-title",
++    title,
++    "--agent",
++    p.agent,
++  ];
 +  if (wantsModel) args.push("--model", joinsEffort ? p.model + p.effortInModel + p.effort : p.model);
-   if (wantsEffort) args.push("--effort", p.effort);
-   const r = orca(args);
-   const id = r.result && r.result.dispatchId;
-   if (!id) {
--    return { error: (r.error && r.error.message) || String((r.result && r.result.failedStage) || "worker-start") };
++  if (wantsEffort) args.push("--effort", p.effort);
++  const r = orca(args);
++  const id = r.result && r.result.dispatchId;
++  if (!id) {
 +    return {
 +      error: orcaHint(
 +        (r.error && r.error.message) || String((r.result && r.result.failedStage) || "worker-start"),
 +        run
 +      ),
 +    };
-   }
--  return { id };
++  }
 +  return { id, taskId: r.result && (r.result.taskId || r.result.task_id || null), state: r.result && r.result.state };
 +}
 +
@@ -1336,10 +2977,9 @@ index b1af067..6501113 100644
 +  const p = payloadOf(m);
 +  const id = p.dispatchId || p.dispatch_id || m.dispatchId || m.dispatch_id || null;
 +  return id == null || id === "" ? null : String(id);
- }
-
- function namesDispatch(m, id) {
--  return JSON.stringify(m).includes(id);
++}
++
++function namesDispatch(m, id) {
 +  if (!id) return false;
 +  const msgId = messageDispatchId(m);
 +  return msgId != null && msgId === String(id);
@@ -1447,13 +3087,53 @@ index b1af067..6501113 100644
 +    "not inside an Orca terminal. Pass your own terminal's handle as ORCA_TERMINAL_HANDLE, never another pane's",
 +    extra
 +  );
- }
-
- function clip(s) {
-@@ -268,17 +988,56 @@ function lastText(id) {
-   return clip(screenText(id));
- }
-
++}
++
++function clip(s) {
++  return String(s || "")
++    .replace(/\s+/g, " ")
++    .trim()
++    .slice(-400);
++}
++
++function messageText(m) {
++  if (m == null) return "";
++  if (typeof m === "string") return m;
++  const blocks = Array.isArray(m.blocks) ? m.blocks : [];
++  let last = "";
++  let toolOut = "";
++  for (const b of blocks) {
++    if (!b || typeof b !== "object") continue;
++    if (b.type === "text" && typeof b.text === "string" && b.text.trim()) last = b.text;
++    else if (!toolOut && b.type === "tool-result" && typeof b.output === "string" && b.output.trim()) {
++      toolOut = b.output;
++    }
++  }
++  return last || toolOut;
++}
++
++function screenLines(id) {
++  const r = orca(["orchestration", "worker-read", "--dispatch", id, "--source", "auto", "--limit", "200"]);
++  const res = r.result || {};
++  if (res.terminal && Array.isArray(res.terminal.tail)) {
++    return res.terminal.tail.filter((l) => String(l || "").trim());
++  }
++  const msgs = (res.transcript && res.transcript.messages) || [];
++  for (let i = msgs.length - 1; i >= 0; i--) {
++    const t = messageText(msgs[i]);
++    if (String(t).trim()) return [t];
++  }
++  return [];
++}
++
++function screenText(id) {
++  return screenLines(id).join("\n");
++}
++
++function lastText(id) {
++  return clip(screenText(id));
++}
++
 +function unavailableModelPin(repo, phase) {
 +  const p = pin(repo, "implement_backup_2");
 +  if (p.agent !== "codex" || p.model !== "gpt-6-luna" || p.effort !== "max") {
@@ -1463,11 +3143,7 @@ index b1af067..6501113 100644
 +    fallbackReason: "model_unavailable", fallbackStage: null });
 +}
 +
- function preflight(f) {
--  const pins = ["implement", "review"].map((ph) => pin(f.repo, ph));
--  const uniq = pins.filter(
--    (p, i) => pins.findIndex((q) => q.agent === p.agent && q.model === p.model && q.effort === p.effort) === i
--  );
++function preflight(f) {
 +  f.repo = path.resolve(f.repo);
 +  const taskRouting = require("./task-routing.js");
 +  let taskDecision = null;
@@ -1486,16 +3162,13 @@ index b1af067..6501113 100644
 +    fail((e && e.message) || String(e), { run: f.run, repo: f.repo });
 +  }
 +  const cli = process.env.ORCA_CLI_COMMAND || "orca";
-   const spec =
--    "Preflight only. Do not read, edit or run anything in the repository. Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
++  const spec =
 +    "Preflight only; no implementation. Do not read, edit or run anything in the repository. " +
 +    "The resolved Orca CLI is " + JSON.stringify(cli) + "; invoke it directly for skills get orchestration and orchestration send. " +
 +    "Use simple commands without shell conditionals, pipelines or wrappers. Read mandatory instruction files outside the repository with rtk proxy rg. " +
 +    "Send a heartbeat with subject `ack`, then send worker_done --outcome succeeded with subject `preflight ok`, then stop.";
-   const open = {};
-   let failed = 0;
--  for (const p of uniq) {
--    const s = start(f.repo, f.run, p, spec, "preflight-" + p.phase);
++  const open = {};
++  let failed = 0;
 +  for (let p of [implPin]) {
 +    let s = start(f.repo, f.run, p, spec, "preflight-" + p.phase);
 +    if (s.modelUnavailable === true) {
@@ -1511,30 +3184,34 @@ index b1af067..6501113 100644
 +        s = { error: e.message };
 +      }
 +    }
-     if (s.error) {
-       logEvent("preflight", {
-         run: f.run,
-@@ -291,9 +1050,12 @@ function preflight(f) {
-       });
-       out("PREFLIGHT " + p.phase + " " + p.agent + " FAIL start: " + s.error);
-       failed++;
--    } else open[s.id] = Object.assign({ messaged: false }, p);
++    if (s.error) {
++      logEvent("preflight", {
++        run: f.run,
++        repo: f.repo,
++        phase: p.phase,
++        agent: p.agent,
++        result: "FAIL",
++        seconds: 0,
++        reason: "start: " + s.error,
++      });
++      out("PREFLIGHT " + p.phase + " " + p.agent + " FAIL start: " + s.error);
++      failed++;
 +    } else {
 +      open[s.id] = Object.assign({ messaged: false, terminalHandle: s.terminalHandle || null }, p);
 +    }
-   }
--  const drop = (id, rec, line) => {
++  }
 +  const t0 = Date.now();
 +  const drop = (id, rec, line, canStopAndRelease = false) => {
-     logEvent("preflight", {
-       run: f.run,
-       repo: f.repo,
-@@ -304,8 +1066,13 @@ function preflight(f) {
-       reason: line.replace(/^PREFLIGHT \S+ \S+ FAIL /, ""),
-     });
-     out(line);
--    orca(["orchestration", "worker-stop", "--dispatch", id]);
--    orca(["orchestration", "worker-release", "--dispatch", id]);
++    logEvent("preflight", {
++      run: f.run,
++      repo: f.repo,
++      phase: rec.phase,
++      agent: rec.agent,
++      result: "FAIL",
++      seconds: Math.round((Date.now() - t0) / 1000),
++      reason: line.replace(/^PREFLIGHT \S+ \S+ FAIL /, ""),
++    });
++    out(line);
 +    if (canStopAndRelease) {
 +      try { orca(["orchestration", "worker-stop", "--dispatch", id]); } catch (_) {}
 +      try { orca(["orchestration", "worker-release", "--dispatch", id]); } catch (_) {}
@@ -1542,62 +3219,49 @@ index b1af067..6501113 100644
 +        try { orca(["terminal", "close", "--terminal", rec.terminalHandle]); } catch (_) {}
 +      }
 +    }
-     delete open[id];
-     failed++;
-   };
-@@ -316,14 +1083,13 @@ function preflight(f) {
-       const w = rows.find((x) => x.dispatchId === id);
-       if (!w) continue;
-       const stage = (w.projection || {}).stage || {};
--      let why = "";
--      if (w.dispatchStatus === "failed") why = "worker failed: " + (stage.detail || "failed");
--      else if (stage.worker === "start_unknown") why = "worker never started a turn: " + (stage.detail || "start_unknown");
--      if (!why) continue;
--      drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL " + why + "; last output: " + lastText(id));
++    delete open[id];
++    failed++;
++  };
++  const pollDead = () => {
++    const rows = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []);
++    for (const [id, rec] of Object.entries(open)) {
++      if (rec.messaged) continue;
++      const w = rows.find((x) => x.dispatchId === id);
++      if (!w) continue;
++      const stage = (w.projection || {}).stage || {};
 +      const liveness = (w.projection || {}).liveness || {};
 +      const dead = isProvenDead(id, rec.terminalHandle, f.run) ||
 +        (w.dispatchStatus === "failed" && (liveness.verdict === "dead" || liveness.verdict === "exited"));
 +      if (!dead) continue;
 +      drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL worker exited: " + (stage.detail || w.dispatchStatus || "dead") + "; last output: " + lastText(id), true);
-     }
-   };
--  const t0 = Date.now();
-   while (Object.keys(open).length && Date.now() - t0 < PREFLIGHT_S * 1000) {
-     const r = orca([
-       "orchestration",
-@@ -335,28 +1101,56 @@ function preflight(f) {
-       String(Math.max(1, Math.floor(POLL_S * 1000))),
-     ]);
-     if (r.ok === false) {
--      const why = (r.error && r.error.message) || "check failed";
--      for (const [id, rec] of Object.entries(open)) drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL " + why);
++    }
++  };
++  while (Object.keys(open).length && Date.now() - t0 < PREFLIGHT_S * 1000) {
++    const r = orca([
++      "orchestration",
++      "check",
++      "--wait",
++      "--run",
++      f.run,
++      "--timeout-ms",
++      String(Math.max(1, Math.floor(POLL_S * 1000))),
++    ]);
++    if (r.ok === false) {
 +      const why = orcaHint((r.error && r.error.message) || "check failed", f.run);
 +      for (const [id, rec] of Object.entries(open)) {
 +        const dead = isProvenDead(id, rec.terminalHandle, f.run);
 +        drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL " + why + (!dead ? " (retained dispatch=" + id + (rec.terminalHandle ? " terminal=" + rec.terminalHandle : "") + ")" : ""), dead);
 +      }
 +      restoreControlFocus(f.run);
-       process.exit(failed ? 1 : 0);
-     }
-     const res = r.result || {};
-     if (res.deliveryId) {
-       for (const m of res.messages || []) {
--        const hit = Object.keys(open).find((id) => namesDispatch(m, id));
++      process.exit(failed ? 1 : 0);
++    }
++    const res = r.result || {};
++    if (res.deliveryId) {
++      for (const m of res.messages || []) {
 +        const hit = Object.keys(open).find((id) => liveNamesDispatch(m, id));
-         if (hit) open[hit].messaged = true;
-         if (hit && m.type === "worker_done") {
-           const secs = Math.round((Date.now() - t0) / 1000);
--          logEvent("preflight", {
--            run: f.run,
--            repo: f.repo,
--            phase: open[hit].phase,
--            agent: open[hit].agent,
--            result: "PASS",
--            seconds: secs,
--          });
--          out("PREFLIGHT " + open[hit].phase + " " + open[hit].agent + " PASS " + secs + "s");
--          orca(["orchestration", "worker-release", "--dispatch", hit]);
--          delete open[hit];
++        if (hit) open[hit].messaged = true;
++        if (hit && m.type === "worker_done") {
++          const secs = Math.round((Date.now() - t0) / 1000);
 +          const pld = payloadOf(m);
 +          if (pld.outcome === "succeeded") {
 +            logEvent("preflight", {
@@ -1633,14 +3297,13 @@ index b1af067..6501113 100644
 +            delete open[hit];
 +            failed++;
 +          }
-         }
-       }
-       orca(["orchestration", "check", "--run", f.run, "--ack", res.deliveryId]);
-@@ -364,34 +1158,354 @@ function preflight(f) {
-     pollDead();
-   }
-   for (const [id, rec] of Object.entries(open)) {
--    drop(id, rec, "PREFLIGHT " + rec.phase + " " + rec.agent + " FAIL no worker_done in " + PREFLIGHT_S + "s; last output: " + lastText(id));
++        }
++      }
++      orca(["orchestration", "check", "--run", f.run, "--ack", res.deliveryId]);
++    }
++    pollDead();
++  }
++  for (const [id, rec] of Object.entries(open)) {
 +    const dead = isProvenDead(id, rec.terminalHandle, f.run);
 +    drop(
 +      id,
@@ -1650,11 +3313,11 @@ index b1af067..6501113 100644
 +      "; last output: " + lastText(id),
 +      dead
 +    );
-   }
++  }
 +  restoreControlFocus(f.run);
-   process.exit(failed ? 1 : 0);
- }
-
++  process.exit(failed ? 1 : 0);
++}
++
 +function dropWorker(id, handle = null, run = null) {
 +  const dead = isProvenDead(id, handle, run);
 +  if (dead) {
@@ -1712,12 +3375,7 @@ index b1af067..6501113 100644
 +  return r;
 +}
 +
- function dispatch(f) {
--  const p = pin(f.repo, f.phase);
--  const spec =
--    fs.readFileSync(path.resolve(f.repo, f["spec-file"]), "utf8") +
--    "\n\nFirst action, before anything else: send a heartbeat with subject `ack`. The Orca preamble and this spec file are everything the worker needs; read no other skill.";
--  const s = start(f.repo, f.run, p, spec, f.phase);
++function dispatch(f) {
 +  f.repo = path.resolve(f.repo);
 +  // jev-task-routing: dispatch admission
 +  if (f.phase !== "implement") out("ERROR AGY dispatch is implement-only; review is owned by Codex Control", 2);
@@ -1903,11 +3561,11 @@ index b1af067..6501113 100644
 +      updatePendingStart(f.repo, f.run, { launch: s.launch });
 +    }
 +  }
-   if (s.error) {
++  if (s.error) {
 +    if (s.state === "outcome_unknown") unknownStart(f, s, s.error);
-     logEvent("error", { run: f.run, repo: f.repo, reason: s.error });
-     out("FAILED " + s.error, 5);
-   }
++    logEvent("error", { run: f.run, repo: f.repo, reason: s.error });
++    out("FAILED " + s.error, 5);
++  }
 +  if (snapshotPath && s.id) {
 +    recordOwnedSnapshot(f.run, snapshotPath, s.id);
 +  }
@@ -1928,11 +3586,10 @@ index b1af067..6501113 100644
 +    },
 +    s.launch || {}
 +  );
-   const interval = Math.max(20, Math.min(5000, Math.floor(POLL_S * 1000)));
-   const t0 = Date.now();
-   for (; Date.now() - t0 < ACK_S * 1000; sleep(interval)) {
-     const peek = orca(["orchestration", "check", "--peek", "--run", f.run]);
--    if (((peek.result || {}).messages || []).some((m) => namesDispatch(m, s.id))) {
++  const interval = Math.max(20, Math.min(5000, Math.floor(POLL_S * 1000)));
++  const t0 = Date.now();
++  for (; Date.now() - t0 < ACK_S * 1000; sleep(interval)) {
++    const peek = orca(["orchestration", "check", "--peek", "--run", f.run]);
 +    const msgs = (peek.result || {}).messages || [];
 +    const verifiedReceipt = msgs.some((m) => isDispatchReceipt(m, s.id, receiptMarker, s.terminalHandle, s.taskId));
 +    if (verifiedReceipt) {
@@ -1974,38 +3631,34 @@ index b1af067..6501113 100644
 +        }
 +      }
 +
-       logEvent("dispatch", {
-         run: f.run,
-         repo: f.repo,
-         phase: p.phase,
-         agent: p.agent,
++      logEvent("dispatch", {
++        run: f.run,
++        repo: f.repo,
++        phase: p.phase,
++        agent: p.agent,
 +        pinPhase: p.pinPhase,
 +        fallbackReason: p.fallbackReason,
 +        fallbackStage: p.fallbackStage,
 +        launch: s.launch || null,
-         dispatchId: s.id,
++        dispatchId: s.id,
 +        terminalHandle: s.terminalHandle || null,
 +        promptBytes: sourceBytes,
 +        promptSha256: sourceSha256,
 +        snapshotBytes,
 +        snapshotSha256,
 +        receiptMarker,
-         seconds: Math.round((Date.now() - t0) / 1000),
-       });
++        seconds: Math.round((Date.now() - t0) / 1000),
++      });
 +      if (fs.existsSync(pendingFile)) fs.unlinkSync(pendingFile);
 +      restoreControlFocus(f.run);
 +      console.log("receipt confirmed for " + s.id + " [" + receiptMarker + "]");
-       out("DISPATCHED " + s.id, 0);
-     }
-     const row = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []).find((w) => w.dispatchId === s.id);
-@@ -399,10 +1513,17 @@ function dispatch(f) {
-   }
-   const raw = screenText(s.id);
-   const secs = Math.round((Date.now() - t0) / 1000);
--  orca(["orchestration", "worker-stop", "--dispatch", s.id]);
--  orca(["orchestration", "worker-release", "--dispatch", s.id]);
--  logEvent("no_ack", { run: f.run, repo: f.repo, dispatchId: s.id, seconds: secs, text: raw });
--  out("NO_ACK " + s.id + " stopped after " + secs + "s; last output: " + clip(raw), 4);
++      out("DISPATCHED " + s.id, 0);
++    }
++    const row = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []).find((w) => w.dispatchId === s.id);
++    if (row && row.dispatchStatus === "failed") break;
++  }
++  const raw = screenText(s.id);
++  const secs = Math.round((Date.now() - t0) / 1000);
 +  const dead = isProvenDead(s.id, s.terminalHandle, f.run);
 +  if (dead) {
 +    dropWorker(s.id, s.terminalHandle, f.run);
@@ -2017,91 +3670,98 @@ index b1af067..6501113 100644
 +    logEvent("no_ack", { run: f.run, repo: f.repo, dispatchId: s.id, seconds: secs, text: raw, terminalHandle: s.terminalHandle });
 +    out("NO_ACK " + s.id + " unverified after " + secs + "s (retained dispatch=" + s.id + (s.terminalHandle ? " terminal=" + s.terminalHandle : "") + "); last output: " + clip(raw), 4);
 +  }
- }
-
- function advance(track, id) {
-@@ -427,22 +1548,28 @@ function advance(track, id) {
-   return (Date.now() - t.at) / 60000;
- }
-
--// The harness this process is actually running in, read from the Orca terminal
--// that launched it. --control is what the caller says it is; this is what it is.
++}
++
++function advance(track, id) {
++  const t = track[id] || (track[id] = { cursor: null, at: Date.now() });
++  for (let page = 0; page < 20; page++) {
++    const args = ["orchestration", "worker-read", "--dispatch", id, "--source", "auto", "--limit", "200"];
++    if (t.cursor) args.push("--cursor", t.cursor);
++    const r = orca(args);
++    if (r.ok === false) {
++      t.error = (r.error && r.error.message) || "worker-read failed";
++      break;
++    }
++    const res = r.result || {};
++    if (res.source) t.source = res.source;
++    const body = res.transcript || res.terminal || {};
++    const cursor = body.nextCursor || null;
++    const n = Number(body.returnedMessageCount || body.returnedLineCount || 0);
++    if (cursor && cursor !== t.cursor) t.at = Date.now();
++    if (cursor) t.cursor = cursor;
++    if (!body.limited || n === 0) break;
++  }
++  return (Date.now() - t.at) / 60000;
++}
++
 +// Read a named terminal's harness, defaulting to the terminal that launched
 +// this process. --control is the caller's claim; agentIdentity is Orca's record.
- // Measured on Orca 1.4.203: a Codex Control passed --control cursor and
- // --control claude, naming the workers it waited on, and a guard that trusted
- // the flag let a waker Control run a blocking wait. Null outside Orca.
--function selfHarness() {
--  const me = process.env.ORCA_TERMINAL_HANDLE;
++// Measured on Orca 1.4.203: a Codex Control passed --control cursor and
++// --control claude, naming the workers it waited on, and a guard that trusted
++// the flag let a waker Control run a blocking wait. Null outside Orca.
 +function selfHarness(me = process.env.ORCA_TERMINAL_HANDLE) {
-   if (!me) return null;
-   const terms = ((orca(["terminal", "list"]).result || {}).terminals || []);
-   const t = terms.find((x) => x && x.handle === me);
-   return (t && t.agentIdentity) || null;
- }
-
++  if (!me) return null;
++  const terms = ((orca(["terminal", "list"]).result || {}).terminals || []);
++  const t = terms.find((x) => x && x.handle === me);
++  return (t && t.agentIdentity) || null;
++}
++
 +function validateAck(f) {
 +  if (f.ack != null && (typeof f.ack !== "string" || !f.ack.trim())) {
 +    fail("--ack requires a deliveryId", { run: f.run });
 +  }
 +}
 +
- function wait(f) {
++function wait(f) {
 +  validateAck(f);
 +  const self = selfHarness();
-   if (process.env.DELY_WAITER !== "1") {
--    const self = selfHarness();
-     const who = self || f.control;
-     const wake = (harnessById(who) || {}).controlWake || "unknown";
-     if (wake !== "background") {
-@@ -450,32 +1577,52 @@ function wait(f) {
-       out("REFUSED " + who + " wakes by " + wake + said + "; use dely wait-bg", 3);
-     }
-   }
--  const deadline = Date.now() + Number(f["timeout-min"] || 60) * 60000;
++  if (process.env.DELY_WAITER !== "1") {
++    const who = self || f.control;
++    const wake = (harnessById(who) || {}).controlWake || "unknown";
++    if (wake !== "background") {
++      const said = self && self !== f.control ? " (called with --control " + f.control + ")" : "";
++      out("REFUSED " + who + " wakes by " + wake + said + "; use dely wait-bg", 3);
++    }
++  }
 +  const as = f.as ? ["--terminal", f.as] : [];
 +  const control = (f.as ? selfHarness(f.as) : self) || f.control || null;
 +  const deadline = Date.now() + Number(f["timeout-min"] || 55) * 60000;
-   const stallMin = Number(f["stall-min"] || 10);
-   const skip = String(f.skip || "").split(",").filter(Boolean);
--  const as = f.as ? ["--terminal", f.as] : [];
-   const track = {};
-   let lastProgressCheck = 0;
++  const stallMin = Number(f["stall-min"] || 10);
++  const skip = String(f.skip || "").split(",").filter(Boolean);
++  const track = {};
++  let lastProgressCheck = 0;
 +  let pendingAck = typeof f.ack === "string" ? f.ack : null;
 +  let waiting = false;
-   while (Date.now() < deadline) {
++  while (Date.now() < deadline) {
 +    const ack = pendingAck;
 +    pendingAck = null;
-     const r = orca([
-       "orchestration",
-       "check",
-       ...as,
++    const r = orca([
++      "orchestration",
++      "check",
++      ...as,
 +      ...(ack ? ["--ack", ack] : []),
-       "--wait",
-       "--run",
-       f.run,
-       "--timeout-ms",
-       String(Math.max(1, Math.floor(POLL_S * 1000))),
-     ]);
--    if (r.ok === false) fail((r.error && r.error.message) || "check failed", { run: f.run });
++      "--wait",
++      "--run",
++      f.run,
++      "--timeout-ms",
++      String(Math.max(1, Math.floor(POLL_S * 1000))),
++    ]);
 +    if (r.ok === false) fail((r.error && r.error.message) || (ack ? "check --ack failed" : "check failed"), { run: f.run });
 +    if (!waiting) {
 +      logEvent("wait", { run: f.run, control });
 +      waiting = true;
 +    }
-     const res = r.result || {};
-     if (res.deliveryId) {
-       const msgs = res.messages || [];
--      if (msgs.some((m) => ["worker_done", "escalation", "question"].includes(m.type))) {
++    const res = r.result || {};
++    if (res.deliveryId) {
++      const msgs = res.messages || [];
 +      if (msgs.some(settling)) {
 +        // A worker that settled with an accepted worker_done is finished; an
 +        // escalation or question is alive and waiting for a reply.
 +        const done = msgs.filter((m) => !isRejected(m) && m.type === "worker_done").map(messageDispatchId);
 +        const release = [...new Set(done.filter(Boolean))].map(releaseWorker);
-         logEvent("settled", {
-           run: f.run,
-           deliveryId: res.deliveryId,
--          messages: msgs.map((m) => ({ type: m.type, subject: m.subject })),
++        logEvent("settled", {
++          run: f.run,
++          deliveryId: res.deliveryId,
 +          control,
 +          messages: msgs.map((m) => ({
 +            type: m.type,
@@ -2109,18 +3769,22 @@ index b1af067..6501113 100644
 +            dispatchId: messageDispatchId(m),
 +          })),
 +          release,
-         });
-         out(
-           {
-@@ -487,10 +1634,23 @@ function wait(f) {
-               subject: m.subject,
-               payload: m.payload,
-             })),
++        });
++        out(
++          {
++            SETTLED: res.deliveryId,
++            messages: msgs.map((m) => ({
++              id: m.id,
++              type: m.type,
++              from: m.from_handle,
++              subject: m.subject,
++              payload: m.payload,
++            })),
 +            release,
-           },
-           0
-         );
-       }
++          },
++          0
++        );
++      }
 +      if (msgs.some((m) => ["worker_done", "escalation", "question"].includes(m.type)) && !msgs.some(settling)) {
 +        logEvent("rejected", {
 +          run: f.run,
@@ -2133,50 +3797,139 @@ index b1af067..6501113 100644
 +          })),
 +        });
 +      }
-       orca(["orchestration", "check", ...as, "--run", f.run, "--ack", res.deliveryId]);
-       continue;
-     }
-@@ -552,9 +1712,11 @@ function wait(f) {
- }
-
- function waitBg(f) {
++      orca(["orchestration", "check", ...as, "--run", f.run, "--ack", res.deliveryId]);
++      continue;
++    }
++    const rows = ((orca(["orchestration", "worker-list", "--run", f.run]).result || {}).workers || []).filter(
++      (w) => !skip.includes(w.dispatchId)
++    );
++    // dispatched is load-bearing: pending+requiresAction is the start
++    // transient; completed+release is a settled worker awaiting release.
++    const act = rows.filter((w) => {
++      const proj = w.projection || {};
++      // An absent optional field is an absent field, not a value: a row with
++      // no projection, or a projection with no nextAction, is not attention.
++      const kind = (proj.nextAction || {}).kind || "none";
++      const needs = (proj.attention || {}).requiresAction === true;
++      return w.dispatchStatus === "dispatched" && (kind !== "none" || needs);
++    });
++    if (act.length) {
++      const payload = act.map((w) => ({
++        dispatchId: w.dispatchId,
++        liveness: (w.projection || {}).liveness,
++        nextAction: (w.projection || {}).nextAction,
++        attention: (w.projection || {}).attention,
++      }));
++      logEvent("attention", { run: f.run, workers: payload });
++      out({ ATTENTION: payload }, 8);
++    }
++    if (Date.now() - lastProgressCheck < PROGRESS_S * 1000) continue;
++    lastProgressCheck = Date.now();
++    for (const w of rows.filter((w) => w.dispatchStatus === "dispatched")) {
++      const idle = advance(track, w.dispatchId);
++      const rec = track[w.dispatchId] || {};
++      if (!rec.error && rec.source !== "transcript") continue;
++      if (idle >= stallMin) {
++        const raw = screenText(w.dispatchId);
++        const why = rec.error ? rec.error : "no new output for " + Math.floor(idle) + " min";
++        logEvent("stalled", {
++          run: f.run,
++          dispatchId: w.dispatchId,
++          idleMinutes: Math.floor(idle),
++          liveness: (w.projection || {}).liveness,
++          text: raw,
++        });
++        out(
++          "STALLED " +
++            w.dispatchId +
++            " " +
++            why +
++            "; liveness " +
++            JSON.stringify((w.projection || {}).liveness) +
++            "; last output: " +
++            clip(raw),
++          6
++        );
++      }
++    }
++  }
++  logEvent("deadline", { run: f.run });
++  out("DEADLINE", 7);
++}
++
++function waitBg(f) {
 +  validateAck(f);
 +  requireHandle({ run: f.run });
-   const me = process.env.ORCA_TERMINAL_HANDLE;
--  if (!me) fail("not inside an Orca terminal", { run: f.run });
-   const file = path.resolve(f.out || path.join(os.tmpdir(), "dely-wait-" + f.run + ".out"));
++  const me = process.env.ORCA_TERMINAL_HANDLE;
++  const file = path.resolve(f.out || path.join(os.tmpdir(), "dely-wait-" + f.run + ".out"));
 +  fs.mkdirSync(path.dirname(file), { recursive: true });
-   const lock = file + ".lock";
-   const recorded = () => {
-     try {
-@@ -580,7 +1742,7 @@ function waitBg(f) {
-     fs.writeFileSync(lock, JSON.stringify({ terminal: "" }), { flag: "wx" });
-   } catch (_) {
-     if (live(recorded())) {
--      logEvent("wait_bg", { run: f.run, which: "ALREADY_WAITING", path: file });
++  const lock = file + ".lock";
++  const recorded = () => {
++    try {
++      const j = JSON.parse(fs.readFileSync(lock, "utf8"));
++      return (j && j.terminal) || "";
++    } catch (_) {
++      return "";
++    }
++  };
++  const live = (handle) => {
++    if (!handle) return false;
++    const terms = ((orca(["terminal", "list"]).result || {}).terminals || []);
++    return terms.some((t) => t && t.handle === handle);
++  };
++  const writeLock = (handle) => {
++    try {
++      fs.writeFileSync(lock, JSON.stringify({ terminal: handle || "" }));
++    } catch (_) {
++      /* vanished or unwritable */
++    }
++  };
++  try {
++    fs.writeFileSync(lock, JSON.stringify({ terminal: "" }), { flag: "wx" });
++  } catch (_) {
++    if (live(recorded())) {
 +      logEvent("wait_bg", { run: f.run, which: "ALREADY_WAITING", path: file, control: selfHarness() || f.control || null });
-       out("ALREADY_WAITING: a dely wait is running for this Run; end your turn, it will wake you.", 0);
-     }
-     writeLock("");
-@@ -593,11 +1755,11 @@ function waitBg(f) {
-   const q = JSON.stringify;
-   const self = q(__filename);
-   const bin = q(process.execPath);
--  const extra = ["control", "skip", "stall-min", "timeout-min"]
++      out("ALREADY_WAITING: a dely wait is running for this Run; end your turn, it will wake you.", 0);
++    }
++    writeLock("");
++  }
++  try {
++    fs.unlinkSync(file);
++  } catch (_) {
++    /* no prior output */
++  }
++  const q = JSON.stringify;
++  const self = q(__filename);
++  const bin = q(process.execPath);
 +  const extra = ["control", "skip", "stall-min", "timeout-min", "ack"]
-     .filter((k) => f[k] && f[k] !== true)
-     .map((k) => " --" + k + " " + q(f[k]))
-     .join("");
--  const cmd =
++    .filter((k) => f[k] && f[k] !== true)
++    .map((k) => " --" + k + " " + q(f[k]))
++    .join("");
 +  const posixCmd =
-     "DELY_WAITER=1 " +
-     bin +
-     " " +
-@@ -622,7 +1784,21 @@ function waitBg(f) {
-     " --out " +
-     q(file) +
-     "; exit";
--  const r = orca(["terminal", "create", "--worktree", "path:" + process.cwd(), "--title", "dely-wait", "--command", cmd]);
++    "DELY_WAITER=1 " +
++    bin +
++    " " +
++    self +
++    " wait --run " +
++    q(f.run) +
++    " --as " +
++    q(me) +
++    extra +
++    " > " +
++    q(file) +
++    " 2>&1; rm -f " +
++    q(lock) +
++    "; " +
++    bin +
++    " " +
++    self +
++    " notify --run " +
++    q(f.run) +
++    " --as " +
++    q(me) +
++    " --out " +
++    q(file) +
++    "; exit";
 +  const windows = process.platform === "win32";
 +  const quotePs = (value) => "'" + String(value).replace(/'/g, "''") + "'";
 +  const childArgs = [process.execPath, __filename, "_wait-bg-child",
@@ -2192,18 +3945,19 @@ index b1af067..6501113 100644
 +    ...(windows ? ["--shell", "powershell.exe"] : []),
 +    "--title", "dely-wait", "--command", cmd,
 +  ]);
-   if (r.ok === false) {
-     try {
-       fs.unlinkSync(lock);
-@@ -632,10 +1808,30 @@ function waitBg(f) {
-     fail((r.error && r.error.message) || "terminal create failed", { run: f.run });
-   }
-   writeLock((r.result && r.result.terminal && r.result.terminal.handle) || "");
--  logEvent("wait_bg", { run: f.run, which: "WAITING", path: file });
++  if (r.ok === false) {
++    try {
++      fs.unlinkSync(lock);
++    } catch (_) {
++      /* lock */
++    }
++    fail((r.error && r.error.message) || "terminal create failed", { run: f.run });
++  }
++  writeLock((r.result && r.result.terminal && r.result.terminal.handle) || "");
 +  logEvent("wait_bg", { run: f.run, which: "WAITING", path: file, control: selfHarness() || f.control || null });
-   out("WAITING", 0);
- }
-
++  out("WAITING", 0);
++}
++
 +function waitBgChild(f) {
 +  const file = path.resolve(f.out);
 +  const args = ["wait", "--run", f.run, "--as", f.as];
@@ -2224,13 +3978,32 @@ index b1af067..6501113 100644
 +  notify(f);
 +}
 +
- function notify(f) {
-   const run = (orca(["orchestration", "run-show", "--id", f.run]).result || {}).run || {};
-   const to = run.coordinator_handle || f.as;
-@@ -662,7 +1858,155 @@ function notify(f) {
-   }
- }
-
++function notify(f) {
++  const run = (orca(["orchestration", "run-show", "--id", f.run]).result || {}).run || {};
++  const to = run.coordinator_handle || f.as;
++  const text = "dely wait finished for " + f.run + ". Finish your current step, then read " + f.out + " and continue.";
++  const retryMs = Math.max(1, Math.floor(NOTIFY_RETRY_S * 1000));
++  const giveUpMs = NOTIFY_GIVEUP_S * 1000;
++  for (const t0 = Date.now(); ; ) {
++    const r = orca(["terminal", "send", "--terminal", to, "--text", text, "--enter"]);
++    if (r.ok !== false) {
++      logEvent("notify", { run: f.run, target: to, result: "sent" });
++      return;
++    }
++    const msg = (r.error && r.error.message) || "";
++    if (!/agent_prompt_blocked/.test(msg)) {
++      logEvent("notify", { run: f.run, target: to, result: "failed" });
++      return;
++    }
++    const left = giveUpMs - (Date.now() - t0);
++    if (left <= 0) {
++      logEvent("notify", { run: f.run, target: to, result: "gave_up" });
++      process.exit(1);
++    }
++    sleep(Math.min(retryMs, left));
++  }
++}
++
 +function cleanup(f) {
 +  const controlHandle = process.env.ORCA_TERMINAL_HANDLE ||
 +    (((orca(["orchestration", "run-show", "--id", f.run]).result || {}).run || {}).coordinator_handle) || null;
@@ -2377,17 +4150,18 @@ index b1af067..6501113 100644
 +  out(outMsg, 0);
 +}
 +
- function logCmd(f) {
++function logCmd(f) {
 +  if (typeof f.repo === "string") f.repo = path.resolve(f.repo);
 +  else delete f.repo;
-   let payload;
-   try {
-     payload = JSON.parse(f.json);
-@@ -672,20 +2016,38 @@ function logCmd(f) {
-   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-     fail("--json must be an object", { run: f.run });
-   }
--  logEvent("delivery", Object.assign({}, payload, { run: f.run, repo: f.repo || payload.repo || null }));
++  let payload;
++  try {
++    payload = JSON.parse(f.json);
++  } catch (e) {
++    fail("cannot parse --json: " + (e.message || e), { run: f.run });
++  }
++  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
++    fail("--json must be an object", { run: f.run });
++  }
 +  const repo = f.repo || payload.repo || null;
 +  const root = repo ? path.resolve(repo) : null;
 +  const listed = root ? listFiles(runFolder(root, f.run)) : null;
@@ -2397,9 +4171,9 @@ index b1af067..6501113 100644
 +  const released = { release: swept.release };
 +  if (swept.releaseError != null) released.releaseError = swept.releaseError;
 +  logEvent("delivery", Object.assign({}, payload, { run: f.run, repo, residue }, extra, released));
-   process.exit(0);
- }
-
++  process.exit(0);
++}
++
 +function pinsCmd(f) {
 +  const result = {};
 +  for (const phase of ["implement", "review"]) {
@@ -2409,54 +4183,66 @@ index b1af067..6501113 100644
 +  out(result, 0);
 +}
 +
- const COMMANDS = {
--  preflight: { required: [["repo", "PATH"], ["run", "RUN"]], optional: [] },
++const COMMANDS = {
 +  pins: { required: [["repo", "PATH"]], optional: [] },
 +  preflight: { required: [["repo", "PATH"], ["run", "RUN"]], optional: [["assessment-file", "FILE"], ["spec-file", "FILE"]] },
-   dispatch: {
-     required: [
-       ["repo", "PATH"],
-       ["run", "RUN"],
--      ["phase", "implement|review"],
++  dispatch: {
++    required: [
++      ["repo", "PATH"],
++      ["run", "RUN"],
 +      ["phase", "implement"],
-       ["spec-file", "FILE"],
-     ],
--    optional: [],
++      ["spec-file", "FILE"],
++    ],
 +    optional: [["fallback", "quota"], ["fallback-stage", "1"], ["assessment-file", "FILE"]],
-   },
-   wait: {
-     required: [["run", "RUN"], ["control", "HARNESS"]],
-@@ -694,6 +2056,7 @@ const COMMANDS = {
-       ["skip", "IDS"],
-       ["stall-min", "N"],
-       ["timeout-min", "N"],
++  },
++  wait: {
++    required: [["run", "RUN"], ["control", "HARNESS"]],
++    optional: [
++      ["as", "TERMINAL"],
++      ["skip", "IDS"],
++      ["stall-min", "N"],
++      ["timeout-min", "N"],
 +      ["ack", "DELIVERY"],
-     ],
-   },
-   "wait-bg": {
-@@ -703,12 +2066,17 @@ const COMMANDS = {
-       ["skip", "IDS"],
-       ["stall-min", "N"],
-       ["timeout-min", "N"],
++    ],
++  },
++  "wait-bg": {
++    required: [["run", "RUN"], ["control", "HARNESS"]],
++    optional: [
++      ["out", "FILE"],
++      ["skip", "IDS"],
++      ["stall-min", "N"],
++      ["timeout-min", "N"],
 +      ["ack", "DELIVERY"],
-     ],
-   },
-   notify: {
-     required: [["run", "RUN"], ["out", "FILE"]],
-     optional: [["as", "TERMINAL"]],
-   },
++    ],
++  },
++  notify: {
++    required: [["run", "RUN"], ["out", "FILE"]],
++    optional: [["as", "TERMINAL"]],
++  },
 +  cleanup: {
 +    required: [["run", "RUN"]],
 +    optional: [],
 +  },
-   log: {
-     required: [["run", "RUN"], ["json", "OBJ"]],
-     optional: [["repo", "PATH"]],
-@@ -729,7 +2097,13 @@ function printUsage() {
- }
-
- const [cmd, ...rest] = process.argv.slice(2);
--const table = { preflight, dispatch, wait, "wait-bg": waitBg, notify, log: logCmd };
++  log: {
++    required: [["run", "RUN"], ["json", "OBJ"]],
++    optional: [["repo", "PATH"]],
++  },
++};
++
++function usageLine(name) {
++  const spec = COMMANDS[name];
++  const bits = spec.required.map(([k, v]) => "--" + k + " " + v);
++  const opts = spec.optional.map(([k, v]) => "[--" + k + " " + v + "]");
++  return "  dely " + name + " " + bits.concat(opts).join(" ");
++}
++
++function printUsage() {
++  console.log("usage:");
++  for (const name of Object.keys(COMMANDS)) console.log(usageLine(name));
++  console.log("  dely <subcommand> --help");
++}
++
++const [cmd, ...rest] = process.argv.slice(2);
 +const table = { pins: pinsCmd, preflight, dispatch, wait, "wait-bg": waitBg, notify, cleanup, log: logCmd };
 +if (cmd === "_wait-bg-child") {
 +  const childFlags = flags(rest);
@@ -2464,13 +4250,29 @@ index b1af067..6501113 100644
 +  waitBgChild(childFlags);
 +  process.exit(0);
 +}
- if (!cmd) {
-   printIdentity();
-   printUsage();
-@@ -753,4 +2127,37 @@ if (missing.length) {
-   console.log(usageLine(cmd));
-   process.exit(2);
- }
++if (!cmd) {
++  printIdentity();
++  printUsage();
++  process.exit(0);
++}
++if (!COMMANDS[cmd]) {
++  printUsage();
++  process.exit(2);
++}
++const f = flags(rest);
++if (f.help === true) {
++  const i = rest.indexOf("--help");
++  if (!(i > 0 && String(rest[i - 1]).startsWith("--"))) {
++    console.log(usageLine(cmd));
++    process.exit(0);
++  }
++}
++const missing = COMMANDS[cmd].required.filter(([k]) => !f[k]).map(([k]) => "--" + k);
++if (missing.length) {
++  console.log("missing " + missing.join(", "));
++  console.log(usageLine(cmd));
++  process.exit(2);
++}
 +if (f.fallback != null && cmd !== "dispatch") {
 +  console.log("ERROR --fallback is supported only for implementation dispatch");
 +  console.log(usageLine(cmd));
@@ -2504,10 +4306,10 @@ index b1af067..6501113 100644
 +currentCommand = cmd;
 +currentFlags = f;
 +guardBefore(cmd, f);
- table[cmd](f);
++table[cmd](f);
 diff --git a/skills/delivery/scripts/task-routing.js b/skills/delivery/scripts/task-routing.js
 new file mode 100644
-index 0000000..4c24a7b
+index 0000000000000000000000000000000000000000..ab7a5c263be0ea1ed58391efab7cefff4c80490a
 --- /dev/null
 +++ b/skills/delivery/scripts/task-routing.js
 @@ -0,0 +1,236 @@
@@ -2566,12 +4368,12 @@ index 0000000..4c24a7b
 +}
 +
 +function route(difficulty) {
-+  const sonnet = { harness: "antigravity", model: "claude-sonnet-5-5-high", effort: "default" };
++  const sol = { harness: "codex", model: "gpt-6.1-sol", effort: "medium" };
 +  const flash = { harness: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" };
 +  const luna = { harness: "codex", model: "gpt-6-luna", effort: "max" };
 +  if (difficulty === "hard") return { workflow: "direct", primary: { harness: "codex", model: "gpt-6.1-sol", effort: "xhigh" }, fallback: [] };
 +  if (!Object.hasOwn(RANK, difficulty)) throw new Error("Invalid difficulty");
-+  return { workflow: "dely", primary: difficulty === "medium_plus" ? sonnet : flash,
++  return { workflow: "dely", primary: difficulty === "medium_plus" ? sol : flash,
 +    modelUnavailable: luna, fallback: [luna] };
 +}
 +
@@ -2749,7 +4551,7 @@ index 0000000..4c24a7b
 +});
 diff --git a/skills/delivery/scripts/usage.js b/skills/delivery/scripts/usage.js
 new file mode 100644
-index 0000000..0f46006
+index 0000000000000000000000000000000000000000..0f46006f90c1b0765c28632b076acc9bb6b3fe37
 --- /dev/null
 +++ b/skills/delivery/scripts/usage.js
 @@ -0,0 +1,36 @@

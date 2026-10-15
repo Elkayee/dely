@@ -53,12 +53,12 @@ function knownHard(task) {
 }
 
 function route(difficulty) {
-  const sonnet = { harness: "antigravity", model: "claude-sonnet-5-5-high", effort: "default" };
+  const sol = { harness: "codex", model: "gpt-6.1-sol", effort: "medium" };
   const flash = { harness: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" };
   const luna = { harness: "codex", model: "gpt-6-luna", effort: "max" };
   if (difficulty === "hard") return { workflow: "direct", primary: { harness: "codex", model: "gpt-6.1-sol", effort: "xhigh" }, fallback: [] };
   if (!Object.hasOwn(RANK, difficulty)) throw new Error("Invalid difficulty");
-  return { workflow: "dely", primary: difficulty === "medium_plus" ? sonnet : flash,
+  return { workflow: "dely", primary: difficulty === "medium_plus" ? sol : flash,
     modelUnavailable: luna, fallback: [luna] };
 }
 

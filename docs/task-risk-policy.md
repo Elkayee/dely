@@ -30,8 +30,8 @@ integrated acceptance. A refactor or integration can fit these grades when
 boundaries, owners, rollback and acceptance are already understood.
 
 Policy `jev-task-routing-v3` uses Flash 3.8 Medium/default for Easy and Medium-.
-Medium+ keeps Sonnet 5.5 High/default, with Luna/max only for explicit quota or
-a successful nonempty catalog proving the requested model absent. Hard stays
+Medium+ uses Codex Sol/medium, with Luna/max only for explicit quota. A
+successful nonempty AGY catalog proving a requested model absent also permits Luna/max. Hard stays
 direct Codex Sol/xhigh. Reassess earlier policy records; never rewrite an old
 assessment to make it look newly evaluated.
 

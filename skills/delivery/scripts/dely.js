@@ -779,7 +779,7 @@ function start(repo, run, p, spec, title) {
     return startAgyWindows(repo, run, p, spec, title);
   }
 
-  if (p.fallbackReason === "quota" || p.fallbackReason === "model_unavailable") {
+  if ((process.platform === "win32" && p.agent === "codex" && p.model === "gpt-6.1-sol" && p.effort === "medium") || p.fallbackReason === "quota" || p.fallbackReason === "model_unavailable") {
     return startCodexQuotaTerminal(repo, run, p, spec, title);
   }
 

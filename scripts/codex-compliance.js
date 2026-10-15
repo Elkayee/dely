@@ -184,7 +184,7 @@ function context(event, home, state = {}) {
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
     "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
-    "Easy/Medium- use AGY gemini-3.8-flash-medium/default; Medium+ keeps claude-sonnet-5-5-high/default with verified-absence or explicit-quota Luna/max fallback. " +
+    "Easy/Medium- use AGY gemini-3.8-flash-medium/default; Medium+ uses Codex gpt-6.1-sol/medium with explicit-quota Luna/max fallback. Verified AGY model absence also permits Luna/max. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
     "Read-only inspection and Orca coordination remain available.";

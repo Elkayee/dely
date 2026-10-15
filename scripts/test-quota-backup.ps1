@@ -18,7 +18,7 @@ $delyLog = Join-Path $homeRoot ".dely\log.jsonl"
 $globalAgents = Join-Path $homeRoot ".codex\AGENTS.md"
 $backupRow = '| `implement_backup` | Codex CLI | gpt-6-luna | max |'
 $tick = [string][char]96
-$primaryRow = "|" + $tick + "implement" + $tick + " | Antigravity CLI | claude-sonnet-5-5-high | default |"
+$primaryRow = "|" + $tick + "implement" + $tick + " | Codex CLI | gpt-6.1-sol | medium |"
 $flashRow = "|" + $tick + "implement_backup" + $tick + " | Antigravity CLI | gemini-3.8-flash-medium | default |"
 $lunaRow = "|" + $tick + "implement_backup_2" + $tick + " | Codex CLI | gpt-6-luna | max |"
 $projectReviewRow = "|" + $tick + "review" + $tick + " | Codex CLI | gpt-6.1-sol | high |"
@@ -169,7 +169,7 @@ if (args[0] === "terminal" && args[1] === "create") {
   result = {
     observation: { status: "live", exactWorker: true, agentWait: null },
     projection: {
-      provider: { id: codex ? "codex" : "antigravity", model: codex ? "gpt-6-luna" : (model ? model[1] : null) },
+      provider: { id: codex ? "codex" : "antigravity", model: scenario === "medium-wrong-live-model" ? "gpt-6-luna" : (model ? model[1] : null) },
       stage: { worker: "ready", dispatch: "dispatched", detail: "input_accepted", activity: working ? "working" : "idle" },
       liveness: { verdict: "live", source: "agent_status" },
       evidence: { durable: true, liveStatus: "fresh" }
@@ -209,7 +209,7 @@ if (args[0] === "terminal" && args[1] === "create") {
     const match = spec.match(/subject `([^`]+)`/);
     const terminal = get(started.args, "--terminal") || (created && created.response && created.response.result && created.response.result.terminal.handle) || "term_fixture";
     result = { messages: [{ type: "heartbeat", subject: match ? match[1] : "ack", from_handle: terminal, payload: { dispatchId: "ctx_fixture", taskId: "task_fixture", receiptMarker: match ? match[1] : "ack" } }] };
-    if (["preflight-missing-model", "preflight-fast-completion", "task-preflight-flash", "task-preflight-sonnet"].includes(scenario)) {
+    if (["preflight-missing-model", "preflight-fast-completion", "task-preflight-flash", "task-preflight-sonnet", "preflight-default"].includes(scenario)) {
       result.deliveryId = "delivery_preflight_fixture";
       result.messages.push({ type: "worker_done", from_handle: terminal, payload: { dispatchId: "ctx_fixture", taskId: "task_fixture", outcome: "succeeded" } });
     }
@@ -237,7 +237,7 @@ cp.execFileSync = function(file, args, options) {
       const index = process.argv.indexOf("--repo");
       require("fs").appendFileSync(require("path").join(process.argv[index + 1], "spec.md"), " changed during model discovery");
     }
-    if (["missing-sonnet-model", "missing-sonnet-late-prompt", "missing-model-stale", "missing-model-bad-pin", "uncertain-visible-prompt", "uncertain-no-prompt", "preflight-missing-model", "preflight-bad-luna-pin"].includes(scenario) || scenario.includes("fast-completion")) return "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n";
+    if (["missing-sonnet-model", "missing-sonnet-late-prompt", "missing-model-stale", "missing-model-bad-pin", "uncertain-visible-prompt", "uncertain-no-prompt", "preflight-missing-model", "preflight-bad-luna-pin"].includes(scenario) || scenario.includes("fast-completion")) return "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n";
     if (scenario === "missing-flash-model") return "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n";
     return "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n";
   }
@@ -370,10 +370,12 @@ cp.execFileSync = function(file, args, options) {
     Set-FixtureAssessment "medium_plus"
     $medium = Invoke-Scenario "medium" @()
     $mediumTerminal = @($medium.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
-    Assert-Case "Medium+ starts AGY Sonnet High" ($medium.ExitCode -eq 0 -and (Read-Command $mediumTerminal) -match '--model "claude-sonnet-5-5-high"') $medium.Output
+    Assert-Case "Medium+ starts native Codex Sol medium" ($medium.ExitCode -eq 0 -and (Read-Command $mediumTerminal) -match 'codex\.exe".*--model "gpt-6.1-sol" -c "model_reasoning_effort=medium"') $medium.Output
+    $wrongSol = Invoke-Scenario "medium-wrong-live-model" @()
+    Assert-Case "Medium+ rejects working evidence from a different Codex model" ($wrongSol.ExitCode -ne 0 -and $wrongSol.Output -match "no working Codex turn evidence") $wrongSol.Output
     $sonnetPreflight = Invoke-Raw "task-preflight-sonnet" @("preflight", "--repo", $repo, "--run", "quota-fixture-task-preflight-sonnet", "--assessment-file", "assessment.json", "--spec-file", "spec.md")
     $sonnetPreflightTerminal = @($sonnetPreflight.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
-    Assert-Case "task preflight checks the reviewed Medium+ Sonnet primary" ($sonnetPreflight.ExitCode -eq 0 -and (Read-Command $sonnetPreflightTerminal) -match '--model "claude-sonnet-5-5-high"') $sonnetPreflight.Output
+    Assert-Case "task preflight checks the reviewed Medium+ Sol medium primary" ($sonnetPreflight.ExitCode -eq 0 -and (Read-Command $sonnetPreflightTerminal) -match 'codex\.exe".*--model "gpt-6.1-sol" -c "model_reasoning_effort=medium"') $sonnetPreflight.Output
     $mediumQuota = Invoke-Scenario "medium-quota" @("--fallback", "quota")
     $mediumQuotaTerminal = @($mediumQuota.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     $mediumQuotaEvent = @($mediumQuota.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
@@ -389,19 +391,20 @@ cp.execFileSync = function(file, args, options) {
     $teamPinsDir = Join-Path $repo ".dely"
     $localPinsDir = Join-Path $teamPinsDir "local"
     New-Item -ItemType Directory -Path $localPinsDir -Force | Out-Null
-    Write-Utf8NoBom (Join-Path $teamPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"claude-sonnet-5-5-high","effort":"default"}}'
+    Write-Utf8NoBom (Join-Path $teamPinsDir "pins.json") '{"implement":{"harness":"codex","model":"gpt-6.1-sol","effort":"medium"}}'
     Set-FixturePins @($projectPrimary, $flashRow, $lunaRow) @($projectReviewRow)
     $teamPins = Invoke-Scenario "team-pins" @()
     Assert-Case "modern team pins take precedence over a mismatched global row" ($teamPins.ExitCode -eq 0) $teamPins.Output
     Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"gemini-3.8-flash-medium","effort":"default"}}'
     $localPins = Invoke-Scenario "local-pins" @()
     Assert-Case "modern personal pins take precedence and cannot evade route validation" ($localPins.ExitCode -ne 0 -and -not (Has-Launch $localPins) -and $localPins.Output -match "reviewed difficulty route") $localPins.Output
-    Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"claude-sonnet-5-5-high","effort":"default"}}'
+    Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"codex","model":"gpt-6.1-sol","effort":"medium"}}'
+    Set-FixtureAssessment "easy"
     $missingModel = Invoke-Scenario "missing-sonnet-model" @()
     $missingEvent = @($missingModel.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
     $missingTerminals = @($missingModel.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" })
     $missingCommand = if ($missingTerminals.Count -eq 1) { Read-Command $missingTerminals[0] } else { "" }
-    Assert-Case "verified Sonnet absence launches Luna/max directly with no AGY or Flash terminal" ($missingModel.ExitCode -eq 0 -and $missingTerminals.Count -eq 1 -and $missingCommand -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $missingEvent.fallbackReason -eq "model_unavailable" -and $null -eq $missingEvent.fallbackStage -and $missingEvent.launch.requested.model -eq "claude-sonnet-5-5-high" -and $missingEvent.launch.effective.model -eq "gpt-6-luna") $missingModel.Output
+    Assert-Case "verified Flash absence launches Luna/max directly with no AGY terminal" ($missingModel.ExitCode -eq 0 -and $missingTerminals.Count -eq 1 -and $missingCommand -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $missingEvent.fallbackReason -eq "model_unavailable" -and $null -eq $missingEvent.fallbackStage -and $missingEvent.launch.requested.model -eq "gemini-3.8-flash-medium" -and $missingEvent.launch.effective.model -eq "gpt-6-luna") $missingModel.Output
     $latePrompt = Invoke-Scenario "missing-sonnet-late-prompt" @()
     $lateEnters = @($latePrompt.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
     Assert-Case "missing-model Luna waits past 30 seconds for one visible prompt and sends one bare Enter" ($latePrompt.ExitCode -eq 0 -and $lateEnters.Count -eq 1 -and -not ($lateEnters[0].args -contains "--text")) $latePrompt.Output
@@ -417,7 +420,7 @@ cp.execFileSync = function(file, args, options) {
     $missingFlashTerminal = @($missingFlash.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     $missingFlashEvent = @($missingFlash.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
     Assert-Case "verified Flash absence also launches Luna/max and records the requested Flash pin" ($missingFlash.ExitCode -eq 0 -and (Read-Command $missingFlashTerminal) -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $missingFlashEvent.fallbackReason -eq "model_unavailable" -and $missingFlashEvent.launch.requested.model -eq "gemini-3.8-flash-medium") $missingFlash.Output
-    Set-FixtureAssessment "medium_plus"
+    Set-FixtureAssessment "easy"
     foreach ($catalogScenario in @("catalog-auth-error", "catalog-empty")) {
         $catalogFailure = Invoke-Scenario $catalogScenario @()
         Assert-Case "$catalogScenario stops without a worker instead of masquerading as model absence" ($catalogFailure.ExitCode -ne 0 -and -not (Has-Launch $catalogFailure) -and $catalogFailure.Output -match "AGY_MODEL_UNVERIFIED") $catalogFailure.Output
@@ -435,18 +438,21 @@ cp.execFileSync = function(file, args, options) {
     $wrongPrompt = @($wrongModel.Calls | Where-Object { $_.args[0] -eq "orchestration" -and @("worker-start", "dispatch") -contains $_.args[1] })
     $wrongClosed = @($wrongModel.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "close" })
     Assert-Case "a mismatched live footer is refused before dispatching the prompt" ($wrongModel.ExitCode -ne 0 -and $wrongPrompt.Count -eq 0 -and $wrongClosed.Count -eq 1 -and $wrongModel.Output -match "AGY_MODEL_NOT_APPLIED") $wrongModel.Output
-    Set-FixtureAssessment "medium_plus"
-    Set-FixturePins @($primaryRow, $flashRow, $lunaRow) @()
+    Set-FixtureAssessment "easy"
+    $agyPrimary = "|" + $tick + "implement" + $tick + " | Antigravity CLI | gemini-3.8-flash-medium | default |"
+    Write-Utf8NoBom (Join-Path $teamPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"gemini-3.8-flash-medium","effort":"default"}}'
+    Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"antigravity","model":"gemini-3.8-flash-medium","effort":"default"}}'
+    Set-FixturePins @($agyPrimary, $flashRow, $lunaRow) @()
     $preflightMissing = Invoke-Raw "preflight-missing-model" @("preflight", "--repo", $repo, "--run", "quota-fixture-preflight-missing-model", "--control", "codex")
     $preflightTerminals = @($preflightMissing.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" })
     $preflightCommand = if ($preflightTerminals.Count -eq 1) { Read-Command $preflightTerminals[0] } else { "" }
     Assert-Case "preflight missing model selects one Luna/max healthcheck and passes before implementation dispatch" ($preflightMissing.ExitCode -eq 0 -and $preflightTerminals.Count -eq 1 -and $preflightCommand -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $preflightMissing.Output -match 'PREFLIGHT implement codex PASS') $preflightMissing.Output
     $preflightAuth = Invoke-Raw "catalog-auth-error" @("preflight", "--repo", $repo, "--run", "quota-fixture-catalog-auth-error", "--control", "codex")
     Assert-Case "preflight authentication error stops without pretending the model is absent" ($preflightAuth.ExitCode -ne 0 -and -not (Has-Launch $preflightAuth) -and $preflightAuth.Output -match "AGY_MODEL_UNVERIFIED") $preflightAuth.Output
-    Set-FixturePins @($primaryRow, $flashRow, $badLuna) @()
+    Set-FixturePins @($agyPrimary, $flashRow, $badLuna) @()
     $preflightBadPin = Invoke-Raw "preflight-bad-luna-pin" @("preflight", "--repo", $repo, "--run", "quota-fixture-preflight-bad-luna-pin", "--control", "codex")
     Assert-Case "preflight cannot use a Luna fallback with unapproved default effort" ($preflightBadPin.ExitCode -ne 0 -and -not (Has-Launch $preflightBadPin) -and $preflightBadPin.Output -match "Missing-model fallback") $preflightBadPin.Output
-    Set-FixturePins @($primaryRow, $flashRow, $lunaRow) @()
+    Set-FixturePins @($agyPrimary, $flashRow, $lunaRow) @()
     $fastCompletion = Invoke-Raw "preflight-fast-completion" @("preflight", "--repo", $repo, "--run", "quota-fixture-preflight-fast-completion", "--control", "codex")
     $fastStarts = @($fastCompletion.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
     $fastEnters = @($fastCompletion.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
@@ -457,6 +463,11 @@ cp.execFileSync = function(file, args, options) {
         $rejectedEnters = @($rejectedCompletion.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
         Assert-Case "$completionScenario is rejected without a second worker or prompt submission" ($rejectedCompletion.ExitCode -ne 0 -and $rejectedStarts.Count -eq 1 -and $rejectedEnters.Count -eq 1 -and $rejectedCompletion.Output -match 'no working Codex turn evidence') $rejectedCompletion.Output
     }
+    Write-Utf8NoBom (Join-Path $localPinsDir "pins.json") '{"implement":{"harness":"codex","model":"default","effort":"default"}}'
+    $defaultPreflight = Invoke-Raw "preflight-default" @("preflight", "--repo", $repo, "--run", "quota-fixture-preflight-default")
+    $defaultTerminal = @($defaultPreflight.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" })
+    $defaultStart = @($defaultPreflight.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
+    Assert-Case "unrelated Codex default pins retain the generic launcher without literal default flags" ($defaultPreflight.ExitCode -eq 0 -and $defaultTerminal.Count -eq 0 -and $defaultStart.Count -eq 1 -and -not ($defaultStart[0].args -contains "--model") -and -not ($defaultStart[0].args -contains "--effort")) $defaultPreflight.Output
     Add-Content -LiteralPath (Join-Path $repo "spec.md") -Value "changed after review"
     $stale = Invoke-Scenario "stale" @()
     Assert-Case "a stale task assessment is refused before launch" ($stale.ExitCode -ne 0 -and -not (Has-Launch $stale) -and $stale.Output -match "stale") $stale.Output

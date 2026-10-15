@@ -3,11 +3,42 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-13.
+Last updated 2026-10-15.
 
 ---
 
 ## Settled
+
+### 2026-10-15 — Medium+ uses Codex Sol at medium effort
+
+The owner replaced the unavailable Sonnet implementation primary with Codex
+`gpt-6.1-sol` at `medium` effort. Easy and Medium- keep AGY Flash Medium;
+Hard remains direct Codex Sol/xhigh. The single explicit-quota fallback stays
+Luna/max. Verified AGY model absence retains its existing Luna exception.
+
+The reviewed route and deployment pins must agree. Earlier Medium+ assessments
+containing Sonnet are rejected by route validation and must be reassessed.
+The failing companion workspace's legacy implementation row is synchronized.
+Plan-No-Change and Task-No-Change there: machine routing maintenance is outside
+its data roadmap; no dataset, notebook or application behavior changes.
+On Windows, the primary reuses the existing native Codex terminal path; fresh
+working evidence must identify the requested model. Hook trust, instruction
+fingerprints and exact task/dispatch ownership checks remain enforced.
+
+Focused instruments are the routing pin checks, the native dispatch/preflight
+fixture, and the applicable archived-candidate rows in `probe/checklist.md`.
+Routing/compliance/staging checks passed 105/105. Native launch fixtures passed
+50/50 against both source and the active helper, including rejection of a wrong
+live model and preservation of unrelated Codex default pins. A separate verifier
+observed a successful native healthcheck and confirmed Sol/medium from the
+worker's own `turn_context`, rather than the terminal footer's default label.
+
+The native plugin manager retained stale installation metadata twice. Local
+activation therefore updated only task-owned routing/launch files in the existing
+cache and legacy install copies, retained the frozen backup, and refreshed both
+compliance installations with hook definitions byte-for-byte unchanged. Package
+manifests declare `0.27.2`; the active cache directory retains its older name.
+The persistent marketplace source points to the updated local install.
 
 ### 2026-10-13 — Stop follows admitted mutations
 

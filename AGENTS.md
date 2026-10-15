@@ -172,14 +172,14 @@ every delegated `dely dispatch`, including quota fallbacks. Pass both
 | --- | --- | --- | --- |
 | Easy | AGY Gemini 3.8 Flash Medium/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
 | Medium- | AGY Gemini 3.8 Flash Medium/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
-| Medium+ | AGY Sonnet 5.5 High/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Medium+ | Codex gpt-6.1-sol/medium | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
 | Hard | Codex gpt-6.1-sol/xhigh | None | Direct implementation and verification; no Dely |
 
 CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`. Medium- is
 bounded internal work with known ownership and low coupling; Medium+ coordinates
 known internal components and integrated acceptance. Hard risk flags take
 precedence. Old assessments must be rerun under the new policy.
-`implement` supplies Sonnet, `implement_backup` supplies Flash even as a primary,
+`implement` supplies Codex Sol/medium, `implement_backup` supplies Flash even as a primary,
 and `implement_backup_2` supplies the single Luna quota fallback for every grade.
 
 The context contains `scope`, `coupling`, `acceptance`, and source `evidence`,
@@ -220,7 +220,7 @@ starts no delivery run.
 
 | Phase | Harness | Model | Effort |
 | --- | --- | --- | --- |
-| `implement` | Antigravity CLI | claude-sonnet-5-5-high | default |
+| `implement` | Codex CLI | gpt-6.1-sol | medium |
 | `implement_backup` | Antigravity CLI | gemini-3.8-flash-medium | default |
 | `implement_backup_2` | Codex CLI | gpt-6-luna | max |
 

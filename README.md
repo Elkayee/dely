@@ -356,8 +356,8 @@ Missing classification/model evidence stays explicit. See the
 
 Version `0.24.9` assesses implementation tasks with policy `jev-task-routing-v3`
 before Dely creates a Run.
-Easy and Medium- use AGY Gemini 3.8 Flash Medium/default. Medium+ uses AGY
-Sonnet 5.5 High/default. Every delegated grade has one explicit quota fallback:
+Easy and Medium- use AGY Gemini 3.8 Flash Medium/default. Medium+ uses Codex
+GPT-6.1 Sol/medium. Every delegated grade has one explicit quota fallback:
 Codex Luna/max at stage 1.
 Hard runs directly in Codex Sol/xhigh without Dely. Codex Control reviews
 delegated work. Project or personal pins that contradict the reviewed route
@@ -368,7 +368,7 @@ focused acceptance. Medium+ coordinates known internal components with
 integrated acceptance. Existing Hard risk exclusions take precedence.
 The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`;
 old three-grade assessments must be rerun. The model rows stay compatible:
-`implement` supplies Sonnet, `implement_backup` supplies Flash as a primary,
+`implement` supplies Codex Sol/medium, `implement_backup` supplies Flash as a primary,
 and `implement_backup_2` supplies the single Luna quota fallback.
 
 AGY must advertise the requested model in `agy models`, and its live footer
@@ -445,7 +445,7 @@ Antigravity CLI (agy) implement worker
 - E2E is verified PASS on 2026-09-26 after removing the standalone CLI: preflight passed, the Antigravity implement worker created the exact marker, Orca received durable `worker_done` with `outcome=succeeded`, Dely settled the Run, and the runner verified `AGY_WORKER_OK`.
 - The local Dely adapter changes the Antigravity launch path and ignores Orca's informational `nextAction=inspect` when `requiresAction=false`; Claude/Codex/Cursor launch behavior remains upstream.
 - Each Dely implementation dispatch uses a fresh AGY terminal. The POC records exact terminal handles in a temporary Run-scoped file and closes only those terminals during cleanup.
-- `AGENTS.md` pins only `implement` to `Antigravity CLI`; review is performed directly by Codex Control.
+- `AGENTS.md` pins `implement` to Codex Sol/medium and `implement_backup` to AGY Flash; review is performed directly by Codex Control.
 
 Dely upstream currently marks Antigravity as deferred because its normal `worker-start` readiness path is not reliable. This POC restores an injected-terminal path only for AGY.
 
@@ -516,13 +516,13 @@ C:\Users\Home33\.codex\AGENTS.md
 with:
 
 ```text
-implement        -> Antigravity CLI / claude-sonnet-5-5-high / default
+implement        -> Codex CLI / gpt-6.1-sol / medium
 implement_backup -> Antigravity CLI / gemini-3.8-flash-medium / default
 implement_backup_2 -> Codex CLI / gpt-6-luna / max
 review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. Pins must match the reviewed difficulty route: Easy/Medium- select Flash Medium/default, and Medium+ selects Sonnet High/default. Every delegated grade has one explicit primary-quota fallback, `--fallback quota --fallback-stage 1`, to Codex Luna/max after the prior attempt is inactive and released when required. There is no second quota stage. A successful nonempty catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unknown failures and an unapplied requested model/level footer stop. Native Codex fallback retains the bounded idle, one visibly unsubmitted-prompt Enter and fresh working-evidence checks.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. Pins must match the reviewed difficulty route: Easy/Medium- select Flash Medium/default, and Medium+ selects Codex Sol/medium. Every delegated grade has one explicit primary-quota fallback, `--fallback quota --fallback-stage 1`, to Codex Luna/max after the prior attempt is inactive and released when required. There is no second quota stage. A successful nonempty AGY catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unknown failures and an unapplied requested model/level footer stop. Native Codex workers retain the bounded idle, one visibly unsubmitted-prompt Enter and fresh working-evidence checks.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
@@ -559,7 +559,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orca/scripts/poc-pref
 When the verified AGY catalog lacks the requested model, expect:
 
 ```text
-MODEL_UNAVAILABLE claude-sonnet-5-5-high -> Codex gpt-6-luna/max
+MODEL_UNAVAILABLE gemini-3.8-flash-medium -> Codex gpt-6-luna/max
 PREFLIGHT implement codex PASS ...
 ```
 
@@ -590,7 +590,7 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 ### Worker model
 
-Easy and Medium- use `gemini-3.8-flash-medium` with default effort. Medium+ keeps `claude-sonnet-5-5-high` with default effort. Every delegated grade has one explicit quota fallback to Codex `gpt-6-luna` at max effort. A successful nonempty AGY catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unusable catalog, or an unapplied requested model/level footer stops dispatch.
+Easy and Medium- use `gemini-3.8-flash-medium` with default effort. Medium+ uses Codex `gpt-6.1-sol` with medium effort. Every delegated grade has one explicit quota fallback to Codex `gpt-6-luna` at max effort. A successful nonempty AGY catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unusable catalog, or an unapplied requested model/level footer stops dispatch.
 
 Prefer Dely for reversible bounded internal work. The six risk flags describe
 actual consequential changes, rather than a topic or repository name. Apply

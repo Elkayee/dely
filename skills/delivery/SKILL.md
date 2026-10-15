@@ -16,7 +16,7 @@ Use the script's `review` command to record Codex Control's evidence-based
 decision, then pass `--assessment-file <assessment>` on every dispatch.
 
 - Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash Medium/default.
-- Medium+ (`medium_plus`): AGY Sonnet 5.5 High/default.
+- Medium+ (`medium_plus`): Codex GPT-6.1 Sol/medium.
 - Every delegated grade has one explicit primary-quota fallback: Codex
   Luna/max at stage 1. There is no second quota stage.
 - A successful AGY catalog that lacks the requested model routes directly to
@@ -44,7 +44,7 @@ retain unknown effects as unevaluated. See [task risk policy](../../docs/task-ri
 The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
 Reassess old policy records; the undivided `medium` label is not accepted.
 
-The existing model rows remain: `implement` supplies Sonnet,
+The existing model rows remain: `implement` supplies Codex Sol/medium,
 `implement_backup` supplies Flash, and `implement_backup_2` supplies Luna.
 Flash's row is selected for an Easy/Medium- primary without a quota reason.
 Pass `--assessment-file` and `--spec-file` together on a task's `dely preflight`
