@@ -9,6 +9,26 @@ Last updated 2026-10-15.
 
 ## Settled
 
+### 2026-10-15 — Native model visibility and Codex start identity
+
+An Orca provider projection initially reported a different model from the
+native Codex turn and later converged. The compliance hook now exposes its
+native model with session and turn identifiers in startup/prompt guidance and
+verified inherited PreToolUse responses. Missing model and unavailable native
+effort remain `NOT_EVALUATED`. Informational output changes no admission check.
+
+Codex start observations validate the exact Dispatch, worker and projected
+model before accepting `turn_started` or successful completion. Previously,
+those signals returned before the model and identity checks. A conflicting
+projection keeps the attempt unknown until matching evidence is observed;
+it never authorizes a replacement or prompt replay.
+
+The focused startup regression was red for wrong-model and wrong-worker
+`turn_started` signals before the guard. Native-hook tests were red because
+model evidence was omitted; they also cover missing evidence and preserve
+denial of a wrong native model or unrelated prompt. Active plugin caches and
+hook wiring remain frozen until their existing plans finish.
+
 ### 2026-10-15 — Medium+ uses Codex Sol at medium effort
 
 The owner replaced the unavailable Sonnet implementation primary with Codex

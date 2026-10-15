@@ -587,16 +587,21 @@ function observedTurn(value, expectedDispatch, expectedModel) {
   const projection = result.projection || {};
   const prompt = result.prompt || projection.prompt || {};
   const stages = Array.isArray(prompt.stages) ? prompt.stages : [];
+  const observation = result.observation || {};
+  const provider = projection.provider || {};
+  const dispatch = result.dispatch || {};
+  const worker = result.worker || {};
+  if (!expectedDispatch || dispatch.id !== expectedDispatch ||
+      worker.dispatchId !== expectedDispatch || projection.dispatchId !== expectedDispatch ||
+      observation.exactWorker !== true || provider.id !== "codex" || provider.model !== expectedModel) {
+    return null;
+  }
   if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
     return "turn_started";
   }
-  const observation = result.observation || {};
-  const provider = projection.provider || {};
   const stage = projection.stage || {};
   const liveness = projection.liveness || {};
   const evidence = projection.evidence || {};
-  const dispatch = result.dispatch || {};
-  const worker = result.worker || {};
   if (
     expectedDispatch && dispatch.id === expectedDispatch &&
     worker.dispatchId === expectedDispatch && projection.dispatchId === expectedDispatch &&

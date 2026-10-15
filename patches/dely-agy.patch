@@ -1,5 +1,5 @@
 diff --git a/.claude-plugin/plugin.json b/.claude-plugin/plugin.json
-index 9460b7946c3361176533277bc3559a1ede851940..6e1c9cd97c253f7559e82227733cfd0191cf6956 100644
+index 9460b7946c3361176533277bc3559a1ede851940..2ab8ca4d0b7b44d086756875efbca509459951be 100644
 --- a/.claude-plugin/plugin.json
 +++ b/.claude-plugin/plugin.json
 @@ -1,11 +1,11 @@
@@ -16,7 +16,7 @@ index 9460b7946c3361176533277bc3559a1ede851940..6e1c9cd97c253f7559e82227733cfd01
 -}
 +{
 +  "name": "dely",
-+  "version": "0.27.3",
++  "version": "0.27.4",
 +  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
 +  "license": "MIT",
 +  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
@@ -26,7 +26,7 @@ index 9460b7946c3361176533277bc3559a1ede851940..6e1c9cd97c253f7559e82227733cfd01
 +  }
 +}
 diff --git a/.codex-plugin/plugin.json b/.codex-plugin/plugin.json
-index 720371dabe571fea87f4709c3e8ac5494cb6ddde..f3f5023feaede85d5037dd6953c7da2ccf196833 100644
+index 720371dabe571fea87f4709c3e8ac5494cb6ddde..bae7aed45fa3cf939598af2932841f26787620e0 100644
 --- a/.codex-plugin/plugin.json
 +++ b/.codex-plugin/plugin.json
 @@ -1,21 +1,21 @@
@@ -53,7 +53,7 @@ index 720371dabe571fea87f4709c3e8ac5494cb6ddde..f3f5023feaede85d5037dd6953c7da2c
 -}
 +{
 +  "name": "dely",
-+  "version": "0.27.3",
++  "version": "0.27.4",
 +  "description": "An automation-first, Orca-supervised delivery protocol for coding agents.",
 +  "license": "MIT",
 +  "keywords": ["delivery", "workflow", "review", "orca", "automation"],
@@ -568,13 +568,13 @@ index 133492ead44a2bf3ddcf39a02320c328d78be08d..e4e504f967081d402cdbf612abe69ae2
 +}
 diff --git a/package.json b/package.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..48476f074ece916a9f11c4de2b675a4e83c90d82
+index 0000000000000000000000000000000000000000..76914199abf399f92e8e8fdc249c14df9c82804d
 --- /dev/null
 +++ b/package.json
 @@ -0,0 +1,9 @@
 +{
 +  "name": "dely",
-+  "version": "0.27.3",
++  "version": "0.27.4",
 +  "private": true,
 +  "pi": {
 +    "extensions": ["./extensions/dely-pin.ts"],
@@ -1384,10 +1384,10 @@ index 58358951812037443851c46141800f6234ae7805..a98e45ef5d8b050640049cd3aaff6f28
 +| Harness fails or evidence is insufficient | Preserve the candidate, report the native outcome and role disposition |
 +| Idempotent release step is interrupted | Verify Git and pull-request state, then resume |
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..6e417b0febe22195c28146f903fdd6fd4c903cbb 100644
+index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..13596c9db7c3e8833c021bf8233ecf4f7a3ba616 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
-@@ -1,756 +1,2163 @@
+@@ -1,756 +1,2168 @@
 -#!/usr/bin/env node
 -"use strict";
 -
@@ -2733,16 +2733,21 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..6e417b0febe22195c28146f903fdd6fd
 +  const projection = result.projection || {};
 +  const prompt = result.prompt || projection.prompt || {};
 +  const stages = Array.isArray(prompt.stages) ? prompt.stages : [];
++  const observation = result.observation || {};
++  const provider = projection.provider || {};
++  const dispatch = result.dispatch || {};
++  const worker = result.worker || {};
++  if (!expectedDispatch || dispatch.id !== expectedDispatch ||
++      worker.dispatchId !== expectedDispatch || projection.dispatchId !== expectedDispatch ||
++      observation.exactWorker !== true || provider.id !== "codex" || provider.model !== expectedModel) {
++    return null;
++  }
 +  if (result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) {
 +    return "turn_started";
 +  }
-+  const observation = result.observation || {};
-+  const provider = projection.provider || {};
 +  const stage = projection.stage || {};
 +  const liveness = projection.liveness || {};
 +  const evidence = projection.evidence || {};
-+  const dispatch = result.dispatch || {};
-+  const worker = result.worker || {};
 +  if (
 +    expectedDispatch && dispatch.id === expectedDispatch &&
 +    worker.dispatchId === expectedDispatch && projection.dispatchId === expectedDispatch &&

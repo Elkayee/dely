@@ -212,6 +212,10 @@ terminal inventory match, and the current user turn carries that dispatch's
 receipt marker or staged spec hash. A later unrelated prompt loses the
 exception. Prompt text claiming a worker role is insufficient.
 This preserves the worker instruction to read only its supplied task spec.
+Session and prompt guidance expose the native hook's model, session and turn.
+A verified inherited PreToolUse call also reports those facts to the worker.
+Missing model evidence stays `NOT_EVALUATED`; native hooks do not supply effort.
+These messages grant no admission and do not replace the existing checks.
 The native prompt guidance identifies this inherited path separately from
 Control preparation: workers read their supplied spec, send the receipt and
 report an admission denial to Control instead of reviewing themselves.

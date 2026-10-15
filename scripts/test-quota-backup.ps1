@@ -167,8 +167,11 @@ if (args[0] === "terminal" && args[1] === "create") {
   const model = command.match(/--model\s+"([^"]+)"/);
   const working = entered && scenario !== "stage2-not-working";
   result = {
+    dispatch: { id: "ctx_fixture", status: "dispatched" },
+    worker: { dispatchId: "ctx_fixture", state: "ready" },
     observation: { status: "live", exactWorker: true, agentWait: null },
     projection: {
+      dispatchId: "ctx_fixture",
       provider: { id: codex ? "codex" : "antigravity", model: scenario === "medium-wrong-live-model" ? "gpt-6-luna" : (model ? model[1] : null) },
       stage: { worker: "ready", dispatch: "dispatched", detail: "input_accepted", activity: working ? "working" : "idle" },
       liveness: { verdict: "live", source: "agent_status" },
@@ -181,7 +184,7 @@ if (args[0] === "terminal" && args[1] === "create") {
     result = {
       dispatch: { id, status: "completed" }, worker: { dispatchId: id, state: outcome },
       observation: { status: "exited", exactWorker: true },
-      projection: { dispatchId: id, provider: null,
+      projection: { dispatchId: id, provider: scenario === "fast-completion-no-model" ? null : { id: "codex", model: model ? model[1] : null },
         stage: { worker: outcome, dispatch: "completed", detail: "settled", activity: "unknown" },
         outcome, evidence: { durable: scenario !== "fast-completion-not-durable", liveStatus: "unavailable" },
         liveness: { verdict: "unverifiable" } }
@@ -457,7 +460,7 @@ cp.execFileSync = function(file, args, options) {
     $fastStarts = @($fastCompletion.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
     $fastEnters = @($fastCompletion.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
     Assert-Case "preflight accepts durable succeeded completion of its exact worker without requiring an intermediate working frame" ($fastCompletion.ExitCode -eq 0 -and $fastStarts.Count -eq 1 -and $fastEnters.Count -eq 1 -and $fastCompletion.Output -match 'PREFLIGHT implement codex PASS') $fastCompletion.Output
-    foreach ($completionScenario in @("fast-completion-other-dispatch", "fast-completion-failed", "fast-completion-not-durable")) {
+    foreach ($completionScenario in @("fast-completion-other-dispatch", "fast-completion-failed", "fast-completion-not-durable", "fast-completion-no-model")) {
         $rejectedCompletion = Invoke-Scenario $completionScenario @()
         $rejectedStarts = @($rejectedCompletion.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
         $rejectedEnters = @($rejectedCompletion.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })

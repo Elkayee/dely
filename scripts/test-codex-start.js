@@ -45,10 +45,11 @@ function fixture() {
       const id = state.wrongIdentity ? "ctx_other" : state.id;
       const working = state.enteredAt !== null && state.clock - state.enteredAt >= state.delay;
       return { ok: true, result: {
+        turnStart: working && state.turnStart ? "observed" : undefined,
         dispatch: { id, runId: "fixture", assigneeHandle: "term_fixture", status: state.dead && !state.unsettled ? "failed" : "dispatched", completedAt: state.dead && !state.unsettled ? "2026-10-15T00:00:00Z" : null },
         worker: { dispatchId: id, agentTerminalHandle: "term_fixture", state: state.dead ? "failed" : "ready" },
         observation: { status: state.dead ? "exited" : "live", exactWorker: !state.wrongIdentity },
-        projection: { dispatchId: id, provider: { id: "codex", model: state.wrongModel ? "gpt-6.1-sol" : pin.model },
+        projection: { dispatchId: id, provider: { id: "codex", model: state.wrongModel || state.clock < (state.projectionDelay || 0) ? "gpt-6.1-sol" : pin.model },
           stage: { worker: state.dead ? "exited" : "ready", dispatch: state.dead ? "failed" : "dispatched", detail: "input_accepted", activity: working ? "working" : "idle" },
           liveness: { verdict: state.dead ? "exited" : "live", source: "agent_status" }, evidence: { durable: true, liveStatus: "fresh" } },
       } };
@@ -106,6 +107,13 @@ try {
     assert.equal(f.starts, 1); assert.equal(f.enters, 1);
     assert.equal(f.events.filter((e) => e.event === "dispatch").length, 1);
   });
+  check("a stale provider model is re-observed without replaying the prompt", () => {
+    const f = fixture(); f.delay = 0; f.projectionDelay = 10000; f.turnStart = true;
+    assert.match(f.run(), /DISPATCHED/);
+    assert.ok(f.clock >= f.projectionDelay);
+    assert.equal(f.starts, 1); assert.equal(f.enters, 1);
+    assert.equal(f.events.filter((e) => e.event === "dispatch").length, 1);
+  });
   check("an ambiguous submission without a dispatch id retains the launch lock", () => {
     const f = fixture(); f.missingId = true;
     assert.match(f.run(), /OUTCOME_UNKNOWN/);
@@ -117,6 +125,12 @@ try {
     f.run(); f.delay = 0; f[field] = true;
     assert.match(f.run(), /OUTCOME_UNKNOWN/);
     assert.equal(f.starts, 1); assert.equal(f.events.filter((e) => e.event === "dispatch").length, 0);
+  });
+  for (const field of ["wrongModel", "wrongIdentity"]) check("turn_started cannot bypass " + field, () => {
+    const f = fixture(); f.delay = 0; f.turnStart = true; f[field] = true;
+    assert.doesNotMatch(f.run(), /DISPATCHED/);
+    assert.equal(f.starts, 1);
+    assert.equal(f.events.filter((e) => e.event === "dispatch").length, 0);
   });
   check("changed task input cannot bypass an uncertain attempt", () => {
     const f = fixture(); f.delay = Infinity; f.run();

@@ -167,6 +167,13 @@ function checkedSettings(home) {
   return settings;
 }
 
+function nativeModelContext(event) {
+  const model = typeof event.model === "string" && event.model.trim() ? JSON.stringify(event.model) : "NOT_EVALUATED";
+  return "Native Codex hook model: " + model + "; session: " + event.session_id +
+    "; turn: " + event.turn_id + "; effort: NOT_EVALUATED (not supplied by the native hook). " +
+    "This model evidence does not grant task admission. ";
+}
+
 function context(event, home, state = {}) {
   const script = path.join(root(home), "codex-compliance.js").replace(/\\/g, "/");
   const workerContext = state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length) ?
@@ -174,6 +181,7 @@ function context(event, home, state = {}) {
     "Read the supplied task spec and send its heartbeat receipt first. Do not prepare or review a task as a worker; report an admission denial to Control. " +
     "The preparation procedure below is for Codex Control. " : "";
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
+    nativeModelContext(event) +
     workerContext +
     "Before implementation, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
@@ -334,7 +342,10 @@ function hook(event, home, workerCheck = verifiedWorker) {
   if (type === "PreToolUse" && taskInputWrite(event, state, home)) return {};
   try {
     checkPrompt(state, home);
-    if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) return {};
+    if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) {
+      return type === "Stop" ? {} : { hookSpecificOutput: { hookEventName: type,
+        additionalContext: "Dely inherited admission checks passed for this tool call. " + nativeModelContext(event) } };
+    }
   } catch (_) { /* unknown worker identity never exempts a tool call */ }
   if (type === "Stop" && (!admitted || state.stop_reported)) return {};
   try {

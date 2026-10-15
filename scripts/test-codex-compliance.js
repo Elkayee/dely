@@ -994,9 +994,13 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   const event = { ...f.event, model: "gpt-6-luna" };
   guard.hook({ ...event, hook_event_name: "UserPromptSubmit",
     prompt: "Task spec staged at task.txt (100 bytes, SHA-256: " + spec + ")." }, f.home);
-  assert.deepEqual(guard.hook(event, f.home), {});
+  const admitted = guard.hook(event, f.home);
+  assert.match(admitted.hookSpecificOutput.additionalContext, /inherited admission checks passed/);
+  assert.match(admitted.hookSpecificOutput.additionalContext, /Native Codex hook model: "gpt-6-luna"/);
+  assert.ok(admitted.hookSpecificOutput.additionalContext.includes(event.turn_id));
+  assert.equal(admitted.hookSpecificOutput.permissionDecision, undefined);
   await f.prepare();
-  assert.deepEqual(guard.hook(event, f.home), {});
+  assert.deepEqual(guard.hook(event, f.home), admitted);
   const command = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"))
     .hooks.PreToolUse[0].hooks[0].command;
   const native = process.platform === "win32" ?
@@ -1005,7 +1009,7 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
     spawnSync(process.execPath, [path.join(f.home, "dely-compliance", "codex-compliance.js"), "hook", "--home", f.home],
       { input: JSON.stringify(event), encoding: "utf8" });
   assert.equal(native.status, 0, native.stderr);
-  assert.deepEqual(JSON.parse(native.stdout), {});
+  assert.deepEqual(JSON.parse(native.stdout), admitted);
   assert.equal(guard.hook({ ...event, model: "wrong-model" }, f.home).hookSpecificOutput.permissionDecision, "deny");
   delete process.env.ORCA_TERMINAL_HANDLE;
   assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
@@ -1020,6 +1024,22 @@ test("worker prompt guidance distinguishes inherited admission from Control revi
     prompt: "Task spec staged at task.txt (100 bytes, SHA-256: " + guard.digest(f.task.spec) + ")." }, f.home);
   assert.match(result.hookSpecificOutput.additionalContext, /workers inherit.*Control/i);
   assert.match(result.hookSpecificOutput.additionalContext, /Do not prepare or review.*worker/i);
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("native model evidence is visible without claiming admission or inferring effort", (t) => {
+  const f = fixture(t);
+  for (const hook_event_name of ["SessionStart", "UserPromptSubmit"]) {
+    const event = { ...f.event, hook_event_name, prompt: "Check the current model" };
+    const text = guard.hook(event, f.home).hookSpecificOutput.additionalContext;
+    assert.match(text, /Native Codex hook model: "gpt-6\.1-sol"/);
+    assert.ok(text.includes(event.session_id));
+    assert.ok(text.includes(event.turn_id));
+    assert.match(text, /effort: NOT_EVALUATED/);
+    assert.match(text, /does not grant.*admission/i);
+  }
+  const missing = guard.hook({ ...f.event, model: undefined, hook_event_name: "SessionStart" }, f.home);
+  assert.match(missing.hookSpecificOutput.additionalContext, /Native Codex hook model: NOT_EVALUATED/);
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
