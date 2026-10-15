@@ -30,6 +30,9 @@ with bounded header/full-session reads. Older pending records lacking launch
 time cannot be promoted. A succeeded pending worker is reconciled against its
 original receipt rather than executing the task again; failed settled attempts
 still require matching native evidence and confirmed release before replacement.
+Recovery retains any recorded session/turn. Identical session mirrors deduplicate;
+conflicting contexts or lagging mirrors of a later prompt remain unknown. Session
+enumeration/read races also preserve the unknown attempt instead of throwing.
 
 The focused startup regression was red for wrong-model and wrong-worker
 `turn_started` signals before the guard. Native-hook tests were red because

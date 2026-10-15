@@ -700,7 +700,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   recordOwnedTerminal(run, handle, id);
   updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
   const expected = { repo, run, id, terminalHandle: handle, pin: p, launchedAt,
-    receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/) || [])[0], spec };
+    receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/g) || []).at(-1), spec };
   let startEvidence = observedTurn(result, expected);
   if (!startEvidence) {
     const promptDeadline = Date.now() + 60000;

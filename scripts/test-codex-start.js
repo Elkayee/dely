@@ -50,15 +50,22 @@ function fixture() {
         const model = state.wrongModel || state.nativeWrongModel ? "gpt-5.6-terra" : pin.model;
         const effort = state.nativeWrongEffort ? "low" : pin.effort;
         const stamp = new Date(state.clock + (state.nativeFuture ? 120000 : 0)).toISOString();
-        const turn = "turn_fixture", spec = state.nativeWrongPrompt ? "unrelated task" : state.id + " " + state.spec;
+        const turn = state.nativeTurn || "turn_fixture", spec = state.nativeWrongPrompt ? "unrelated task" : state.id + " " + state.spec;
         const rows = [
-          { type: "session_meta", payload: { id: "session_fixture", cwd: repo, timestamp: new Date(state.nativeStale ? -1 : 0).toISOString() } },
+          { type: "session_meta", payload: { id: state.nativeSession || "session_fixture", cwd: repo, timestamp: new Date(state.nativeStale ? -1 : 0).toISOString() } },
           { type: "response_item", payload: { role: "user", content: [{ text: spec }], internal_chat_message_metadata_passthrough: { turn_id: turn } } },
           { type: "turn_context", timestamp: stamp, payload: { cwd: repo, turn_id: state.nativeWrongTurn ? "turn_other" : turn, model, effort, collaboration_mode: { settings: { model, reasoning_effort: effort } } } },
         ];
         if (state.nativeWrongRepo) rows[2].payload.cwd = root;
+        if (state.nativeConflict) rows.push({ ...rows[2], timestamp: new Date(state.clock - 1).toISOString() });
         const file = path.join(directory, "rollout-fixture.jsonl");
         fs.writeFileSync(file, rows.map(JSON.stringify).join("\n") + "\n");
+        if (state.nativeDuplicate) {
+          const copy = JSON.parse(JSON.stringify(rows));
+          if (state.nativeDuplicate === "conflicting") copy[2].timestamp = new Date(state.clock - 1).toISOString();
+          if (state.nativeDuplicate === "stale") copy[1].payload.content = [{ text: "A later unrelated user turn" }];
+          fs.writeFileSync(path.join(directory, "rollout-copy.jsonl"), copy.map(JSON.stringify).join("\n") + "\n");
+        }
       }
       return { ok: true, result: {
         turnStart: working && state.turnStart ? "observed" : undefined,
@@ -161,6 +168,41 @@ try {
     assert.match(f.run(), /DISPATCHED ctx_fixture_1/);
     assert.equal(f.starts, 1); assert.equal(f.enters, 1);
     assert.equal(f.calls.filter((a) => a[1] === "worker-release").length, 0);
+  });
+  for (const field of ["nativeSession", "nativeTurn"]) check("pending recovery cannot replace its recorded " + field, () => {
+    const f = fixture(); f.delay = 0; f.receipt = false;
+    assert.doesNotMatch(f.run(), /DISPATCHED/);
+    f.receipt = true; f[field] = "different_identity";
+    assert.match(f.run(), /OUTCOME_UNKNOWN/);
+    assert.equal(f.starts, 1);
+    assert.equal(f.events.filter((e) => e.event === "dispatch").length, 0);
+  });
+  check("identical native mirrors remain one proof", () => {
+    const f = fixture(); f.delay = 1; f.nativeDuplicate = "identical";
+    assert.match(f.run(), /DISPATCHED/);
+  });
+  for (const field of ["nativeConflict", "nativeDuplicate"]) check(field + " cannot collapse conflicting native contexts into one proof", () => {
+    const f = fixture(); f.delay = 1; f[field] = field === "nativeDuplicate" ? "conflicting" : true;
+    assert.match(f.run(), /OUTCOME_UNKNOWN/);
+    assert.equal(f.starts, 1);
+  });
+  check("a lagging mirror cannot hide a later unrelated prompt in the same session", () => {
+    const f = fixture(); f.delay = 1; f.nativeDuplicate = "stale";
+    assert.match(f.run(), /OUTCOME_UNKNOWN/);
+    assert.equal(f.starts, 1);
+  });
+  for (const failure of ["unreadable", "vanished"]) check(failure + " native files preserve the unknown attempt", () => {
+    const f = fixture(); f.delay = 0;
+    const original = fs.readdirSync;
+    fs.readdirSync = (directory, ...args) => {
+      if (String(directory).includes(path.join(f.repo, ".codex", "sessions"))) {
+        if (failure === "unreadable") throw Object.assign(new Error("fixture access denied"), { code: "EACCES" });
+        return [...original(directory, ...args), "rollout-vanished.jsonl"];
+      }
+      return original(directory, ...args);
+    };
+    try { assert.match(f.run(), /OUTCOME_UNKNOWN/); assert.equal(f.starts, 1); }
+    finally { fs.readdirSync = original; }
   });
   check("a succeeded worker with missing native proof cannot be replaced", () => {
     const f = fixture(); f.delay = Infinity; f.run(); f.dead = true; f.succeeded = true;

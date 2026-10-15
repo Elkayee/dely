@@ -1384,7 +1384,7 @@ index 58358951812037443851c46141800f6234ae7805..a98e45ef5d8b050640049cd3aaff6f28
 +| Harness fails or evidence is insufficient | Preserve the candidate, report the native outcome and role disposition |
 +| Idempotent release step is interrupted | Verify Git and pull-request state, then resume |
 diff --git a/skills/delivery/scripts/dely.js b/skills/delivery/scripts/dely.js
-index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..b6f17ff889aa11fc24f156c8c30df0525f6907a0 100644
+index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..6a758a8cdc869ba7d412ed5acfedeeffe5a55a2f 100644
 --- a/skills/delivery/scripts/dely.js
 +++ b/skills/delivery/scripts/dely.js
 @@ -1,756 +1,2177 @@
@@ -2846,7 +2846,7 @@ index 5aa94237645f50da0a8fa46ffc73bd01ece5b29f..b6f17ff889aa11fc24f156c8c30df052
 +  recordOwnedTerminal(run, handle, id);
 +  updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
 +  const expected = { repo, run, id, terminalHandle: handle, pin: p, launchedAt,
-+    receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/) || [])[0], spec };
++    receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/g) || []).at(-1), spec };
 +  let startEvidence = observedTurn(result, expected);
 +  if (!startEvidence) {
 +    const promptDeadline = Date.now() + 60000;
@@ -4607,10 +4607,10 @@ index 0000000000000000000000000000000000000000..0f46006f90c1b0765c28632b076acc9b
 +module.exports = { taskKey, recordTask };
 diff --git a/skills/delivery/scripts/codex-turn.js b/skills/delivery/scripts/codex-turn.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..bcb3a31df842e7edb4e8efcf5170df1f5ba53293
+index 0000000000000000000000000000000000000000..e6a9d7c29a8181f43bac5a324c82578509094af5
 --- /dev/null
 +++ b/skills/delivery/scripts/codex-turn.js
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,90 @@
 +"use strict";
 +
 +const fs = require("fs");
@@ -4646,6 +4646,7 @@ index 0000000000000000000000000000000000000000..bcb3a31df842e7edb4e8efcf5170df1f
 +  }
 +  if (files.size > 50) return null;
 +  const matches = new Map();
++  const versions = new Map();
 +  let bytes = 0;
 +  for (const file of files) {
 +    try {
@@ -4669,23 +4670,34 @@ index 0000000000000000000000000000000000000000..bcb3a31df842e7edb4e8efcf5170df1f
 +          row.payload.internal_chat_message_metadata_passthrough.content_item_kinds.includes("user.text")));
 +      const message = user?.payload;
 +      const text = (message?.content || []).map((part) => part.text || "").join("\n");
-+      if (!text.includes(expected.id) || !(expected.receiptMarker ? text.includes(expected.receiptMarker) : text.includes(expected.spec))) continue;
 +      const context = rows.findLast((row) => row.type === "turn_context");
++      const session = meta.id || meta.session_id;
++      if (!versions.has(session)) versions.set(session, new Set());
++      versions.get(session).add(crypto.createHash("sha256").update(JSON.stringify([context,
++        message?.internal_chat_message_metadata_passthrough?.turn_id, text])).digest("hex"));
++      if (!text.includes(expected.id) || !(expected.receiptMarker ? text.includes(expected.receiptMarker) : text.includes(expected.spec))) continue;
 +      const turn = context?.payload;
 +      const settings = turn?.collaboration_mode?.settings;
++      const prior = expected.launch?.modelEvidence;
++      if (prior && (prior.session !== (meta.id || meta.session_id) || prior.turn !== turn?.turn_id)) continue;
++      const contexts = rows.filter((row) => row.type === "turn_context" && row.payload?.turn_id === turn?.turn_id);
++      if (new Set(contexts.map((row) => JSON.stringify(row))).size !== 1) return null;
 +      if (!turn?.turn_id || turn.turn_id !== message.internal_chat_message_metadata_passthrough?.turn_id ||
 +          !(Date.parse(context.timestamp) >= Date.parse(meta.timestamp) && Date.parse(context.timestamp) <= expected.observedAt) || !samePath(turn.cwd, expected.repo) ||
 +          typeof turn.model !== "string" || typeof turn.effort !== "string" ||
 +          (settings?.model && settings.model !== turn.model) ||
 +          (settings?.reasoning_effort && settings.reasoning_effort !== turn.effort)) continue;
-+      const evidence = { session: meta.id || meta.session_id, turn: turn.turn_id,
++      const evidence = { session, turn: turn.turn_id,
 +        model: turn.model, effort: turn.effort, timestamp: context.timestamp, source: file,
 +        contextSha256: crypto.createHash("sha256").update(JSON.stringify(context)).digest("hex") };
 +      if (!evidence.session) continue;
-+      matches.set(JSON.stringify([evidence.session, evidence.turn, evidence.model, evidence.effort]), evidence);
++      matches.set(JSON.stringify([evidence.session, meta.timestamp, evidence.turn, evidence.contextSha256]), evidence);
 +    } catch (_) { return null; }
 +  }
-+  return matches.size === 1 ? [...matches.values()][0] : null;
++  return matches.size === 1 && versions.get([...matches.values()][0].session)?.size === 1 ? [...matches.values()][0] : null;
 +}
 +
-+module.exports = { codexTurn };
++module.exports = { codexTurn: (...args) => {
++  try { return codexTurn(...args); }
++  catch (_) { return null; }
++} };

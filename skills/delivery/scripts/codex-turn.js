@@ -33,6 +33,7 @@ function codexTurn(expected, homes) {
   }
   if (files.size > 50) return null;
   const matches = new Map();
+  const versions = new Map();
   let bytes = 0;
   for (const file of files) {
     try {
@@ -56,23 +57,34 @@ function codexTurn(expected, homes) {
           row.payload.internal_chat_message_metadata_passthrough.content_item_kinds.includes("user.text")));
       const message = user?.payload;
       const text = (message?.content || []).map((part) => part.text || "").join("\n");
-      if (!text.includes(expected.id) || !(expected.receiptMarker ? text.includes(expected.receiptMarker) : text.includes(expected.spec))) continue;
       const context = rows.findLast((row) => row.type === "turn_context");
+      const session = meta.id || meta.session_id;
+      if (!versions.has(session)) versions.set(session, new Set());
+      versions.get(session).add(crypto.createHash("sha256").update(JSON.stringify([context,
+        message?.internal_chat_message_metadata_passthrough?.turn_id, text])).digest("hex"));
+      if (!text.includes(expected.id) || !(expected.receiptMarker ? text.includes(expected.receiptMarker) : text.includes(expected.spec))) continue;
       const turn = context?.payload;
       const settings = turn?.collaboration_mode?.settings;
+      const prior = expected.launch?.modelEvidence;
+      if (prior && (prior.session !== (meta.id || meta.session_id) || prior.turn !== turn?.turn_id)) continue;
+      const contexts = rows.filter((row) => row.type === "turn_context" && row.payload?.turn_id === turn?.turn_id);
+      if (new Set(contexts.map((row) => JSON.stringify(row))).size !== 1) return null;
       if (!turn?.turn_id || turn.turn_id !== message.internal_chat_message_metadata_passthrough?.turn_id ||
           !(Date.parse(context.timestamp) >= Date.parse(meta.timestamp) && Date.parse(context.timestamp) <= expected.observedAt) || !samePath(turn.cwd, expected.repo) ||
           typeof turn.model !== "string" || typeof turn.effort !== "string" ||
           (settings?.model && settings.model !== turn.model) ||
           (settings?.reasoning_effort && settings.reasoning_effort !== turn.effort)) continue;
-      const evidence = { session: meta.id || meta.session_id, turn: turn.turn_id,
+      const evidence = { session, turn: turn.turn_id,
         model: turn.model, effort: turn.effort, timestamp: context.timestamp, source: file,
         contextSha256: crypto.createHash("sha256").update(JSON.stringify(context)).digest("hex") };
       if (!evidence.session) continue;
-      matches.set(JSON.stringify([evidence.session, evidence.turn, evidence.model, evidence.effort]), evidence);
+      matches.set(JSON.stringify([evidence.session, meta.timestamp, evidence.turn, evidence.contextSha256]), evidence);
     } catch (_) { return null; }
   }
-  return matches.size === 1 ? [...matches.values()][0] : null;
+  return matches.size === 1 && versions.get([...matches.values()][0].session)?.size === 1 ? [...matches.values()][0] : null;
 }
 
-module.exports = { codexTurn };
+module.exports = { codexTurn: (...args) => {
+  try { return codexTurn(...args); }
+  catch (_) { return null; }
+} };
