@@ -20,13 +20,37 @@ function createMonitor(options = {}) {
   const assets = path.resolve(__dirname, "../ui/monitor");
   const files = { "/": ["index.html", "text/html"], "/monitor.css": ["monitor.css", "text/css"],
     "/monitor.js": ["monitor.js", "text/javascript"] };
-  let cache = null, pending = null;
-  const load = (fresh = false) => {
-    if (!fresh && cache && Date.now() - cache.loaded < 30000) return Promise.resolve(cache.data);
-    if (!pending) pending = (options.collect || collect)().then((data) => {
-      cache = { loaded: Date.now(), data }; return data;
-    }).finally(() => { pending = null; });
-    return pending;
+  const now = options.now || Date.now;
+  let cache = null, preview = null, pending = null, first = null, lastError = null, attempted = 0;
+  const load = async (fresh = false, progressive = false) => {
+    if (!pending && (!cache || fresh || now() - cache.loaded >= 30000) &&
+        (!lastError || now() - attempted >= 30000)) {
+      let ready;
+      first = new Promise((resolve) => { ready = resolve; });
+      attempted = now();
+      const publish = (data) => {
+        const next = { ...data, sources: { ...data.sources } };
+        for (const [source, field] of [["orca", "workers"], ["codex", "conversations"]]) {
+          if (data.sources?.[source]?.state === "loading" && cache?.data.sources?.[source]?.available) {
+            next[field] = cache.data[field];
+            next.sources[source] = { ...cache.data.sources[source], state: "refreshing" };
+          }
+        }
+        preview = next; ready(next); return next;
+      };
+      pending = Promise.resolve().then(() => (options.collect || collect)({ onUpdate: publish })).then((data) => {
+        const next = publish(data);
+        cache = { loaded: now(), data: next }; lastError = null; preview = null; return next;
+      }).catch((error) => {
+        lastError = error; preview = null; ready(cache?.data || null); throw error;
+      }).finally(() => { pending = null; });
+      // Progressive callers observe the shared job without awaiting its completion.
+      pending.catch(() => {});
+    }
+    if (progressive) return preview || cache?.data || (pending ? await first : null);
+    if (pending) return pending;
+    if (lastError) throw lastError;
+    return cache?.data;
   };
   return http.createServer(async (req, res) => {
     if (!/^(?:127\.0\.0\.1|localhost)(?::\d+)?$/.test(req.headers.host || "")) { res.writeHead(403).end(); return; }
@@ -38,10 +62,12 @@ function createMonitor(options = {}) {
     if (url.pathname === "/api/usage") {
       const days = Number(url.searchParams.get("days") || 7);
       const since = sinceTimestamp(url.searchParams.get("since"));
+      const progressive = url.searchParams.get("progressive") === "true";
       if (![1, 7, 30].includes(days) || Number.isNaN(since)) { res.writeHead(400).end(); return; }
       try {
-        let data = await load();
-        if (since !== null && since > Date.parse(data.collectedAt)) data = await load(true);
+        let data = await load(false, progressive);
+        if (!data) throw lastError || new Error("Sources have not loaded");
+        if (since !== null && since > Date.parse(data.collectedAt) && since <= now()) data = await load(true, progressive);
         const asOf = Date.parse(data.collectedAt) || Date.now();
         const start = Math.max(asOf - days * 86400000, since ?? -Infinity);
         const result = summarize(data.events, data.workers, data.conversations, {
@@ -50,7 +76,10 @@ function createMonitor(options = {}) {
           asOf, end: Math.max(start, asOf), runtimes: data.sources?.runtimes || [],
         });
         res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ ...result, sources: data.sources, collectedAt: data.collectedAt }));
+        res.end(JSON.stringify({ ...result, sources: data.sources, collectedAt: data.collectedAt,
+          refreshing: !!pending,
+          stale: !!lastError || data === cache?.data && !!pending || Object.values(data.sources).some((s) => s?.state === "refreshing"),
+          refreshError: lastError ? "Source refresh failed; the previous snapshot is shown" : null }));
       } catch (_) { res.setHeader("Content-Type", "application/json"); res.writeHead(503).end(JSON.stringify({ error: "Local activity sources could not be read" })); }
       return;
     }

@@ -2,9 +2,9 @@
 
 const $ = (id) => document.getElementById(id);
 const names = { easy: "Easy", medium_minus: "Medium−", medium_plus: "Medium+", hard: "Hard" };
-let activity = [], visibleRows = 25;
+let activity = [], visibleRows = 25, taskRowsShown = 20, displayedScope = "";
 const observationKey = "dely-monitor.observation-start";
-let observationStart = null, storageWarning = "", refreshId = 0;
+let observationStart = null, storageWarning = "", refreshId = 0, loadingTimer = null;
 try {
   const saved = localStorage.getItem(observationKey);
   if (saved && Number.isFinite(Date.parse(saved)) && new Date(saved).toISOString() === saved) observationStart = saved;
@@ -121,6 +121,8 @@ function showRows() {
 
 function render(data) {
   observationStatus(data);
+  const scope = JSON.stringify([$("repo").value, $("days").value, $("probes").checked, observationStart]);
+  if (scope !== displayedScope) { displayedScope = scope; visibleRows = 25; taskRowsShown = 20; }
   renderProjects(data);
   const log = data.sources.log, orca = data.sources.orca, codex = data.sources.codex;
   const share = (r) => r.rate == null ? "N/A" : `${(r.rate * 100).toFixed(1)}% (${r.numerator}/${r.denominator})`;
@@ -139,9 +141,9 @@ function render(data) {
   $("approvals").textContent = number(log.present ? data.tasks.approved : null);
   $("approval-detail").textContent = `${log.present ? data.tasks.recorded : "No"} assessment records · ${data.tasks.unknown} unknown grades`;
   $("workers").textContent = number(orca.available ? data.jobs.count : null);
-  $("worker-detail").textContent = orca.available ? `${data.jobs.succeeded} succeeded · ${data.jobs.failed} failed · ${data.jobs.active} active` : "Orca source is unavailable";
+  $("worker-detail").textContent = sourceProgress(orca) ? "Reading worker inventory…" : orca.available ? `${data.jobs.succeeded} succeeded · ${data.jobs.failed} failed · ${data.jobs.active} active` : "Orca source is unavailable";
   $("sessions").textContent = number(codex.available ? data.conversations.sessions : null);
-  $("session-detail").textContent = codex.available ? `${number(data.conversations.turns)} recorded Codex turns` : "Conversation source is unavailable";
+  $("session-detail").textContent = sourceProgress(codex) ? "Reading conversation metadata…" : codex.available ? `${number(data.conversations.turns)} recorded Codex turns` : "Conversation source is unavailable";
   if ($("measures-grid")) {
     $("measures-grid").replaceChildren(
       renderMeasure("compliance", "Low-tier primary compliance", m.lowTierPrimaryCompliance),
@@ -159,9 +161,11 @@ function render(data) {
   }));
   $("sources").replaceChildren(
     sourceRow("Dely activity log", log.present ? `${log.malformed} unreadable lines · local metadata` : "No activity log has been recorded", log.present ? "Available" : log.enabled ? "Waiting for events" : "Not enabled", log.present),
-    sourceRow("Orca workers", orca.available ? `${orca.loaded} / ${orca.total ?? "unknown"} records · ${orca.scope || "unknown scope"}` : "Local Orca connection unavailable", orca.available ? orca.complete ? "Complete page set" : "Partial" : "Unavailable", orca.available && orca.complete),
-    sourceRow("Codex conversations", codex.available ? `${codex.files} local rollout files · ${codex.malformed} unreadable lines` : "Local conversation metadata unavailable", codex.available ? "Available" : "Unavailable", codex.available));
+    sourceRow("Orca workers", sourceProgress(orca) ? "Reading worker inventory; last available values stay visible" : orca.available ? `${orca.loaded} / ${orca.total ?? "unknown"} records · ${orca.scope || "unknown scope"}` : "Local Orca connection unavailable", sourceProgress(orca) || (orca.available ? orca.complete ? "Complete page set" : "Partial" : "Unavailable"), orca.available && orca.complete && !sourceProgress(orca)),
+    sourceRow("Codex conversations", sourceProgress(codex) ? "Reading conversation metadata; last available values stay visible" : codex.available ? `${codex.files} local rollout files · ${codex.malformed} unreadable lines` : "Local conversation metadata unavailable", sourceProgress(codex) || (codex.available ? "Available" : "Unavailable"), codex.available && !sourceProgress(codex)));
   const gaps = [];
+  if (data.refreshError) gaps.push(`${data.refreshError}.`);
+  if (data.refreshing) gaps.push(`Updating sources in the background. ${data.stale ? "Last available values are shown until refreshed." : "Dely records are ready; other source records will appear as they load."}`);
   if (!log.present) gaps.push("Snapshot shares become available after bound assessments and confirmed launches are logged.");
   if (data.coverage.history !== "COMPLETE") gaps.push("Retained journal history is not verified complete; shares describe observed snapshots only.");
   if (data.coverage.unbound || data.coverage.conflicting) gaps.push(`${data.coverage.unbound} unbound launches; ${data.coverage.conflicting} conflicting receipts excluded.`);
@@ -174,9 +178,16 @@ function render(data) {
   $("notice").classList.toggle("good", !gaps.length);
   const selected = $("repo").value;
   $("repo").replaceChildren(element("option", "All workspaces"), ...data.repos.map((repo) => { const o = element("option", repo); o.value = repo; return o; }));
+  if (selected && !data.repos.includes(selected)) {
+    const option = element("option", selected + " (source pending or unavailable)"); option.value = selected; $("repo").append(option);
+  }
   $("repo").firstElementChild.value = ""; $("repo").value = selected;
-  activity = data.activity; visibleRows = 25; showRows();
-  $("updated").textContent = `Updated ${new Date(data.collectedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  activity = data.activity; showRows();
+  $("updated").textContent = `${data.refreshing ? "Updating · snapshot" : data.refreshError ? "Previous snapshot" : "Updated"} ${new Date(data.collectedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function sourceProgress(source) {
+  return source.state === "loading" ? "Reading…" : source.state === "refreshing" ? "Updating…" : "";
 }
 
 function renderProjects(data) {
@@ -324,7 +335,7 @@ function renderProjects(data) {
   $("project-title").textContent = `Tasks and launch evidence · ${selected || "All workspaces"}`;
 
   const tasks = data.taskDetails || [];
-  let shown = 20;
+  let shown = taskRowsShown;
 
   function showTasks() {
     $("task-list").replaceChildren();
@@ -456,7 +467,7 @@ function renderProjects(data) {
       more.id = "show-more-tasks";
       more.style.marginTop = "14px";
       more.addEventListener("click", () => {
-        shown += 20;
+      shown += 20; taskRowsShown = shown;
         showTasks();
       });
       $("task-list").append(more);
@@ -467,14 +478,18 @@ function renderProjects(data) {
 }
 
 async function refresh() {
+  clearTimeout(loadingTimer);
   const requestId = ++refreshId;
   $("refresh").disabled = true; $("updated").textContent = "Reading local sources…";
   try {
-    const query = new URLSearchParams({ days: $("days").value, repo: $("repo").value, probes: String($("probes").checked) });
+    const query = new URLSearchParams({ days: $("days").value, repo: $("repo").value, probes: String($("probes").checked), progressive: "true" });
     if (observationStart) query.set("since", observationStart);
     const response = await fetch(`/api/usage?${query}`); if (!response.ok) throw new Error("Local monitor source is temporarily unavailable");
     const data = await response.json();
-    if (requestId === refreshId) render(data);
+    if (requestId === refreshId) {
+      render(data);
+      if (data.refreshing) loadingTimer = setTimeout(() => { if (requestId === refreshId) refresh(); }, 1000);
+    }
   } catch (e) { if (requestId === refreshId) { $("notice").textContent = e.message; $("updated").textContent = "Refresh failed"; } }
   finally { if (requestId === refreshId) $("refresh").disabled = false; }
 }
@@ -484,5 +499,7 @@ $("refresh").addEventListener("click", refresh);
 $("all-projects").addEventListener("click", () => { $("repo").value = ""; refresh(); });
 for (const id of ["days", "repo", "probes"]) $(id).addEventListener("change", refresh);
 $("more").addEventListener("click", () => { visibleRows += 50; showRows(); });
+window.addEventListener("pagehide", () => clearTimeout(loadingTimer));
+window.addEventListener("pageshow", (event) => { if (event.persisted) refresh(); });
 observationStatus();
 refresh();

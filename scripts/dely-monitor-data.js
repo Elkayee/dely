@@ -378,37 +378,52 @@ async function jsonLines(file, visit) {
   return malformed;
 }
 
-async function readConversations(since) {
-  const files = new Map();
-  for (const root of [...new Set(ROOTS)]) {
-    const sessions = path.join(root, "sessions");
-    if (!fs.existsSync(sessions)) continue;
-    for (let time = Date.now(); time >= since - 86400000; time -= 86400000) {
-      const date = new Date(time).toISOString().slice(0, 10).split("-");
-      const folder = path.join(sessions, ...date);
-      if (!fs.existsSync(folder)) continue;
-      for (const name of fs.readdirSync(folder)) if (name.endsWith(".jsonl")) {
-        const file = path.join(folder, name), size = fs.statSync(file).size;
-        if (!files.has(name) || files.get(name).size < size) files.set(name, { file, size });
+function createConversationReader({ roots = ROOTS, readLines = jsonLines, now = Date.now } = {}) {
+  const cache = new Map();
+  return async function readConversations(since) {
+    const files = new Map();
+    for (const root of [...new Set(roots)]) {
+      const sessions = path.join(root, "sessions");
+      if (!fs.existsSync(sessions)) continue;
+      for (let time = now(); time >= since - 86400000; time -= 86400000) {
+        const date = new Date(time).toISOString().slice(0, 10).split("-");
+        const folder = path.join(sessions, ...date);
+        if (!fs.existsSync(folder)) continue;
+        for (const name of fs.readdirSync(folder)) if (name.endsWith(".jsonl")) {
+          const file = path.join(folder, name), stat = fs.statSync(file);
+          const signature = [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+          if (!files.has(name) || files.get(name).size < stat.size) files.set(name, { file, size: stat.size, signature });
+        }
       }
     }
-  }
-  const turns = new Map(); let malformed = 0;
-  for (const { file } of files.values()) {
-    let session = null, root = true;
-    malformed += await jsonLines(file, (item) => {
-      if (item.type === "session_meta") {
-        session = item.payload.id; root = !JSON.stringify(item.payload.source || "").includes("subagent");
+    const turns = new Map(); let malformed = 0, hits = 0, parsed = 0;
+    for (const file of cache.keys()) if (!fs.existsSync(file)) cache.delete(file);
+    for (const { file, signature } of files.values()) {
+      let entry = cache.get(file);
+      if (entry?.signature === signature) hits++;
+      else {
+        let session = null, root = true;
+        const rows = [];
+        const errors = await readLines(file, (item) => {
+          if (item.type === "session_meta") {
+            session = item.payload.id; root = !JSON.stringify(item.payload.source || "").includes("subagent");
+          }
+          if (root && session && item.type === "turn_context") {
+            const p = item.payload, id = p.turn_id || item.timestamp;
+            rows.push({ id, session, model: p.model || null, repo: p.cwd, ts: item.timestamp });
+          }
+        });
+        entry = { signature, rows, malformed: errors }; cache.set(file, entry); parsed++;
       }
-      if (root && session && item.type === "turn_context" && instant(item.timestamp) >= since) {
-        const p = item.payload, id = p.turn_id || item.timestamp;
-        turns.set(session + ":" + id, { session, model: p.model || null, repo: p.cwd, ts: item.timestamp });
-      }
-    });
-  }
-  return { rows: [...turns.values()], files: files.size, malformed,
-    available: ROOTS.some((root) => fs.existsSync(path.join(root, "sessions"))) };
+      malformed += entry.malformed;
+      for (const { id, ...row } of entry.rows) if (instant(row.ts) >= since) turns.set(row.session + ":" + id, row);
+    }
+    return { rows: [...turns.values()], files: files.size, malformed,
+      cache: { hits, parsed }, available: roots.some((root) => fs.existsSync(path.join(root, "sessions"))) };
+  };
 }
+
+const readConversations = createConversationReader();
 
 function orca(args) {
   return new Promise((resolve, reject) => {
@@ -445,16 +460,35 @@ async function collect(options = {}) {
   if (sources.log.present) sources.log.malformed = await jsonLines(file, (e) => {
     if (e && ["task_assessment", "task_route", "dispatch", "task_control_result", "task_reference_audit"].includes(e.event)) events.push(e);
   });
-  const outcomes = await Promise.allSettled([(options.readWorkers || readWorkers)(),
-    (options.readConversations || readConversations)(Date.now() - 30 * 86400000)]);
-  const workers = outcomes[0].status === "fulfilled" ? outcomes[0].value : { rows: [], available: false };
-  const conversations = outcomes[1].status === "fulfilled" ? outcomes[1].value : { rows: [], available: false };
-  sources.orca = { available: outcomes[0].status === "fulfilled", total: workers.total ?? null,
-    loaded: workers.rows.length, complete: workers.complete || false, scope: workers.scope || null };
-  sources.codex = { available: outcomes[1].status === "fulfilled" && conversations.available, files: conversations.files ?? null,
-    malformed: conversations.malformed ?? null };
+  let workers = [], conversations = [];
+  const collectedAt = new Date().toISOString();
+  sources.orca = { available: false, state: "loading", total: null, loaded: 0, complete: false, scope: null };
+  sources.codex = { available: false, state: "loading", files: null, malformed: null };
   sources.runtimes = readRuntimes();
-  return { events, workers: workers.rows, conversations: conversations.rows, sources, collectedAt: new Date().toISOString() };
+  const snapshot = () => ({ events, workers, conversations, sources: { ...sources }, collectedAt });
+  const publish = () => options.onUpdate?.(snapshot());
+  publish();
+  await Promise.all([
+    (async () => {
+      try {
+        const result = await (options.readWorkers || readWorkers)();
+        workers = result.rows;
+        sources.orca = { available: true, state: "ready", asOf: new Date().toISOString(),
+          total: result.total ?? null, loaded: workers.length, complete: result.complete || false, scope: result.scope || null };
+      } catch (_) { sources.orca = { ...sources.orca, state: "error" }; }
+      publish();
+    })(),
+    (async () => {
+      try {
+        const result = await (options.readConversations || readConversations)(Date.now() - 30 * 86400000);
+        conversations = result.rows;
+        sources.codex = { available: !!result.available, state: result.available ? "ready" : "unavailable",
+          asOf: new Date().toISOString(), files: result.files ?? null, malformed: result.malformed ?? null, cache: result.cache || null };
+      } catch (_) { sources.codex = { ...sources.codex, state: "error" }; }
+      publish();
+    })(),
+  ]);
+  return snapshot();
 }
 
 function readRuntimes(homes = ROOTS) {
@@ -472,4 +506,4 @@ function readRuntimes(homes = ROOTS) {
   });
 }
 
-module.exports = { GRADES, instant, isProbe, summarize, jsonLines, readConversations, readRuntimes, collect };
+module.exports = { GRADES, instant, isProbe, summarize, jsonLines, createConversationReader, readConversations, readRuntimes, collect };

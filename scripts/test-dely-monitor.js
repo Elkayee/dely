@@ -7,7 +7,7 @@ const { once } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { summarize, jsonLines, collect, readRuntimes } = require("./dely-monitor-data.js");
+const { summarize, jsonLines, collect, readRuntimes, createConversationReader } = require("./dely-monitor-data.js");
 const { createMonitor } = require("./dely-monitor.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
@@ -29,6 +29,142 @@ const control = { event: "task_control_result", ts: later, reviewed_at: later, r
   verdict: "accepted", run: launch.run, dispatchId: launch.dispatchId, policy: approval.policy,
   taskKey: key, assessment_basis_sha256: basis, evidence_sha256: "e".repeat(64) };
 const metrics = (events, options = {}) => summarize(events, [], [], options).metrics;
+
+test("conversation projections reuse unchanged files and invalidate changed, replaced, truncated and deleted sources", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-conversation-cache-"));
+  const roots = [path.join(dir, "one"), path.join(dir, "two")];
+  const folders = roots.map((root) => path.join(root, "sessions/2026/10/11"));
+  folders.forEach((folder) => fs.mkdirSync(folder, { recursive: true }));
+  const meta = (id, source = "cli") => ({ type: "session_meta", payload: { id, source } });
+  const turn = (id, timestamp, model) => ({ type: "turn_context", timestamp, payload: { turn_id: id, model, cwd: repo } });
+  const write = (file, rows) => fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const small = path.join(folders[0], "same.jsonl"), large = path.join(folders[1], "same.jsonl");
+  write(small, [meta("shared"), turn("only-small", later, "smaller-copy")]);
+  write(large, [meta("shared"), turn("first", later, "m1"), turn("second", last, "m2"),
+    turn("second", last, "m2-latest"), { type: "response_item", payload: "never-cache-this-".repeat(100) }]);
+  write(path.join(folders[0], "subagent.jsonl"), [meta("child", { subagent: {} }), turn("child", last, "excluded")]);
+  let reads = 0;
+  const read = createConversationReader({ roots, now: () => Date.parse(last),
+    readLines: (file, visit) => { reads++; return jsonLines(file, visit); } });
+  try {
+    const initial = await read(Date.parse(ts));
+    assert.equal(initial.rows.length, 2); assert.equal(reads, 2);
+    assert.equal(initial.rows.find((r) => r.ts === last).model, "m2-latest");
+    assert.equal(JSON.stringify(initial).includes("never-cache-this"), false);
+    initial.rows[0].model = "caller-mutation";
+    const narrower = await read(Date.parse(last));
+    assert.equal(narrower.rows.length, 1); assert.equal(reads, 2); assert.equal(narrower.cache.hits, 2);
+    const wider = await read(Date.parse(ts));
+    assert.equal(wider.rows.length, 2); assert.equal(reads, 2);
+    assert.equal(wider.rows.some((r) => r.model === "caller-mutation"), false);
+
+    fs.appendFileSync(large, '{"type":"turn_');
+    const partial = await read(Date.parse(ts));
+    assert.equal(partial.rows.length, 2); assert.equal(partial.malformed, 1); assert.equal(partial.cache.parsed, 1);
+    fs.appendFileSync(large, 'context","timestamp":"2026-10-11T00:10:00Z","payload":{"turn_id":"third","model":"m3","cwd":"D:/project"}}\n');
+    const appended = await read(Date.parse(ts));
+    assert.equal(appended.rows.length, 3); assert.equal(appended.malformed, 0); assert.equal(appended.cache.parsed, 1);
+
+    const before = fs.statSync(large), replacement = path.join(dir, "replacement.jsonl");
+    fs.writeFileSync(replacement, fs.readFileSync(large, "utf8").replace('"model":"m3"', '"model":"m4"'));
+    fs.utimesSync(replacement, before.atime, before.mtime);
+    fs.renameSync(replacement, large);
+    const replaced = await read(Date.parse(ts));
+    assert.equal(replaced.rows.some((r) => r.model === "m4"), true); assert.equal(replaced.cache.parsed, 1);
+    fs.writeFileSync(large, fs.readFileSync(large, "utf8").replace('"model":"m4"', '"model":"m5"'));
+    fs.utimesSync(large, before.atime, new Date(before.mtimeMs + 1000));
+    assert.equal((await read(Date.parse(ts))).rows.some((r) => r.model === "m5"), true);
+
+    fs.writeFileSync(large, "{}\n");
+    assert.equal((await read(Date.parse(ts))).rows[0].model, "smaller-copy");
+    fs.unlinkSync(small); fs.unlinkSync(large);
+    assert.equal((await read(Date.parse(ts))).rows.length, 0);
+    write(path.join(folders[0], "new.jsonl"), [meta("new"), turn("new", last, "new-file")]);
+    const added = await read(Date.parse(ts));
+    assert.equal(added.rows.length, 1); assert.equal(added.rows[0].model, "new-file");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("progressive API serves confirmed Dely data while a slow optional source is unresolved", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-progressive-")), journal = path.join(dir, "journal.jsonl");
+  fs.writeFileSync(journal, [reviewed, route, launch].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  let release, calls = 0, completed = false;
+  const held = new Promise((resolve) => { release = resolve; });
+  const server = createMonitor({ collect: (options) => {
+    calls++;
+    return collect({ ...options, journal, readWorkers: async () => ({ rows: [], complete: true }),
+      readConversations: () => held }).then((result) => { completed = true; return result; });
+  } });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = "http://127.0.0.1:" + server.address().port + "/api/usage?days=30";
+  const completeRequest = fetch(url);
+  try {
+    const partial = await (await fetch(url + "&progressive=true", { signal: AbortSignal.timeout(5000) })).json();
+    assert.equal(completed, false); assert.equal(calls, 1);
+    assert.equal(partial.metrics.agyStart.denominator, 1);
+    assert.equal(partial.sources.codex.available, false); assert.equal(partial.sources.codex.state, "loading");
+    assert.equal(partial.refreshing, true);
+    const selected = await (await fetch(url + "&progressive=true&repo=" + encodeURIComponent(repo))).json();
+    assert.equal(selected.taskDetails.every((t) => t.repo === repo), true); assert.equal(calls, 1);
+    const mark = new Date().toISOString();
+    const reset = await (await fetch(url + "&progressive=true&since=" + encodeURIComponent(mark))).json();
+    assert.equal(reset.metrics.agyStart.denominator, 0); assert.equal(reset.metrics.agyStart.rate, null);
+    assert.equal(reset.window.start, mark); assert.equal(calls, 1);
+    release({ available: true, files: 1, malformed: 0, rows: [{ session: "one", repo, ts, model: "observed" }] });
+    const final = await (await completeRequest).json();
+    assert.equal(final.conversations.sessions, 1); assert.equal(final.sources.codex.state, "ready");
+    assert.equal(final.refreshing, false); assert.equal(final.metrics.agyStart.denominator, 1);
+    assert.equal(final.collectedAt, partial.collectedAt);
+  } finally {
+    release({ rows: [], available: false }); await completeRequest;
+    await new Promise((resolve) => server.close(resolve)); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("expired progressive cache is single-flight, marks retained sources stale and backs off collection errors", async () => {
+  let clock = Date.now(), calls = 0, finish, reject;
+  const held = new Promise((resolve, fail) => { finish = resolve; reject = fail; });
+  const data = { events: [reviewed, route, launch], workers: [],
+    conversations: [{ session: "old", repo, ts, model: "old" }], collectedAt: new Date(clock).toISOString(),
+    sources: { log: { present: true }, orca: { available: true, state: "ready" }, codex: { available: true, state: "ready", asOf: ts } } };
+  const server = createMonitor({ now: () => clock, collect: async ({ onUpdate }) => {
+    calls++;
+    if (calls !== 2) return data;
+    onUpdate({ ...data, conversations: [], sources: { ...data.sources, codex: { available: false, state: "loading" } } });
+    return held;
+  } });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = "http://127.0.0.1:" + server.address().port + "/api/usage?days=30";
+  try {
+    await fetch(url); assert.equal(calls, 1);
+    clock += 31000;
+    const refreshing = await (await fetch(url + "&progressive=true")).json();
+    assert.equal(refreshing.refreshing, true); assert.equal(refreshing.stale, true);
+    const retained = await (await fetch(url + "&progressive=true")).json();
+    assert.equal(retained.sources.codex.state, "refreshing"); assert.equal(retained.conversations.sessions, 1);
+    assert.equal(retained.sources.codex.asOf, ts); assert.equal(calls, 2);
+    reject(Error("private source failed"));
+    // The complete endpoint observes the same rejection, rather than starting another collector.
+    assert.equal((await fetch(url)).status, 503);
+    const failed = await (await fetch(url + "&progressive=true")).json();
+    assert.equal(failed.refreshing, false); assert.equal(failed.stale, true);
+    assert.equal(failed.sources.codex.state, "ready");
+    assert.ok(failed.refreshError); assert.equal(failed.collectedAt, data.collectedAt); assert.equal(calls, 2);
+    clock += 31000;
+    const recovered = await (await fetch(url)).json();
+    assert.equal(calls, 3); assert.equal(recovered.refreshError, null);
+  } finally { finish(data); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("optional collection errors settle as unavailable instead of remaining pending", async () => {
+  const updates = [];
+  const result = await collect({ journal: path.join(os.tmpdir(), "missing-observer-journal"),
+    onUpdate: (data) => updates.push(data), readWorkers: async () => { throw Error("offline"); },
+    readConversations: async () => ({ available: false, rows: [] }) });
+  assert.equal(updates[0].sources.orca.state, "loading");
+  assert.equal(result.sources.orca.state, "error"); assert.equal(result.sources.orca.available, false);
+  assert.equal(result.sources.codex.state, "unavailable"); assert.equal(result.sources.codex.available, false);
+});
 
 test("project overview keeps same-name paths and independent populations under selection and filters", () => {
   const second = "E:/else/project", worker = "D:/worker-only", chat = "D:/chat-only";
