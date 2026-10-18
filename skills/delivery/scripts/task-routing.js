@@ -118,7 +118,7 @@ function route(difficulty) {
   if (!Object.hasOwn(RANK, difficulty)) throw new Error("Invalid difficulty");
   if (difficulty === "medium_plus") return { workflow: "dely", primary: sol, fallback: [] };
   return { workflow: "dely", primary: flash,
-    modelUnavailable: luna, fallback: [luna] };
+    modelUnavailable: luna, networkFallback: luna, fallback: [luna] };
 }
 
 function apiKey(repo, credentialRoot = path.resolve(__dirname, "../../..")) {
@@ -350,17 +350,18 @@ function requireApprovedRoute(f) {
 }
 
 function selectedPin(assessment, f) {
-  if (f.fallback != null && f.fallback !== "quota") throw new Error("Only explicit provider quota permits a fallback");
-  if (f["fallback-stage"] != null && f.fallback !== "quota") throw new Error("--fallback-stage requires --fallback quota");
+  if (f.fallback != null && !["quota", "network"].includes(f.fallback)) throw new Error("Only explicit quota or reconciled adapter transport failure permits a fallback");
+  if (f["fallback-stage"] != null && f.fallback == null) throw new Error("--fallback-stage requires --fallback quota|network");
   if (f.fallback == null) return assessment.route.primary;
   const stage = Number(f["fallback-stage"] ?? 1);
   if (!Number.isInteger(stage) || stage < 1 || stage > assessment.route.fallback.length) fail("FALLBACK_NOT_PERMITTED", "No such fallback stage for " + assessment.difficulty);
+  if (f.fallback === "network" && (!assessment.route.networkFallback || stage !== 1)) fail("FALLBACK_NOT_PERMITTED", "Network fallback requires a fresh low-tier approval");
   return assessment.route.fallback[stage - 1];
 }
 
 function selectedPhase(assessment, f) {
   selectedPin(assessment, f);
-  return f.fallback === "quota" ? "implement_backup_2" :
+  return ["quota", "network"].includes(f.fallback) ? "implement_backup_2" :
     assessment.difficulty === "medium_plus" ? "implement" : "implement_backup";
 }
 

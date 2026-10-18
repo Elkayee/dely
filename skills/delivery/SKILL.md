@@ -17,12 +17,15 @@ decision, then pass `--assessment-file <assessment>` on every dispatch.
 
 - Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash Medium/default.
 - Medium+ (`medium_plus`): Codex GPT-6.1 Sol/medium.
-- Only final Easy/Medium- have one explicit primary-quota fallback: Codex
-  Luna/max at stage 1. Final Medium+ and Hard are Sol-only with no fallback.
+- Only final Easy/Medium- have one Codex Luna/max fallback at stage 1:
+  explicit provider quota, or `--fallback network` with adapter-classified
+  transport failure and reconciled attempt evidence. Never infer inactivity
+  from timeout. Final Medium+ and Hard are Sol-only with no fallback.
 - A successful AGY catalog that lacks the requested model routes directly to
   Codex Luna/max for final Easy/Medium-. This applies to a missing Flash primary and
   the implementation preflight healthcheck. Discovery/auth/timeout
-  errors and an unapplied footer still stop.
+  errors and an unapplied footer still stop. Discovery timeout is not network
+  fallback evidence.
 - Hard: Codex Sol/xhigh handles design, implementation, and verification
   directly. Do not start a Dely Run or dispatch a worker for that task. This
   explicit user instruction takes precedence over the delivery rules below.
@@ -64,6 +67,13 @@ The existing model rows remain: `implement` supplies Codex Sol/medium,
 Flash's row is selected for an Easy/Medium- primary without a quota reason.
 Pass `--assessment-file` and `--spec-file` together on a task's `dely preflight`
 so its healthcheck uses the same reviewed primary as dispatch.
+Network fallback requires a fresh approved low-tier route, a matching recorded
+AGY attempt and adapter transport code. Before launch, reconcile the original
+worker as failed/canceled, inactive and released, or prove no submission occurred
+and close any owned startup terminal. Unknown identity/outcome and a successful
+AGY result stop; retrieve the original result. Stage 1 is claimed once per frozen
+snapshot. Dispatch/recovery holds a Run lock; a crash leaves it closed until
+Control verifies no live invocation/worker and removes that exact stale lock.
 Preflight checks implementation only. Review belongs to Codex Control; legacy
 review pins never launch a healthcheck worker. Healthchecks perform simple Orca
 coordination calls and may read mandatory instructions outside the repository.

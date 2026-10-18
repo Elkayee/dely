@@ -192,7 +192,7 @@ function context(event, home, state = {}) {
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
     "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
-    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain the existing explicit-quota or verified-AGY-model-absence Luna/max exception. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
+    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
     "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
@@ -283,6 +283,9 @@ function permittedDispatch(route, dispatch, settings) {
     if (dispatch.fallbackReason === "model_unavailable") routing.verifyUnavailablePin(assessment, pin);
     else routing.verifyPin(assessment, pin, { fallback: dispatch.fallbackReason ?? undefined,
       "fallback-stage": dispatch.fallbackStage ?? undefined });
+    if (dispatch.fallbackReason === "network") require(path.join(path.dirname(settings.routing), "network-fallback.js")).validate(dispatch.networkEvidence, {
+      specSha256: dispatch.promptSha256, contextSha256: dispatch.contextSha256,
+      assessmentBasisSha256: dispatch.assessmentBasisSha256 });
     return true;
   } catch (_) { return false; }
 }
@@ -631,7 +634,8 @@ function install(options, home) {
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
   write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely,
-    dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
+    dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely,
+      ...[path.join(path.dirname(routing), "network-fallback.js")].filter((file) => fs.existsSync(file))]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
   if (!preserveHooks) write(manifestFile, manifest);
   return { home, script, script_sha256: hashFile(script), configured_events: 4,
     trust: preserveHooks ? "UNCHANGED_REQUIRES_EXISTING_NATIVE_TRUST" : "REQUIRES_NATIVE_HOOK_REVIEW" };

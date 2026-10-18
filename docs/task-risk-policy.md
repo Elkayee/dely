@@ -13,12 +13,24 @@ score or routine delivery step does not authorize a lower grade.
 | Medium+ | Dely | Codex `gpt-6.1-sol/medium` | None |
 | Hard | Direct | Codex `gpt-6.1-sol/xhigh` | None |
 
-Only Easy/Medium- permit one explicit provider-quota fallback to Codex
+Only Easy/Medium- permit one explicit provider-quota or reconciled transport fallback to Codex
 `gpt-6-luna/max` at stage 1, after the prior attempt is inactive and released
 when required. A successful nonempty AGY catalog proving the requested model
-absent also permits that pin. Discovery, authentication, timeout, unknown
-errors and unapplied live model/level evidence stop. Medium+ waits or stops
+absent also permits that pin. Authentication, discovery failures, unclassified
+timeouts, unknown outcomes and unapplied live model/level evidence stop. A
+classified adapter transport timeout is eligible only after reconciliation;
+timeout alone never proves that a worker stopped. Medium+ waits or stops
 when Sol is unavailable; provider failure never changes difficulty.
+
+For `--fallback network --fallback-stage 1`, the recorded original AGY pin,
+Run and frozen assessment hashes must match. A completed successful result is
+retrieved, not replaced. A submitted attempt needs exact native identity,
+failed/canceled settlement, inactivity and confirmed release. Before submission,
+an owned terminal must be closed and observed exited; a lost terminal-create
+response remains unknown. Auth/config/catalog failures do not classify as
+transport evidence. Each snapshot claims stage one once and each Run serializes
+dispatch/recovery. A stale crash lock requires Control to verify the original
+process and owned workers are inactive before removing that exact lock.
 
 Known consequential risk selects Hard before missing-input checks or Jev.
 Without known Hard, incomplete or unconfirmed evidence stays

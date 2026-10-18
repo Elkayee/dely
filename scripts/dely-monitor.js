@@ -33,7 +33,7 @@ function createMonitor(options = {}) {
       try {
         const data = await load();
         const result = summarize(data.events, data.workers, data.conversations, {
-          since: Date.now() - days * 86400000, repo: url.searchParams.get("repo") || "",
+          since: (Date.parse(data.collectedAt) || Date.now()) - days * 86400000, repo: url.searchParams.get("repo") || "",
           probes: url.searchParams.get("probes") === "true",
           asOf: Date.parse(data.collectedAt) || Date.now(), runtimes: data.sources?.runtimes || [],
         });

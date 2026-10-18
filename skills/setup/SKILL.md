@@ -178,8 +178,11 @@ harness store. The human closes the terminal when done. `orca-preflight` and
 
 Open a Run first as `orca skills get orchestration` describes. Then run
 `../delivery/scripts/dely preflight --repo <path> --run <runId>` relative
-to this skill. Any `PREFLIGHT … FAIL` (exit 1): do not dispatch to any pin;
-relay the printed reason to the human.
+to this skill. Any `PREFLIGHT … FAIL` (exit 1), `ERROR`, unknown outcome,
+any nonzero exit or unusable result stops dispatch; relay the printed reason
+to the human and inspect/reconcile original worker/terminal where present.
+A setup ERROR is not permission to select another pin or fallback, and
+Medium+/Hard remain Sol-only.
 
 ## What setup will not do
 

@@ -7,9 +7,9 @@ const { once } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { summarize, jsonLines } = require("./dely-monitor-data.js");
+const { summarize, jsonLines, collect, readRuntimes } = require("./dely-monitor-data.js");
 const { createMonitor } = require("./dely-monitor.js");
-const { taskKey, taskMetadata, recordTask } = require("../skills/delivery/scripts/usage.js");
+const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
 const specHash = "a".repeat(64), contextHash = "b".repeat(64), basis = "c".repeat(64);
 const key = taskKey(repo, specHash, contextHash);
@@ -22,6 +22,198 @@ const route = { event: "task_route", run: "run-one", ts, repo, policy: approval.
 const launch = { event: "dispatch", run: "run-one", ts, repo, dispatchId: "first", phase: "implement",
   promptSha256: specHash, contextSha256: contextHash, assessmentBasisSha256: basis,
   launch: { requested: { model: "gemini-3.8-flash-medium" }, effective: { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" } } };
+
+const reviewed = { ...approval, reviewed_at: ts, decision_sha256: "d".repeat(64), correction_candidate: "coordination" };
+const later = "2026-10-10T01:00:00Z", last = "2026-10-11T01:00:00Z";
+const control = { event: "task_control_result", ts: later, reviewed_at: later, reviewer: "codex-control",
+  verdict: "accepted", run: launch.run, dispatchId: launch.dispatchId, policy: approval.policy,
+  taskKey: key, assessment_basis_sha256: basis, evidence_sha256: "e".repeat(64) };
+const metrics = (events, options = {}) => summarize(events, [], [], options).metrics;
+
+test("independent decision cohorts deduplicate bases and keep missing and contradictory effective reviews pending", () => {
+  const m = metrics([reviewed, reviewed, { ...reviewed, ts: later }]);
+  assert.equal(m.lowTierPrimaryCompliance.denominator, 1);
+  assert.equal(m.correctionUtilization.denominator, 1);
+  assert.equal(m.correctionUtilization.numerator, 0);
+  const mismatch = { ...reviewed, primary: { harness: "codex", model: "gpt-6-luna", effort: "max" } };
+  assert.equal(metrics([mismatch]).lowTierPrimaryCompliance.rate, 0);
+  const unknown = metrics([approval]);
+  assert.equal(unknown.lowTierPrimaryCompliance.pending, 1);
+  assert.equal(unknown.lowTierPrimaryCompliance.rate, null);
+  assert.equal(unknown.decisionEvidenceCoverage.missingEffectiveEvents, 1);
+  const contradiction = { ...reviewed, decision_sha256: "f".repeat(64), difficulty: "medium_plus" };
+  for (const rows of [[reviewed, contradiction], [contradiction, reviewed]]) {
+    assert.equal(metrics(rows).correctionUtilization.pending, 1);
+    assert.equal(summarize([...rows, route, launch], [], []).coverage.bound, 0);
+  }
+  const correction = { ...reviewed, ts: later, reviewed_at: later, decision_sha256: "f".repeat(64),
+    decision_source: "control-override-justified", correction_sha256: "a".repeat(64) };
+  assert.equal(metrics([reviewed, correction], { asOf: Date.parse(later) }).correctionUtilization.rate, 1);
+  assert.equal(metrics([reviewed, correction], { asOf: Date.parse(ts) + 1 }).correctionUtilization.rate, 0);
+  const retained = { ...correction, difficulty: "medium_plus", decision_source: "jev-and-control", correction_sha256: null };
+  assert.equal(metrics([reviewed, retained]).correctionUtilization.rate, 0);
+  const repeatedSnapshot = metrics([reviewed, { ...reviewed, assessment_basis_sha256: "a".repeat(64) }]);
+  assert.equal(repeatedSnapshot.lowTierPrimaryCompliance.denominator, 1);
+  assert.equal(repeatedSnapshot.correctionUtilization.denominator, 2);
+});
+
+test("Control acceptance is bound to dispatch evidence, effective at as_of and independent of worker done", () => {
+  const base = [reviewed, route, launch];
+  assert.equal(metrics([...base, { ...control, event: "worker_done" }]).agyAcceptedWithoutFallback.status, "NOT_EVALUATED");
+  for (const patch of [{ reviewer: "worker" }, { evidence_sha256: null }, { run: "other" },
+    { assessment_basis_sha256: "f".repeat(64) }, { reviewed_at: null }]) {
+    const m = metrics([...base, { ...control, ...patch }]).agyAcceptedWithoutFallback;
+    assert.equal(m.rate, null); assert.equal(m.pending, 1);
+  }
+  assert.equal(metrics([...base, control, control]).agyAcceptedWithoutFallback.rate, 1);
+  const rejection = { ...control, ts: last, reviewed_at: last, verdict: "rejected" };
+  assert.equal(metrics([...base, control, rejection], { asOf: Date.parse(later) }).agyAcceptedWithoutFallback.rate, 1);
+  assert.equal(metrics([...base, rejection, control]).agyAcceptedWithoutFallback.rate, 0);
+  assert.equal(metrics([...base, control, { ...control, verdict: "rejected" }]).agyAcceptedWithoutFallback.pending, 1);
+  assert.equal(metrics([...base, control, { ...control, ts: last, reviewed_at: last, evidence_sha256: null }]).agyAcceptedWithoutFallback.pending, 1);
+  const fallback = { ...launch, ts: last, dispatchId: "fallback", fallbackReason: "quota", fallbackStage: 1,
+    launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" } } };
+  assert.equal(metrics([...base, control, fallback], { asOf: Date.parse(later) }).agyAcceptedWithoutFallback.rate, 1);
+  assert.equal(metrics([...base, control, fallback]).agyAcceptedWithoutFallback.rate, 0);
+  const retry = { ...fallback, fallbackReason: null, fallbackStage: null };
+  const retryAcceptance = { ...control, dispatchId: retry.dispatchId, ts: last, reviewed_at: last };
+  assert.equal(metrics([...base, control, retry, retryAcceptance]).agyAcceptedWithoutFallback.rate, 0);
+  assert.equal(metrics([...base, control, { ...control, reviewed_at: null, verdict: "rejected" }]).agyAcceptedWithoutFallback.pending, 1);
+});
+
+test("malformed snapshot identities and undated contradictory decisions remain coverage", () => {
+  for (const patch of [{ policy: null }, { policy: {} }, { policy: " " }, { taskKey: null }, { taskKey: {} }]) {
+    const m = metrics([{ ...reviewed, ...patch }]);
+    assert.equal(m.lowTierPrimaryCompliance.denominator, 0);
+    assert.equal(m.correctionUtilization.denominator, 0);
+    assert.equal(m.decisionEvidenceCoverage.invalidIdentityEvents, 1);
+  }
+  const undated = { ...reviewed, reviewed_at: null, difficulty: "medium_plus", decision_sha256: "f".repeat(64) };
+  for (const rows of [[reviewed, undated], [undated, reviewed]]) {
+    assert.equal(metrics(rows).correctionUtilization.pending, 1);
+    assert.equal(summarize([...rows, route, launch], [], []).coverage.bound, 0);
+  }
+  assert.equal(metrics([{ ...reviewed, primary: null }]).lowTierPrimaryCompliance.pending, 1);
+});
+
+test("reference audits require evidence, deduplicate case/basis and preserve conflicts and absence", () => {
+  const system = { ...reviewed, difficulty: "medium_plus", workflow: "dely" };
+  const audit = { ...control, event: "task_reference_audit", case_id: "synthetic-case", reference_difficulty: "easy" };
+  assert.equal(metrics([system]).upwardLeakage.status, "NOT_EVALUATED");
+  assert.equal(metrics([system, audit, audit]).upwardLeakage.rate, 1);
+  assert.equal(metrics([system, { ...audit, evidence_sha256: null }]).upwardLeakage.pending, 1);
+  assert.equal(metrics([system, audit, { ...audit, reference_difficulty: "hard" }]).upwardLeakage.pending, 1);
+  const laterAudit = { ...audit, ts: last, reviewed_at: last, reference_difficulty: "hard" };
+  assert.equal(metrics([system, laterAudit, audit]).upwardLeakage.denominator, 0);
+  assert.equal(metrics([system, laterAudit, audit], { asOf: Date.parse(later) + 1 }).upwardLeakage.denominator, 1);
+  assert.equal(metrics([system, audit], { asOf: Date.parse(ts) + 1 }).upwardLeakage.rate, null);
+  assert.equal(metrics([system, { ...audit, taskKey: "foreign" }]).upwardLeakage.rate, null);
+  assert.equal(metrics([system, { ...audit, taskKey: "foreign" }]).upwardLeakage.coverage.unboundEvents, 1);
+  assert.equal(metrics([{ ...system, reviewed_at: null }, audit]).upwardLeakage.pending, 1);
+});
+
+test("network fallback requires validated transport binding and a low-tier stage-one self-bound decision", () => {
+  const evidence = { source: "orca_adapter", code: "ECONNRESET", operation: "repo add",
+    specSha256: specHash, contextSha256: contextHash, assessmentBasisSha256: basis,
+    noWorkerCreated: true, submissionAttempted: false, failed: true };
+  const fallback = { ...launch, dispatchId: "network", ts: later, fallbackReason: "network", fallbackStage: 1,
+    networkEvidence: evidence, launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" } } };
+  assert.equal(metrics([reviewed, route, launch, fallback]).lunaFallback.rate, 1);
+  for (const patch of [{ networkEvidence: null }, { fallbackStage: 0 },
+    { networkEvidence: { ...evidence, contextSha256: "f".repeat(64) } },
+    { networkEvidence: { ...evidence, code: "TIMEOUT" } },
+    { networkEvidence: { ...evidence, noWorkerCreated: false, inactive: true, failed: true } }]) {
+    assert.equal(metrics([reviewed, route, launch, { ...fallback, ...patch }]).lunaFallback.rate, 0);
+  }
+  const reconciled = { ...evidence, noWorkerCreated: false, submissionAttempted: true, dispatchId: "failed-agy",
+    inactive: true, failed: true, released: true };
+  assert.equal(metrics([reviewed, route, launch, { ...fallback, networkEvidence: reconciled }]).lunaFallback.rate, 1);
+  assert.equal(metrics([reviewed, route, launch, { ...fallback, networkEvidence: { ...reconciled, released: false } }]).lunaFallback.rate, 0);
+});
+
+test("new runtime fingerprints include the helper hash without fabricating it in history", () => {
+  const runtime = runtimeFingerprint();
+  assert.match(runtime.network, /^[a-f0-9]{64}$/);
+  const events = [{ ...reviewed, runtime }, route, { ...launch, runtime }];
+  assert.equal(summarize(events, [], [], { runtimes: [{ verified: true, fingerprint: runtime }] }).runtimeCohorts[0].verification, "VERIFIED");
+  const { network, ...historical } = runtime;
+  assert.equal(summarize(events, [], [], { runtimes: [{ verified: true, fingerprint: historical }] }).runtimeCohorts[0].verification, "NOT_EVALUATED");
+  const old = summarize([{ ...reviewed, runtime: historical }, route, { ...launch, runtime: historical }], [], []);
+  assert.equal(Object.hasOwn(old.runtimeCohorts[0].fingerprint, "network"), false);
+});
+
+test("configured runtime verification checks the actual network helper dependency", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dely-runtime-test-"));
+  try {
+    const directory = path.join(dir, "plugin/skills/delivery/scripts");
+    fs.mkdirSync(directory, { recursive: true });
+    fs.mkdirSync(path.join(dir, "dely-compliance"));
+    fs.writeFileSync(path.join(dir, "plugin/package.json"), JSON.stringify({ version: "0.27.6" }));
+    const dependencies = {};
+    for (const name of ["task-routing.js", "dely.js", "jev_agent.js", "usage.js", "network-fallback.js"]) {
+      const file = path.join(directory, name);
+      fs.writeFileSync(file, name);
+      dependencies[file] = require("node:crypto").createHash("sha256").update(name).digest("hex");
+    }
+    const settings = { routing: path.join(directory, "task-routing.js"), dely: path.join(directory, "dely.js"),
+      advisor: path.join(directory, "jev_agent.js"), dependencies };
+    const file = path.join(dir, "dely-compliance/settings.json");
+    fs.writeFileSync(file, JSON.stringify(settings));
+    assert.equal(readRuntimes([dir])[0].verified, true);
+    fs.writeFileSync(path.join(directory, "network-fallback.js"), "changed helper");
+    assert.equal(readRuntimes([dir])[0].verified, false);
+    fs.writeFileSync(path.join(directory, "network-fallback.js"), "network-fallback.js");
+    delete dependencies[path.join(directory, "network-fallback.js")];
+    fs.writeFileSync(file, JSON.stringify(settings));
+    assert.equal(readRuntimes([dir])[0].verified, false);
+  } finally {
+    assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("journal collection exposes bound Control and audit aggregation through the API", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dely-monitor-api-"));
+  let server;
+  try {
+    const journal = path.join(dir, "log.jsonl");
+    const audit = { ...control, event: "task_reference_audit", case_id: "synthetic-api-case", reference_difficulty: "easy" };
+    const fixture = [reviewed, route, launch, control, audit].map((e) => ({ ...e, secret: "PRIVATE EVIDENCE" }));
+    fs.writeFileSync(journal, fixture.map(JSON.stringify).join("\n") + "\n");
+    server = createMonitor({ collect: async () => ({ ...await collect({ journal,
+      readWorkers: async () => ({ rows: [] }), readConversations: async () => ({ rows: [] }) }), collectedAt: last }) });
+    server.listen(0, "127.0.0.1"); await once(server, "listening");
+    const response = await fetch("http://127.0.0.1:" + server.address().port + "/api/usage?days=30");
+    assert.equal(response.status, 200);
+    const raw = await response.text(), result = JSON.parse(raw);
+    assert.equal(result.metrics.agyAcceptedWithoutFallback.numerator, 1);
+    assert.equal(result.metrics.upwardLeakage.denominator, 1);
+    assert.equal(result.metrics.upwardLeakage.numerator, 0);
+    assert.equal(raw.includes("PRIVATE EVIDENCE"), false);
+    assert.equal(raw.includes(control.evidence_sha256), false);
+  } finally {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("review logging preserves effective time and a stable frozen decision fingerprint", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dely-monitor-review-"));
+  try {
+    const file = path.join(dir, "log.jsonl");
+    const assessment = { ...approval, task: { repo, spec_sha256: specHash, context_sha256: contextHash, context: {} },
+      route: { workflow: "dely", primary: approval.primary }, review: { by: "codex-control", reviewed_at: ts, source: "jev-reviewed", reason: "test fixture" } };
+    recordTask(assessment, "review", file); recordTask(assessment, "review", file);
+    const rows = fs.readFileSync(file, "utf8").trim().split("\n").map(JSON.parse);
+    assert.equal(rows[0].reviewed_at, ts); assert.match(rows[0].decision_sha256, /^[a-f0-9]{64}$/);
+    assert.equal(rows[0].decision_sha256, rows[1].decision_sha256);
+    assert.equal(metrics(rows).lowTierPrimaryCompliance.denominator, 1);
+  } finally {
+    assert.ok(path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("a task and duplicate receipts count once; fallback launches remain separate", () => {
   const fallback = { ...launch, dispatchId: "second", fallbackReason: "quota", fallbackStage: 1,

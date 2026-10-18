@@ -443,6 +443,9 @@ function isProvenDead(dispatchId, handle = null, run = null) {
 }
 
 function startAgyWindows(repo, run, p, spec, title) {
+  const adapterError = (response, operation, fields = {}) => ({ ...fields,
+    error: (response.error && response.error.message) || operation + " failed",
+    transportFailure: require("./network-fallback.js").classify(response, operation) });
   const agy = path.join(
     process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
     "agy", "bin", "agy.exe"
@@ -465,7 +468,7 @@ function startAgyWindows(repo, run, p, spec, title) {
   }
   const registered = orca(["repo", "add", "--path", repo]);
   if (registered.ok === false) {
-    return { error: (registered.error && registered.error.message) || "workspace registration failed" };
+    return adapterError(registered, "repo add");
   }
 
   let cmd = '& "' + agy + '" --dangerously-skip-permissions';
@@ -485,9 +488,10 @@ function startAgyWindows(repo, run, p, spec, title) {
   ]);
   const handle = termRes.result && termRes.result.terminal && termRes.result.terminal.handle;
   if (!handle) {
-    return { error: (termRes.error && termRes.error.message) || "antigravity terminal create failed" };
+    return adapterError(termRes, "terminal create", { state: "outcome_unknown" });
   }
   recordOwnedTerminal(run, handle);
+  updatePendingStart(repo, run, { terminalHandle: handle });
 
   const switched = orca(["terminal", "switch", "--terminal", handle]);
   if (switched.ok === false) {
@@ -495,10 +499,7 @@ function startAgyWindows(repo, run, p, spec, title) {
       try { orca(["terminal", "close", "--terminal", handle]); } catch (_) {}
     }
     restoreControlFocus(run);
-    return {
-      error: "Antigravity terminal switch failed: " + ((switched.error && switched.error.message) || "switch error"),
-      terminalHandle: handle,
-    };
+    return adapterError(switched, "terminal switch", { terminalHandle: handle });
   }
 
   const ready = orca([
@@ -517,6 +518,7 @@ function startAgyWindows(repo, run, p, spec, title) {
     return {
       error: "Antigravity terminal did not become idle: " + why,
       terminalHandle: handle,
+      transportFailure: require("./network-fallback.js").classify(ready, "terminal wait"),
     };
   }
 
@@ -526,6 +528,7 @@ function startAgyWindows(repo, run, p, spec, title) {
   let modelConfirmed = p.model === "default";
   while (Date.now() < deadline) {
     const screen = orca(["terminal", "read", "--terminal", handle, "--screen"]);
+    if (screen.ok === false) return adapterError(screen, "terminal read", { terminalHandle: handle });
     const term = screen.result && screen.result.terminal;
     const lines = (term && term.tail) || [];
     const composer = lines.some((l) => l.trim() === ">");
@@ -559,7 +562,7 @@ function startAgyWindows(repo, run, p, spec, title) {
     return { error: "AGY_MODEL_NOT_APPLIED: expected " + p.model + "; live footer does not confirm the requested model/level; no prompt dispatched", terminalHandle: handle };
   }
 
-  updatePendingStart(repo, run, { submissionAttempted: true });
+  updatePendingStart(repo, run, { submissionAttempted: true, modelConfirmed: true });
   const started = orca([
     "orchestration", "worker-start",
     "--spec", spec,
@@ -570,13 +573,18 @@ function startAgyWindows(repo, run, p, spec, title) {
   ]);
   const result = started.result || {};
   const id = result.dispatchId;
-  if (!id) {
+  if (!id || started.ok === false || result.state !== "ready") {
+    if (id) recordOwnedTerminal(run, handle, id);
     restoreControlFocus(run);
     return {
       error: "Antigravity worker-start " +
         (result.failedStage || result.state || (started.error && started.error.message) || "unknown") +
         "; dispatch=" + (id || "none") + "; terminal=" + handle,
       terminalHandle: handle,
+      id: id || null,
+      taskId: result.taskId || result.task_id || null,
+      state: "outcome_unknown",
+      transportFailure: require("./network-fallback.js").classify(started, "worker-start"),
     };
   }
   recordOwnedTerminal(run, handle, id);
@@ -706,6 +714,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   if (!startEvidence) {
     const promptDeadline = Date.now() + 60000;
     let promptVisible = false;
+    let lastDraft = null, stableSince = null;
     while (Date.now() < promptDeadline && !startEvidence && !promptVisible) {
       startEvidence = observedTurn(orca(["orchestration", "worker-show", "--dispatch", id]).result, expected);
       if (startEvidence) break;
@@ -713,7 +722,12 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
       const terminalState = (screen.result || {}).terminal || {};
       const draft = terminalState.draft || "";
       const visible = (terminalState.tail || []).join("\n") + "\n" + JSON.stringify(draft);
-      promptVisible = /Pasted Content/i.test(visible) || Boolean(String(draft).trim());
+      const unsubmitted = /Pasted Content/i.test(visible) || Boolean(String(draft).trim());
+      if (!unsubmitted || visible !== lastDraft) stableSince = Date.now();
+      lastDraft = visible;
+      // worker-start can paste the preamble and task in separate chunks.
+      // Submit once, after the visible draft stops changing, never mid-paste.
+      promptVisible = unsubmitted && stableSince !== null && Date.now() - stableSince >= 1000;
       if (!promptVisible) sleep(250);
     }
     if (!startEvidence && !promptVisible) {
@@ -790,7 +804,7 @@ function start(repo, run, p, spec, title) {
     return startAgyWindows(repo, run, p, spec, title);
   }
 
-  if ((process.platform === "win32" && p.agent === "codex" && p.model === "gpt-6.1-sol" && p.effort === "medium") || p.fallbackReason === "quota" || p.fallbackReason === "model_unavailable") {
+  if ((process.platform === "win32" && p.agent === "codex" && p.model === "gpt-6.1-sol" && p.effort === "medium") || ["quota", "network", "model_unavailable"].includes(p.fallbackReason)) {
     return startCodexQuotaTerminal(repo, run, p, spec, title);
   }
 
@@ -947,7 +961,15 @@ function orcaHint(msg, run) {
 }
 
 function requireHandle(extra) {
-  if (process.env.ORCA_TERMINAL_HANDLE) return;
+  if (process.env.ORCA_TERMINAL_HANDLE) {
+    if (extra && extra.run) {
+      const current = (orca(["orchestration", "run-current"]).result || {}).run || {};
+      if (current.id !== extra.run || current.coordinator_handle !== process.env.ORCA_TERMINAL_HANDLE) {
+        fail("Bind the current coordinator to this Run with orca orchestration run-use before launching", extra);
+      }
+    }
+    return;
+  }
   fail(
     "not inside an Orca terminal. Pass your own terminal's handle as ORCA_TERMINAL_HANDLE, never another pane's",
     extra
@@ -1242,6 +1264,24 @@ function listFiles(dir, top = true) {
 
 function dispatch(f) {
   f.repo = path.resolve(f.repo);
+  if (!/^[A-Za-z0-9_-]+$/.test(f.run || "")) out("ERROR invalid Run identity", 2);
+  try { require("./task-routing.js").requireApprovedRoute(f); }
+  catch (e) { out("ERROR " + e.message, 2); }
+  const file = path.join(runFolder(f.repo, f.run), "dispatch.lock");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const token = crypto.randomBytes(16).toString("hex");
+  try { fs.writeFileSync(file, JSON.stringify({ token, pid: process.pid }), { flag: "wx" }); }
+  catch (_) { out("OUTCOME_UNKNOWN: another dispatch/recovery owns this Run; inspect its attempt before retrying", 8); }
+  const unlock = () => {
+    try { if (JSON.parse(fs.readFileSync(file, "utf8")).token === token) fs.unlinkSync(file); } catch (_) {}
+  };
+  process.once?.("exit", unlock);
+  try { return dispatchLocked(f); }
+  finally { unlock(); process.removeListener?.("exit", unlock); }
+}
+
+function dispatchLocked(f) {
+  f.repo = path.resolve(f.repo);
   // jev-task-routing: dispatch admission
   if (f.phase !== "implement") out("ERROR AGY dispatch is implement-only; review is owned by Codex Control", 2);
   const taskRouting = require("./task-routing.js");
@@ -1249,7 +1289,7 @@ function dispatch(f) {
   try { taskDecision = taskRouting.requireApprovedRoute(f); }
   catch (e) { out("ERROR " + e.message, 2); }
   let p;
-  const fallbackStage = f.fallback === "quota" ? Number(f["fallback-stage"] || 1) : null;
+  const fallbackStage = f.fallback ? Number(f["fallback-stage"] || 1) : null;
   const pinPhase = taskRouting.selectedPhase(taskDecision, f);
   try {
     p = pin(f.repo, pinPhase);
@@ -1262,9 +1302,9 @@ function dispatch(f) {
     fallbackReason: f.fallback || null,
     fallbackStage,
   });
-  if (p.fallbackReason === "quota") {
+  if (["quota", "network"].includes(p.fallbackReason)) {
     if (p.agent !== "codex" || p.model !== "gpt-6-luna" || p.effort !== "max") {
-      out("ERROR quota stage 1 pin must be Codex CLI / gpt-6-luna / max", 2);
+      out("ERROR fallback stage 1 pin must be Codex CLI / gpt-6-luna / max", 2);
     }
   }
   try { taskRouting.verifyPin(taskDecision, p, f); }
@@ -1316,6 +1356,38 @@ function dispatch(f) {
   const pendingFile = pendingStartPath(f.repo, f.run);
   const requestKey = JSON.stringify([p.agent, p.model, p.effort, p.pinPhase, p.fallbackReason, p.fallbackStage]);
   let pending = fs.existsSync(pendingFile) ? JSON.parse(fs.readFileSync(pendingFile, "utf8")) : null;
+  const binding = { specSha256: sourceSha256, contextSha256: taskDecision.task.context_sha256,
+    assessmentBasisSha256: taskDecision.assessment_basis_sha256 };
+  const fallbackClaim = path.join(runFolder(f.repo, f.run), "fallback-stage-1-" +
+    crypto.createHash("sha256").update(sourceSha256 + binding.contextSha256).digest("hex") + ".json");
+  let networkEvidence = pending && pending.networkEvidence || null;
+  if (f.fallback && !(pending && pending.requestKey === requestKey)) {
+    if (fs.existsSync(fallbackClaim)) out("ERROR FALLBACK_ALREADY_SELECTED: stage 1 has already been claimed for this snapshot", 2);
+    if (f.fallback === "network") {
+      try {
+        if (!pending || pending.run !== f.run || pending.repo !== f.repo || pending.phase !== f.phase) throw Error("NETWORK_FALLBACK_UNPROVEN: no matching original attempt");
+        taskRouting.verifyPin(taskDecision, pending.pin, {});
+        networkEvidence = require("./network-fallback.js").reconcile(pending, { ...binding, run: f.run },
+          (id) => orca(["orchestration", "worker-show", "--dispatch", id]).result || {}, releaseWorker,
+          (handle) => {
+            if (!getOwnedTerminals(f.run).some((t) => t.terminalHandle === handle)) return false;
+            const closed = orca(["terminal", "close", "--terminal", handle]);
+            return closed.ok === true && ((orca(["terminal", "read", "--terminal", handle]).result || {}).terminal || {}).status === "exited";
+          });
+      } catch (e) { out("ERROR " + e.message, 8); }
+    } else if (pending) unknownStart(f, pending, "reconcile the pending primary before selecting quota fallback");
+    fs.mkdirSync(path.dirname(fallbackClaim), { recursive: true });
+    try { fs.writeFileSync(fallbackClaim, JSON.stringify({ ...binding, reason: f.fallback, networkEvidence }), { flag: "wx" }); }
+    catch (_) { out("ERROR FALLBACK_ALREADY_SELECTED: another caller claimed stage 1", 2); }
+    if (f.fallback === "network") { fs.unlinkSync(pendingFile); pending = null; }
+  }
+  if (f.fallback === "network") {
+    try {
+      require("./network-fallback.js").validate(networkEvidence, binding);
+      const claim = JSON.parse(fs.readFileSync(fallbackClaim, "utf8"));
+      if (claim.reason !== "network" || JSON.stringify(claim.networkEvidence) !== JSON.stringify(networkEvidence)) throw Error("NETWORK_FALLBACK_UNPROVEN: stage claim does not match reconciliation");
+    } catch (e) { out("ERROR " + e.message, 8); }
+  }
   let resumed = null;
   if (pending) {
     if (pending.repo !== f.repo || pending.phase !== f.phase || pending.requestKey !== requestKey ||
@@ -1344,7 +1416,7 @@ function dispatch(f) {
     const expected = { ...pending, run: f.run };
     const succeeded = result.dispatch.status === "completed" && result.worker.state === "succeeded";
     if (inactive && !succeeded) {
-      if (!nativeModelEvidence(expected)) unknownStart(f, pending, "the inactive worker has no matching native model/effort evidence");
+      if (pending.pin.agent === "codex" ? !nativeModelEvidence(expected) : pending.modelConfirmed !== true) unknownStart(f, pending, "the inactive worker has no matching native model/effort evidence");
       if (!result.dispatch.completedAt || !["completed", "failed", "abandoned"].includes(result.dispatch.status)) {
         unknownStart(f, pending, "the inactive worker has no accepted settlement; complete Orca recovery first");
       }
@@ -1352,8 +1424,9 @@ function dispatch(f) {
       if (!["released", "already_released"].includes(release.state)) unknownStart(f, pending, "the inactive worker release is not confirmed");
       fs.unlinkSync(pendingFile);
       pending = null;
+      if (f.fallback) out("FAILED final fallback attempt settled unsuccessfully; stage 1 cannot launch again", 5);
     } else {
-      const observed = observedTurn(result, expected);
+      const observed = pending.pin.agent === "antigravity" && pending.modelConfirmed === true ? { kind: "verified_agy_footer" } : observedTurn(result, expected);
       if (!observed) {
         unknownStart(f, pending, "the original Codex turn has not been proven with the requested model");
       }
@@ -1405,16 +1478,18 @@ function dispatch(f) {
   }
 
   const launch = () => {
-    if (p.agent === "codex") {
+    if (["codex", "antigravity"].includes(p.agent)) {
       fs.mkdirSync(path.dirname(pendingFile), { recursive: true });
       fs.writeFileSync(pendingFile, JSON.stringify({ repo: f.repo, phase: f.phase, requestKey, pin: p,
-        sourceSha256, contextSha256: taskDecision.task.context_sha256, receiptMarker,
+        run: f.run, sourceSha256, contextSha256: taskDecision.task.context_sha256,
+        assessmentBasisSha256: taskDecision.assessment_basis_sha256, submissionAttempted: false, networkEvidence, receiptMarker,
         snapshotPath, snapshotBytes, snapshotSha256 }), { flag: "wx" });
     }
     const result = start(f.repo, f.run, p, dispatchSpec, f.phase);
-    if (p.agent === "codex") {
-      updatePendingStart(f.repo, f.run, { id: result.id, taskId: result.taskId, terminalHandle: result.terminalHandle, launch: result.launch });
-      if (result.error && !result.id && result.state !== "outcome_unknown") fs.unlinkSync(pendingFile);
+    if (["codex", "antigravity"].includes(p.agent)) {
+      updatePendingStart(f.repo, f.run, { id: result.id, taskId: result.taskId, terminalHandle: result.terminalHandle, launch: result.launch,
+        transportFailure: result.transportFailure, failed: !!result.error && result.state !== "outcome_unknown" });
+      if (((result.modelUnavailable && p.agent === "antigravity") || result.error) && !result.id && result.state !== "outcome_unknown" && !result.transportFailure) fs.unlinkSync(pendingFile);
     }
     return result;
   };
@@ -1518,6 +1593,7 @@ function dispatch(f) {
         pinPhase: p.pinPhase,
         fallbackReason: p.fallbackReason,
         fallbackStage: p.fallbackStage,
+        networkEvidence,
         launch: s.launch || null,
         dispatchId: s.id,
         terminalHandle: s.terminalHandle || null,
@@ -1673,6 +1749,7 @@ function wait(f) {
             type: m.type,
             subject: m.subject,
             dispatchId: messageDispatchId(m),
+            rejected: isRejected(m),
           })),
         });
       }
@@ -2072,7 +2149,7 @@ const COMMANDS = {
       ["phase", "implement"],
       ["spec-file", "FILE"],
     ],
-    optional: [["fallback", "quota"], ["fallback-stage", "1"], ["assessment-file", "FILE"]],
+    optional: [["fallback", "quota|network"], ["fallback-stage", "1"], ["assessment-file", "FILE"]],
   },
   wait: {
     required: [["run", "RUN"], ["control", "HARNESS"]],
@@ -2162,8 +2239,8 @@ if (cmd === "dispatch" && f.phase !== "implement") {
   console.log(usageLine(cmd));
   process.exit(2);
 }
-if (cmd === "dispatch" && f.fallback != null && f.fallback !== "quota") {
-  console.log("ERROR unknown fallback reason: " + f.fallback + " (supported: quota)");
+if (cmd === "dispatch" && f.fallback != null && !["quota", "network"].includes(f.fallback)) {
+  console.log("ERROR unknown fallback reason: " + f.fallback + " (supported: quota, network)");
   console.log(usageLine(cmd));
   process.exit(2);
 }
@@ -2172,8 +2249,8 @@ if (f["fallback-stage"] != null && cmd !== "dispatch") {
   console.log(usageLine(cmd));
   process.exit(2);
 }
-if (f["fallback-stage"] != null && f.fallback !== "quota") {
-  console.log("ERROR --fallback-stage requires --fallback quota");
+if (f["fallback-stage"] != null && !["quota", "network"].includes(f.fallback)) {
+  console.log("ERROR --fallback-stage requires --fallback quota|network");
   console.log(usageLine(cmd));
   process.exit(2);
 }

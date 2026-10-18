@@ -13,6 +13,7 @@
     <p class="nav-label">WORKSPACE</p>
     <a class="nav-item active" href="#overview"><span class="nav-icon">◫</span> Overview</a>
     <a class="nav-item" href="#models"><span class="nav-icon">▥</span> Model activity</a>
+    <a class="nav-item" href="#measures"><span class="nav-icon">◎</span> Usage measures</a>
     <a class="nav-item" href="#routing"><span class="nav-icon">↗</span> Routing coverage</a>
     <a class="nav-item" href="#activity"><span class="nav-icon">≡</span> Recent launches</a>
     <div class="sidebar-bottom"><span class="local-dot"></span> Local observation<p>Metadata only. Your prompts<br>stay out of this dashboard.</p></div>
@@ -38,6 +39,75 @@
     <section id="models" class="chart-grid">
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">IMPLEMENTATION</p><h2>Effective model pins</h2></div><span id="launch-count" class="pill">Dely logs</span></div><p class="panel-caption">Acknowledged Dely launches. Retries and fallback launches are counted separately.</p><div id="implementation-chart" class="bar-chart"></div><p class="footnote">An effective pin is the model recorded by Dely. Missing model evidence is shown as unknown.</p></article>
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSATION ACTIVITY</p><h2>Codex model usage</h2></div><span class="pill">Recorded turns</span></div><p class="panel-caption">Includes Control, review and direct CLI work. These counts are not implementation shares.</p><div id="conversation-chart" class="bar-chart"></div><p class="footnote">Conversation IDs and turn IDs are deduplicated across native and Orca profiles.</p></article>
+    </section>
+    <section id="measures" class="panel measures-panel">
+      <div class="panel-heading">
+        <div><p class="eyebrow">INDEPENDENT USAGE MEASURES</p><h2>Observational API metrics</h2></div>
+        <span class="pill">data.metrics</span>
+      </div>
+      <p class="panel-caption">Implemented observational API metrics evaluated independently of worker completion or routing recomputation.</p>
+      <div id="measures-grid" class="measures-grid">
+        <article class="measure-card" id="metric-compliance">
+          <div class="measure-head">
+            <span class="measure-title">Low-tier primary compliance</span>
+            <span class="status">NOT_EVALUATED</span>
+          </div>
+          <div class="measure-main">
+            <div id="compliance-rate" class="measure-rate unknown">NOT_EVALUATED</div>
+            <div id="compliance-ratio" class="measure-ratio">Ratio: N/A / NOT_EVALUATED</div>
+          </div>
+          <div class="measure-details">
+            <div id="compliance-pending" class="measure-detail">Pending: —</div>
+            <div id="compliance-coverage" class="measure-detail">Coverage: —</div>
+            <div id="compliance-as-of" class="measure-detail mono">As of: Not recorded</div>
+          </div>
+        </article>
+        <article class="measure-card" id="metric-correction">
+          <div class="measure-head">
+            <span class="measure-title">Correction utilization</span>
+            <span class="status">NOT_EVALUATED</span>
+          </div>
+          <div class="measure-main">
+            <div id="correction-rate" class="measure-rate unknown">NOT_EVALUATED</div>
+            <div id="correction-ratio" class="measure-ratio">Ratio: N/A / NOT_EVALUATED</div>
+          </div>
+          <div class="measure-details">
+            <div id="correction-pending" class="measure-detail">Pending: —</div>
+            <div id="correction-coverage" class="measure-detail">Coverage: —</div>
+            <div id="correction-as-of" class="measure-detail mono">As of: Not recorded</div>
+          </div>
+        </article>
+        <article class="measure-card" id="metric-acceptance">
+          <div class="measure-head">
+            <span class="measure-title">AGY accepted without fallback</span>
+            <span class="status">NOT_EVALUATED</span>
+          </div>
+          <div class="measure-main">
+            <div id="acceptance-rate" class="measure-rate unknown">NOT_EVALUATED</div>
+            <div id="acceptance-ratio" class="measure-ratio">Ratio: N/A / NOT_EVALUATED</div>
+          </div>
+          <div class="measure-details">
+            <div id="acceptance-pending" class="measure-detail">Pending: —</div>
+            <div id="acceptance-coverage" class="measure-detail">Coverage: —</div>
+            <div id="acceptance-as-of" class="measure-detail mono">As of: Not recorded</div>
+          </div>
+        </article>
+        <article class="measure-card" id="metric-leakage">
+          <div class="measure-head">
+            <span class="measure-title">Audited upward leakage</span>
+            <span class="status">NOT_EVALUATED</span>
+          </div>
+          <div class="measure-main">
+            <div id="leakage-rate" class="measure-rate unknown">NOT_EVALUATED</div>
+            <div id="leakage-ratio" class="measure-ratio">Ratio: N/A / NOT_EVALUATED</div>
+          </div>
+          <div class="measure-details">
+            <div id="leakage-pending" class="measure-detail">Pending: —</div>
+            <div id="leakage-coverage" class="measure-detail">Coverage: —</div>
+            <div id="leakage-as-of" class="measure-detail mono">As of: Not recorded</div>
+          </div>
+        </article>
+      </div>
     </section>
     <section id="routing" class="routing-grid">
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">FOUR-TIER POLICY</p><h2>Routing coverage</h2></div><span class="pill">Recorded approvals</span></div><div id="grade-grid" class="grade-grid"></div><p id="snapshot-metrics" class="footnote"></p><p class="footnote">Shares use snapshots whose first confirmed implementation dispatch falls in the window. Hard is direct Sol and reported separately. Worker success does not prove Control acceptance.</p></article>

@@ -150,7 +150,7 @@ test("CLI delegates Hard and review to local policy, rejects downgrade/staleness
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jev-agent-test-"));
   const cli = fixtureCLI(temp);
   const file = (name) => path.join(temp, name);
-  const call = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+  const call = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", env: { ...process.env, HOME: temp, USERPROFILE: temp } });
   try {
     fs.writeFileSync(file("spec.md"), "Change agent routing.");
     fs.writeFileSync(file("context.json"), JSON.stringify({
@@ -184,7 +184,7 @@ test("CLI delegates Hard and review to local policy, rejects downgrade/staleness
 test("target workspace controls relative inputs, outputs, credentials and review ownership", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jev-agent-workspace-"));
   const cli = fixtureCLI(temp);
-  const call = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+  const call = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", env: { ...process.env, HOME: temp, USERPROFILE: temp } });
   try {
     fs.writeFileSync(path.join(temp, "spec.md"), "Routing probe.");
     fs.writeFileSync(path.join(temp, "context.json"), JSON.stringify({

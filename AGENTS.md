@@ -104,9 +104,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.6
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.6
-test "$(jq -r .version package.json)" = 0.27.6
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.7
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.7
+test "$(jq -r .version package.json)" = 0.27.7
 ```
 
 ```bash
@@ -181,6 +181,15 @@ known internal components and integrated acceptance. Hard risk flags take
 precedence. Old assessments must be rerun under the new policy.
 `implement` supplies Codex Sol/medium, `implement_backup` supplies Flash even as a primary,
 and `implement_backup_2` supplies the single Luna quota fallback for final Easy/Medium-.
+Fresh low-tier approvals also permit `--fallback network --fallback-stage 1`
+only with recorded adapter transport evidence bound to the original AGY pin,
+Run and frozen hashes. Reconcile a submitted attempt as failed/canceled,
+inactive and released before replacement; a successful result is retrieved.
+Before submission, close any owned startup terminal and verify it exited.
+Lost terminal-create responses, unknown identity/outcome and unclassified
+timeouts stop. Stage one is claimed once per snapshot; concurrent recovery
+is refused. Medium+/Hard never gain this exception. A crash lock is removed
+only after Control verifies the original invocation and owned workers inactive.
 Final Medium+ and Hard are Sol-only, including provider-quota and model-absence
 failures. Policy `jev-task-routing-v4` keeps Jev's raw Max Rank; an eligible
 single verification/coordination candidate needs optional

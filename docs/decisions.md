@@ -9,6 +9,59 @@ Last updated 2026-10-18.
 
 ## Settled
 
+### 2026-10-18 — Reconciled transport fallback and independent usage evidence
+
+Version `0.27.7` extends the existing v4 low-tier route with one reconciled
+transport fallback to Codex Luna/max. A fresh approved route is required;
+original frozen approvals and runs are not rewritten. Medium+ remains only
+Sol/medium and Hard only direct Sol/xhigh, with no fallback. Adapter error codes
+are distinct from authentication, catalog failure, unknown outcome and UI
+timeout. The original AGY pin, Run, snapshot and assessment basis must match.
+Submitted attempts need exact failed/canceled settlement, inactivity and
+confirmed release. An externally retained or unknown release stops. Before
+submission, an owned terminal is closed and observed exited; a lost
+terminal-create response stays unknown. Successful results are retrieved.
+
+The single stage is claimed once per snapshot. A small per-Run filesystem lock
+serializes dispatch/recovery through receipt; contention and crash residue
+fail closed. Control verifies the original process and workers inactive before
+removing an exact stale lock. Native preflight/dispatch checks the current Run
+binding before creating a worker terminal. Codex submits one Enter only after
+the visible draft is stable, then still requires matching fresh native turn
+evidence. A baseline failed draft and subsequent successful native startup are
+recorded separately; neither an accepted paste nor a helper print proves work.
+
+Observation now separates approved low-tier compliance, candidate-basis
+correction utilization, Control-accepted AGY completion and reference-audited
+upward leakage. Effective review times and frozen decision fingerprints prevent
+duplicate/conflicting reviews from silently changing denominators. Control
+result records require the native connected/writable coordinator, a bound
+confirmed dispatch, durable outcome and unchanged hashed review artifacts.
+Reference audits require actual adjudication. Missing evidence remains pending
+or `NOT_EVALUATED`; worker completion is not Control acceptance. The monitor
+reads both evidence event kinds and displays each denominator and coverage.
+No observation target changes task grades. Journal history is retained;
+historical completeness and unresolved runtime identity are not inferred.
+CLI advice test fixtures now use private homes, so verification cannot append
+new synthetic assessments to the user's journal.
+
+The portable launch primitive compares every supported entry in four modes
+and rejects an explicit-effort deletion mutant without disabling admission.
+The legacy full-CLI argv row remains incompatible with this fork's restricted
+v4 worker routes; it is not reported green. Other portable harness live rows
+cannot be certified using pins that this deployment does not authorize.
+Controlled trust-dialog/trust-intervention fixtures remain unavailable and
+their rows are reported as skipped. Native worker/lifecycle rows, deterministic
+regressions and browser checks have distinct evidence; none certifies all
+harnesses or an ordinary-workload adoption improvement.
+
+Two confirmed historical remnants are corrected: rejected log batches mark
+each message using the existing rejection predicate, and setup stops on any
+nonzero, `ERROR` or unknown preflight result without selecting another pin.
+Older provider-specific Open/Deferred observations are historical constraints,
+not current live certification. No unrelated session or credential store is
+reset to reproduce them.
+
 ### 2026-10-18 — Frozen v4 activation and confirmed snapshot observation
 
 Release `0.27.6` retains the v4 route/proof algorithm and publishes optional

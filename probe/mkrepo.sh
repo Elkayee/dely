@@ -11,6 +11,11 @@
 # team pins in .dely/pins.json, and the one-line routing sentence in AGENTS.md. Re-running it destroys and rebuilds
 # the repository, which is the point: the harness trust entry is keyed on the
 # path and survives, so only the first run needs a human.
+# For this v4 fork, also prepare frozen task evidence with
+# node probe/prepare-task.cjs <absolute repo> <run>. Control confirms the
+# generated unknown context, runs assess/review, and supplies both assessment
+# and spec to preflight/dispatch. Harness pins never override that approval;
+# review is direct Codex Control rather than a second worker dispatch.
 set -eu
 
 ROOT="$HOME/dely-probe"

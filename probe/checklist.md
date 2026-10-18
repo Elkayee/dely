@@ -25,8 +25,8 @@ from the last release: `id`, `name`, `binary`, `status`, `controlWake`,
 `trust`. A change to `limits` or `notes` does not count.
 
 Run the live worker row for each entry that changed and for each harness
-upgrade that a deployment uses. Each worker row covers implementer and
-reviewer in separate sessions. A **deployment** is this repository's
+upgrade that a deployment uses. This fork's worker rows cover implementation;
+Codex Control performs the separate review directly. A **deployment** is this repository's
 pins plus the harness the owner uses as Control. A **harness
 upgrade** is a version different from the newest live report that ran that
 harness. If none did, treat the harness as upgraded.
@@ -223,6 +223,25 @@ install: report the path and the hash and ask.
 an old branch for ten merges while reporting success every time.
 
 ## Stub row — launch argv against the last release
+
+This fork's mandatory v4 admission accepts only reviewed AGY low-tier or Sol
+Medium+ implementations; review stays with Codex Control. The historical full
+CLI stub below predates that admission and cannot certify this fork. Do not
+disable admission or invent approvals to make arbitrary harness pins pass.
+Run the portable launch primitive instrument instead, alongside the reviewed
+end-to-end AGY/Sol rows and the network/admission regressions:
+
+```bash
+node "$snap/probe/argv.cjs" "$snap" "$release_snap"
+node --test "$snap/scripts/test-network-fallback.js" "$snap/scripts/test-task-routing.js" "$snap/scripts/test-staged-dispatch.js"
+```
+
+The primitive compares every supported harness in all four pin modes and must
+reject the mutant dropping explicit effort. It does not bypass admission: it
+calls `start()` directly as a unit instrument and launches no real worker.
+Report it under its own name. The legacy full-CLI argv row remains skipped for
+this fork with that specific reason; the release floor is not silently green.
+Other harness live rows require an independently authorized deployment policy.
 
 Run this from the observer shell with `snap` set to the candidate snapshot and
 `release_snap` to the last release snapshot. Set `DELY_NAMED_INTENDED` to the
@@ -500,29 +519,31 @@ observer's harness id as `<control-id>` for every wait's `--control`.
 Answer the tested harness's trust dialog at this probe path before dispatch
 (by hand except for Claude's `probe/trust.sh`). OMP and Pi pinned workers
 need their README Dely install, which loads the pin extension. Create two
-spec files under `<absolute probe path>/.dely/local/runs/<run>/`, the Run's
-folder, which `dely dispatch` requires and in which the workers write their
-handoffs:
+spec and context files under `<absolute probe path>/.dely/local/runs/<run>/`, the Run's
+folder, which `dely dispatch` requires and in which the implementer writes its
+handoff. Prepare context with `node probe/prepare-task.cjs <repo> <run>`,
+inspect its evidence, confirm each risk and the requirements, then run
+`task-routing.js assess` and explicit Control `review`. Keep unknowns unknown.
+Only use pins admitted by that reviewed route:
 
 - Implement: fix the `REQUEST.md` defect, add a regression test, run
   `node --test test/`, and commit. Report through the dispatched lifecycle
   commands, using its own task, dispatch and terminal identities.
-- Review: read the implement commit against `REQUEST.md`, run the gates,
-  and report `ACCEPT` or concrete findings through its lifecycle commands.
-  Do not modify the repository.
+- Codex Control review: read the implement commit against `REQUEST.md`, run the
+  gates, and record `ACCEPT` or findings directly. This is not a worker dispatch.
 
 ```bash
-dely preflight --repo <absolute probe path> --run <run>
-dely dispatch --repo <absolute probe path> --run <run> --phase implement --spec-file <implement spec>
+dely preflight --repo <absolute probe path> --run <run> --assessment-file <reviewed assessment> --spec-file <implement spec>
+dely dispatch --repo <absolute probe path> --run <run> --phase implement --assessment-file <reviewed assessment> --spec-file <implement spec>
 # After processing implement settlement and acknowledging it (the helper released the worker):
-dely dispatch --repo <absolute probe path> --run <run> --phase review --spec-file <review spec>
+# Codex Control reviews the complete change and records ACCEPT or findings directly.
 ```
 
 Use the Control wait below for each dispatch, replacing `--control <id>`
 with `--control <control-id>` for the observer and using the snapshot helper.
-**Pass:** preflight passes both
-pins; both dispatches print `DISPATCHED` after a valid acknowledgement, both
-settle on accepted `worker_done`, the regression passes and the review reports
+**Pass:** implementation preflight passes its reviewed primary; dispatch prints
+`DISPATCHED` after a valid acknowledgement, implementation settles on a valid
+`worker_done`, the regression passes and Codex Control's review reports
 `ACCEPT`. Record prompt retries and trust intervention separately; a launch
 that loses its prompt is a failed attempt, even if its retry passes. Read the
 worker screen with `orca terminal read --screen` on failure. Record pin

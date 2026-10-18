@@ -249,13 +249,12 @@ try {
     assert.match(f.run(), /OUTCOME_UNKNOWN/);
     assert.equal(f.starts, 1); assert.equal(f.calls.filter((a) => a[1] === "worker-release").length, 0);
   });
-  check("a proven inactive released attempt permits one fresh worker", () => {
+  check("a proven inactive released final fallback cannot launch stage one again", () => {
     const f = fixture(); f.delay = Infinity; f.run(); f.dead = true; f.nativeForDead = true;
     f.run();
-    assert.equal(f.starts, 2);
-    const release = f.calls.findIndex((a) => a[1] === "worker-release");
-    const second = f.calls.map((a, i) => a[1] === "worker-start" ? i : -1).filter((i) => i >= 0)[1];
-    assert.ok(release >= 0 && release < second);
+    assert.equal(f.starts, 1);
+    assert.equal(f.exit, 5);
+    assert.ok(f.calls.some((a) => a[1] === "worker-release"));
   });
   console.log(`${passed} passed, ${failed} failed`);
 } finally {

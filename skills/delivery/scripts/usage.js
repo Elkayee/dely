@@ -35,7 +35,8 @@ function runtimeFingerprint(directory = __dirname) {
   try {
     const hash = (name) => crypto.createHash("sha256").update(fs.readFileSync(path.join(directory, name))).digest("hex");
     return { version: JSON.parse(fs.readFileSync(path.resolve(directory, "../../../package.json"), "utf8")).version,
-      router: hash("task-routing.js"), dispatcher: hash("dely.js"), usage: hash("usage.js") };
+      router: hash("task-routing.js"), dispatcher: hash("dely.js"), usage: hash("usage.js"),
+      ...(fs.existsSync(path.join(directory, "network-fallback.js")) ? { network: hash("network-fallback.js") } : {}) };
   } catch (_) { return null; }
 }
 
@@ -65,6 +66,16 @@ function recordTask(assessment, operation, journal = path.join(os.homedir(), ".d
       correction_sha256: assessment.review?.correction_sha256 || null,
       task_title: null, domain: null, runtime: runtimeFingerprint(),
     };
+    try {
+      if (assessment.status === "APPROVED" && assessment.review?.by === "codex-control") {
+        const { canonicalJson } = require("./task-routing.js");
+        record.reviewed_at = assessment.review.reviewed_at || null;
+        record.decision_sha256 = crypto.createHash("sha256").update(canonicalJson({
+          basis: record.assessment_basis_sha256, difficulty: assessment.difficulty,
+          route: assessment.route, review: assessment.review,
+        })).digest("hex");
+      }
+    } catch (_) { /* Optional review metadata cannot discard the base event. */ }
     try { Object.assign(record, taskMetadata(task)); } catch (_) { /* Optional metadata cannot discard the base event. */ }
     fs.appendFileSync(journal, JSON.stringify(record) + "\n", { mode: 0o600 });
   } catch (_) { /* Logging never changes routing, output or exit status. */ }

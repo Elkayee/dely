@@ -132,7 +132,10 @@ const value = (name) => {
   return i < 0 ? null : args[i + 1] || null;
 };
 let result = {};
-if (args[0] === "terminal" && args[1] === "create") {
+if (args[0] === "orchestration" && args[1] === "run-current") {
+  result = { run: { id: scenario === "foreign-run-binding" ? "another-run" : "quota-fixture-" + scenario,
+    coordinator_handle: scenario === "foreign-coordinator-binding" ? "term_other" : "term_control" } };
+} else if (args[0] === "terminal" && args[1] === "create") {
   result = { terminal: { handle: "term_fixture", connected: true, writable: true } };
 } else if (args[0] === "terminal" && args[1] === "show") {
   result = { terminal: { handle: value("--terminal"), connected: true, writable: true, agentIdentity: "antigravity", preview: ">" } };
@@ -144,7 +147,8 @@ if (args[0] === "terminal" && args[1] === "create") {
   const entered = records.some((r) => r.args[0] === "terminal" && r.args[1] === "send" && r.args.includes("--enter"));
   const screenReads = records.filter((r) => r.args[0] === "terminal" && r.args[1] === "read").length;
   const delayedCodex = ["stage2", "stage2-not-working", "legacy-stage1"].includes(scenario);
-  const promptVisible = codex && !entered && scenario !== "uncertain-no-prompt" && (scenario === "missing-sonnet-late-prompt" ? screenReads >= 40 : (!delayedCodex || screenReads >= 2));
+  const startedAt = records.find((r) => r.args[0] === "orchestration" && r.args[1] === "worker-start")?.virtualAt;
+  const promptVisible = codex && !entered && scenario !== "uncertain-no-prompt" && (scenario === "missing-sonnet-late-prompt" ? startedAt != null && Date.now() - startedAt >= 35000 : (!delayedCodex || screenReads >= 2));
   const created = records.filter((r) => r.args[0] === "terminal" && r.args[1] === "create").slice(-1)[0];
   const command = created ? created.args[created.args.indexOf("--command") + 1] : "";
   const modelFooter = scenario === "wrong-live-model" ? "Gemini 3.8 Flash · high" : command.includes("claude-sonnet-5-5-high") ? "Claude Sonnet 5.5 · high" : "Gemini 3.8 Flash · medium";
@@ -238,7 +242,7 @@ if (args[0] === "terminal" && args[1] === "create") {
   } else result = { messages: [] };
 }
 const response = { ok: true, result };
-try { fs.appendFileSync(log, JSON.stringify({ args, response }) + "\n"); } catch (_) {}
+try { fs.appendFileSync(log, JSON.stringify({ args, response, virtualAt: Date.now() }) + "\n"); } catch (_) {}
 process.stdout.write(JSON.stringify(response));
 '@ | Set-Content -LiteralPath $orcaShim -Encoding UTF8
 
@@ -355,11 +359,11 @@ cp.execFileSync = function(file, args, options) {
 
     Set-FixturePins $globalRows @($projectReviewRow, ("|" + $tick + "implement_backup_2" + $tick + " | Codex CLI | gpt-6-luna | low |"))
     $lunaLow = Invoke-Scenario "luna-low" @("--fallback", "quota", "--fallback-stage", "1")
-    Assert-Case "quota rejects Codex Luna low effort before launch" ($lunaLow.ExitCode -ne 0 -and -not (Has-Launch $lunaLow) -and $lunaLow.Output -match "quota stage 1 pin") $lunaLow.Output
+    Assert-Case "quota rejects Codex Luna low effort before launch" ($lunaLow.ExitCode -ne 0 -and -not (Has-Launch $lunaLow) -and $lunaLow.Output -match "stage 1 pin") $lunaLow.Output
 
     Set-FixturePins $globalRows @($projectReviewRow, ("|" + $tick + "implement_backup_2" + $tick + " | Codex CLI | gpt-6-luna | default |"))
     $lunaDefault = Invoke-Scenario "luna-default" @("--fallback", "quota", "--fallback-stage", "1")
-    Assert-Case "quota rejects Codex Luna default effort before launch" ($lunaDefault.ExitCode -ne 0 -and -not (Has-Launch $lunaDefault) -and $lunaDefault.Output -match "quota stage 1 pin") $lunaDefault.Output
+    Assert-Case "quota rejects Codex Luna default effort before launch" ($lunaDefault.ExitCode -ne 0 -and -not (Has-Launch $lunaDefault) -and $lunaDefault.Output -match "stage 1 pin") $lunaDefault.Output
 
     Set-FixturePins $globalRows @($projectReviewRow)
     $unknown = Invoke-Scenario "unknown" @("--fallback", "provider")
@@ -433,7 +437,8 @@ cp.execFileSync = function(file, args, options) {
     Assert-Case "verified Flash absence launches Luna/max directly with no AGY terminal" ($missingModel.ExitCode -eq 0 -and $missingTerminals.Count -eq 1 -and $missingCommand -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $missingEvent.fallbackReason -eq "model_unavailable" -and $null -eq $missingEvent.fallbackStage -and $missingEvent.launch.requested.model -eq "gemini-3.8-flash-medium" -and $missingEvent.launch.effective.model -eq "gpt-6-luna") $missingModel.Output
     $latePrompt = Invoke-Scenario "missing-sonnet-late-prompt" @()
     $lateEnters = @($latePrompt.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })
-    Assert-Case "missing-model Luna waits past 30 seconds for one visible prompt and sends one bare Enter" ($latePrompt.ExitCode -eq 0 -and $lateEnters.Count -eq 1 -and -not ($lateEnters[0].args -contains "--text")) $latePrompt.Output
+    $lateStarts = @($latePrompt.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
+    Assert-Case "missing-model Luna waits past 30 seconds for one visible prompt and sends one bare Enter" ($latePrompt.ExitCode -eq 0 -and $lateEnters.Count -eq 1 -and $lateStarts.Count -eq 1 -and ($lateEnters[0].virtualAt - $lateStarts[0].virtualAt) -ge 35000 -and -not ($lateEnters[0].args -contains "--text")) $latePrompt.Output
     $uncertainVisible = Invoke-Scenario "uncertain-visible-prompt" @()
     $uncertainStarts = @($uncertainVisible.Calls | Where-Object { $_.args[0] -eq "orchestration" -and $_.args[1] -eq "worker-start" })
     $uncertainEnters = @($uncertainVisible.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "send" -and $_.args -contains "--enter" })

@@ -21,11 +21,134 @@ function instant(value) {
   return Number.isFinite(time) ? time : null;
 }
 
+const digest = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+const basisKey = (e) => JSON.stringify([e.policy, e.taskKey, e.assessment_basis_sha256]);
+const validIdentity = (e) => typeof e.policy === "string" && !!e.policy.trim() &&
+  e.policy === e.policy.trim() && digest(e.taskKey) && digest(e.assessment_basis_sha256);
+const lowTier = (e) => ["easy", "medium_minus"].includes(e.difficulty);
+function validNetwork(dispatch) {
+  try {
+    require("../skills/delivery/scripts/network-fallback.js").validate(dispatch.networkEvidence, {
+      specSha256: dispatch.promptSha256, contextSha256: dispatch.contextSha256,
+      assessmentBasisSha256: dispatch.assessmentBasisSha256,
+    });
+    return true;
+  } catch (_) { return false; }
+}
+// Effective time is authoritative; journal append order cannot resolve a review.
+function effectiveDecision(rows, asOf, signature) {
+  const dated = rows.filter((e) => instant(e.reviewed_at) != null && instant(e.reviewed_at) <= asOf);
+  if (!dated.length) return null;
+  const latest = Math.max(...dated.map((e) => instant(e.reviewed_at)));
+  const current = dated.filter((e) => instant(e.reviewed_at) === latest);
+  if (rows.some((e) => instant(e.reviewed_at) == null && signature(e) !== signature(current[0]))) return null;
+  return new Set(current.map(signature)).size === 1 ? current[0] : null;
+}
+
+function independentMeasures(rows, options, visible, cohort, launches, fallback) {
+  const asOf = options.asOf ?? Date.now(), since = options.since || 0, end = options.end ?? asOf;
+  const window = { start: new Date(since).toISOString(), end: new Date(end).toISOString(), as_of: new Date(asOf).toISOString() };
+  const reviews = new Map();
+  for (const e of rows) if (e.event === "task_assessment" && e.status === "APPROVED" &&
+      e.reviewer === "codex-control" && validIdentity(e) && visible({ ...e, ts: null })) {
+    const list = reviews.get(basisKey(e)) || []; list.push(e); reviews.set(basisKey(e), list);
+  }
+  const decisionSignature = (e) => JSON.stringify([e.decision_sha256, e.difficulty, e.workflow, e.primary,
+    e.decision_source, e.correction_sha256 || null]);
+  const effective = (list) => {
+    const decision = effectiveDecision(list, asOf, decisionSignature);
+    return decision && digest(decision.decision_sha256) && GRADES.includes(decision.difficulty) &&
+      ["dely", "direct"].includes(decision.workflow) &&
+      ["antigravity", "codex"].includes(decision.primary?.harness) &&
+      typeof decision.primary.model === "string" && !!decision.primary.model &&
+      typeof decision.primary.effort === "string" && !!decision.primary.effort ? decision : null;
+  };
+  const populations = [...reviews.values()].filter((list) => {
+    const first = Math.min(...list.map((e) => instant(e.reviewed_at) ?? instant(e.ts) ?? Infinity));
+    return first >= since && first < end;
+  });
+  const measure = (numerator, denominator, pending, total) => ({ numerator, denominator,
+    rate: denominator ? numerator / denominator : null, pending, coverage: { evaluated: denominator, total },
+    status: denominator ? "EVALUATED" : "NOT_EVALUATED", window, as_of: window.as_of });
+  const snapshots = new Map();
+  for (const list of reviews.values()) for (const e of list) {
+    const key = snapshotKey(e.policy, e.taskKey), entries = snapshots.get(key) || [];
+    entries.push(e); snapshots.set(key, entries);
+  }
+  const low = [...snapshots.values()].filter((list) => {
+    const first = Math.min(...list.map((e) => instant(e.reviewed_at) ?? instant(e.ts) ?? Infinity));
+    return first >= since && first < end && (lowTier(effective(list) || {}) || (!effective(list) && list.some(lowTier)));
+  });
+  const lowKnown = low.map(effective).filter(Boolean);
+  const compliance = lowKnown.filter((e) => e.workflow === "dely" && e.primary?.harness === "antigravity" &&
+    e.primary.model === "gemini-3.8-flash-medium" && e.primary.effort === "default");
+  const candidates = populations.filter((list) => list.some((e) => e.correction_candidate));
+  const candidatesKnown = candidates.map(effective).filter(Boolean);
+  const corrections = candidatesKnown.filter((e) => e.difficulty === "medium_minus" &&
+    e.decision_source === "control-override-justified" && digest(e.correction_sha256));
+  const controls = rows.filter((e) => e.event === "task_control_result");
+  const accepted = [], starts = cohort.filter((l) => l.launch.effective.agent === "antigravity"), boundControls = new Set();
+  let finalResults = 0;
+  for (const l of starts) {
+    const records = controls.filter((e) => {
+      const d = launches.get(e.dispatchId);
+      return e.reviewer === "codex-control" && validIdentity(e) && d?.assessment && d.taskKey === l.taskKey && e.run === d.run &&
+        e.policy === d.assessment.policy && e.taskKey === d.assessment.taskKey &&
+        e.assessment_basis_sha256 === d.assessment.assessment_basis_sha256 &&
+        (instant(e.reviewed_at) == null || instant(e.reviewed_at) >= instant(d.ts));
+    });
+    records.forEach((e) => boundControls.add(e));
+    const result = effectiveDecision(records, asOf, (e) => JSON.stringify([e.verdict, e.dispatchId, e.evidence_sha256]));
+    if (result && digest(result.evidence_sha256) && ["accepted", "rejected"].includes(result.verdict)) {
+      finalResults++; if (result.verdict === "accepted" &&
+        launches.get(result.dispatchId).launch.effective.agent === "antigravity" &&
+        !fallback.some((f) => f.taskKey === l.taskKey)) accepted.push(l);
+    }
+  }
+  const audits = new Map();
+  for (const e of rows) if (e.event === "task_reference_audit" && e.reviewer === "codex-control" &&
+      validIdentity(e) && typeof e.case_id === "string" && e.case_id.trim() &&
+      reviews.has(basisKey(e))) {
+    const key = JSON.stringify([e.case_id, basisKey(e)]), list = audits.get(key) || [];
+    list.push(e); audits.set(key, list);
+  }
+  let auditPending = 0, auditDenominator = 0, leakage = 0;
+  for (const list of audits.values()) {
+    const audit = effectiveDecision(list, asOf, (e) => JSON.stringify([e.reference_difficulty, e.evidence_sha256]));
+    const system = audit && effective(reviews.get(basisKey(audit)));
+    if (!audit || !system || !digest(audit.evidence_sha256) || !GRADES.includes(audit.reference_difficulty)) { auditPending++; continue; }
+    if (instant(audit.reviewed_at) < since || instant(audit.reviewed_at) >= end) continue;
+    if (["easy", "medium_minus"].includes(audit.reference_difficulty)) {
+      auditDenominator++; if (["medium_plus", "hard"].includes(system.difficulty)) leakage++;
+    }
+  }
+  const reviewCoverage = { missingEffectiveEvents: rows.filter((e) => e.event === "task_assessment" &&
+    e.status === "APPROVED" && visible({ ...e, ts: null }) &&
+    (instant(e.reviewed_at) == null || !digest(e.decision_sha256))).length,
+    invalidIdentityEvents: rows.filter((e) => e.event === "task_assessment" && e.status === "APPROVED" &&
+      visible({ ...e, ts: null }) && !validIdentity(e)).length };
+  const acceptance = measure(accepted.length, finalResults, starts.length - finalResults, starts.length);
+  acceptance.coverage.unboundEvents = controls.filter((e) => !boundControls.has(e) && visible({ ...e, ts: null })).length;
+  acceptance.coverage.missingEffectiveEvents = controls.filter((e) => visible({ ...e, ts: null }) &&
+    (instant(e.reviewed_at) == null || !digest(e.evidence_sha256))).length;
+  const auditMeasure = measure(leakage, auditDenominator, auditPending, audits.size);
+  const boundAudits = new Set([...audits.values()].flat());
+  auditMeasure.coverage.unboundEvents = rows.filter((e) => e.event === "task_reference_audit" &&
+    !boundAudits.has(e) && visible({ ...e, ts: null })).length;
+  return {
+    lowTierPrimaryCompliance: measure(compliance.length, lowKnown.length, low.length - lowKnown.length, low.length),
+    correctionUtilization: measure(corrections.length, candidatesKnown.length, candidates.length - candidatesKnown.length, candidates.length),
+    agyAcceptedWithoutFallback: acceptance,
+    upwardLeakage: auditMeasure,
+    decisionEvidenceCoverage: reviewCoverage,
+  };
+}
+
 function snapshotCohort(events, options, visible) {
   const asOf = options.asOf ?? Date.now(), end = options.end ?? asOf, since = options.since || 0;
   const approved = new Map(), routes = new Map(), first = new Map(), launches = new Map(), conflicts = new Set();
   const signature = (e) => JSON.stringify([e.run, e.repo, e.phase, e.assessmentBasisSha256, e.contextSha256,
-    e.promptSha256, e.correctionSha256 || null, e.agent, e.launch?.effective, e.fallbackReason, e.fallbackStage, e.runtime]);
+    e.promptSha256, e.correctionSha256 || null, e.agent, e.launch?.effective, e.fallbackReason, e.fallbackStage, e.runtime, e.networkEvidence]);
   const decisions = (e) => JSON.stringify([e.assessment_basis_sha256, snapshotKey(e.policy, e.taskKey),
     e.difficulty, e.decision_source, e.correction_sha256 || null]);
   const digest = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -59,7 +182,15 @@ function snapshotCohort(events, options, visible) {
     const route = (routes.get(e.run) || []).findLast((r) => r.repo === e.repo &&
       r.assessmentBasisSha256 === e.assessmentBasisSha256 && r.contextSha256 === e.contextSha256 &&
       r.specSha256 === e.promptSha256 && (r.correctionSha256 || null) === (e.correctionSha256 || null));
-    const bound = !conflicts.has(e.dispatchId) && route?.assessment && route.assessment.repo === e.repo && instant(e.ts) != null &&
+    const reviewRows = route?.assessment && rows.filter((r) => r.event === "task_assessment" &&
+      r.status === "APPROVED" && r.reviewer === "codex-control" && basisKey(r) === basisKey(route.assessment) &&
+      ((instant(r.reviewed_at) != null && instant(r.reviewed_at) <= instant(e.ts)) ||
+        (instant(r.reviewed_at) == null && digest(r.decision_sha256))));
+    const currentReview = reviewRows?.length && effectiveDecision(reviewRows, instant(e.ts),
+      (r) => JSON.stringify([r.decision_sha256, r.difficulty, r.primary, r.decision_source, r.correction_sha256 || null]));
+    const reviewConflict = reviewRows?.length && (!currentReview || decisions(currentReview) !== decisions(route.assessment) ||
+      JSON.stringify(currentReview.primary) !== JSON.stringify(route.assessment.primary));
+    const bound = !conflicts.has(e.dispatchId) && !reviewConflict && route?.assessment && route.assessment.repo === e.repo && instant(e.ts) != null &&
       ["antigravity", "codex"].includes(route.assessment.primary?.harness) &&
       typeof route.assessment.primary.model === "string" && typeof route.assessment.primary.effort === "string" &&
       ["antigravity", "codex"].includes(e.launch?.effective?.agent) &&
@@ -74,19 +205,20 @@ function snapshotCohort(events, options, visible) {
   const fraction = (numerator, denominator) => ({ numerator, denominator, rate: denominator ? numerator / denominator : null });
   const primary = cohort.filter((l) => l.assessment.primary?.harness === "antigravity");
   const start = cohort.filter((l) => l.launch.effective.agent === "antigravity");
-  const fallback = primary.filter((l) => [...boundLaunches.values()].some((next) =>
+  const fallback = cohort.filter((l) => [...boundLaunches.values()].some((next) =>
     next.taskKey === l.taskKey && next.assessment && next.launch?.effective?.agent === "codex" &&
     ["easy", "medium_minus"].includes(next.assessment.difficulty) && next.assessment.primary?.harness === "antigravity" &&
     next.launch.effective.model === "gpt-6-luna" && next.launch.effective.effort === "max" &&
     ((next.fallbackReason === "quota" && next.fallbackStage === 1) ||
-      (next.fallbackReason === "model_unavailable" && next.fallbackStage === null && next.pinPhase === "implement_backup_2"))));
+      (next.fallbackReason === "model_unavailable" && next.fallbackStage === null && next.pinPhase === "implement_backup_2") ||
+      (next.fallbackReason === "network" && next.fallbackStage === 1 && validNetwork(next)))));
   const runtimeCohorts = new Map();
   for (const l of cohort) {
     const recorded = l.runtime;
     const runtime = recorded && /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(recorded.version) &&
-      ["router", "dispatcher", "usage"].every((field) => digest(recorded[field])) &&
+      ["router", "dispatcher", "usage", ...(Object.hasOwn(recorded, "network") ? ["network"] : [])].every((field) => digest(recorded[field])) &&
       JSON.stringify(recorded) === JSON.stringify(l.assessment.runtime) ?
-      Object.fromEntries(["version", "router", "dispatcher", "usage"].map((field) => [field, recorded[field]])) : null;
+      Object.fromEntries(["version", "router", "dispatcher", "usage", ...(Object.hasOwn(recorded, "network") ? ["network"] : [])].map((field) => [field, recorded[field]])) : null;
     const verified = runtime && (options.runtimes || []).some((r) => r.verified && JSON.stringify(r.fingerprint) === JSON.stringify(runtime));
     if (!verified) coverage.runtimeUnknown++;
     const key = JSON.stringify([l.assessment.policy, runtime]);
@@ -96,8 +228,8 @@ function snapshotCohort(events, options, visible) {
   }
   return { launches: boundLaunches, cohort, first,
     metrics: { agyPrimary: fraction(primary.length, cohort.length), agyStart: fraction(start.length, cohort.length),
-      lunaFallback: fraction(fallback.length, primary.length),
-      agyAcceptedWithoutFallback: { numerator: null, denominator: null, rate: null, pending: null, status: "NOT_EVALUATED" } },
+      lunaFallback: fraction(fallback.filter((l) => l.assessment.primary?.harness === "antigravity").length, primary.length),
+      ...independentMeasures(rows, options, visible, cohort, boundLaunches, fallback) },
     coverage, runtimeCohorts: [...runtimeCohorts.values()],
     window: { start: new Date(since).toISOString(), end: new Date(end).toISOString(), as_of: new Date(asOf).toISOString() } };
 }
@@ -246,13 +378,14 @@ async function readWorkers() {
   return { rows, total, pages, complete: !cursor, scope };
 }
 
-async function collect() {
-  const file = path.join(os.homedir(), ".dely", "log.jsonl"), events = [];
+async function collect(options = {}) {
+  const file = options.journal || path.join(os.homedir(), ".dely", "log.jsonl"), events = [];
   const sources = { log: { file, enabled: fs.existsSync(path.dirname(file)), present: fs.existsSync(file), malformed: 0 } };
   if (sources.log.present) sources.log.malformed = await jsonLines(file, (e) => {
-    if (e && ["task_assessment", "task_route", "dispatch"].includes(e.event)) events.push(e);
+    if (e && ["task_assessment", "task_route", "dispatch", "task_control_result", "task_reference_audit"].includes(e.event)) events.push(e);
   });
-  const outcomes = await Promise.allSettled([readWorkers(), readConversations(Date.now() - 30 * 86400000)]);
+  const outcomes = await Promise.allSettled([(options.readWorkers || readWorkers)(),
+    (options.readConversations || readConversations)(Date.now() - 30 * 86400000)]);
   const workers = outcomes[0].status === "fulfilled" ? outcomes[0].value : { rows: [], available: false };
   const conversations = outcomes[1].status === "fulfilled" ? outcomes[1].value : { rows: [], available: false };
   sources.orca = { available: outcomes[0].status === "fulfilled", total: workers.total ?? null,
@@ -263,13 +396,14 @@ async function collect() {
   return { events, workers: workers.rows, conversations: conversations.rows, sources, collectedAt: new Date().toISOString() };
 }
 
-function readRuntimes() {
-  return [...new Set(ROOTS)].map((home) => {
+function readRuntimes(homes = ROOTS) {
+  return [...new Set(homes)].map((home) => {
     try {
       const settings = JSON.parse(fs.readFileSync(path.join(home, "dely-compliance/settings.json"), "utf8"));
       const directory = path.dirname(settings.routing), dependencies = settings.dependencies || {};
       const hash = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
       const required = [settings.routing, settings.dely, settings.advisor, path.join(directory, "usage.js")];
+      if (fs.existsSync(path.join(directory, "network-fallback.js"))) required.push(path.join(directory, "network-fallback.js"));
       const verified = settings.dely === path.join(directory, "dely.js") && required.every((file) => dependencies[file]) &&
         Object.entries(dependencies).every(([file, value]) => hash(file) === value);
       return { home, verified, fingerprint: runtimeFingerprint(directory) };

@@ -24,6 +24,60 @@ function sourceRow(label, detail, status, ok) {
   text.append(element("small", detail)); row.append(text, element("span", status, "status " + (ok ? "success" : ""))); return row;
 }
 
+function renderMeasure(id, title, metric) {
+  const card = element("article", null, "measure-card");
+  card.id = `metric-${id}`;
+  const head = element("div", null, "measure-head");
+  const status = metric?.status || "NOT_EVALUATED";
+  const ok = status === "EVALUATED";
+  head.append(
+    element("span", title, "measure-title"),
+    element("span", status, "status " + (ok ? "success" : ""))
+  );
+
+  const hasDenominator = metric && typeof metric.denominator === "number" && metric.denominator > 0;
+  const isEmptyDenominator = metric && typeof metric.denominator === "number" && metric.denominator === 0;
+  const rateText = hasDenominator
+    ? (metric.rate != null ? `${(metric.rate * 100).toFixed(1)}%` : "N/A")
+    : (isEmptyDenominator || status === "EVALUATED" ? "N/A" : (status || "NOT_EVALUATED"));
+  const ratioText = hasDenominator
+    ? `${number(metric.numerator)} / ${number(metric.denominator)}`
+    : (isEmptyDenominator || status === "EVALUATED" ? "N/A" : "N/A / NOT_EVALUATED");
+
+  const main = element("div", null, "measure-main");
+  const rateEl = element("div", rateText, "measure-rate" + (hasDenominator ? "" : " unknown"));
+  rateEl.id = `${id}-rate`;
+  const ratioEl = element("div", `Ratio: ${ratioText}`, "measure-ratio");
+  ratioEl.id = `${id}-ratio`;
+  main.append(rateEl, ratioEl);
+
+  const details = element("div", null, "measure-details");
+  const pendingCount = metric?.pending != null ? number(metric.pending) : "—";
+  let coverageText = "—";
+  if (metric?.coverage) {
+    const evaluated = metric.coverage.evaluated != null ? number(metric.coverage.evaluated) : null;
+    const total = metric.coverage.total != null ? number(metric.coverage.total) : null;
+    if (evaluated != null && total != null) {
+      coverageText = `${evaluated} / ${total}`;
+      if (metric.coverage.unboundEvents != null) {
+        coverageText += ` (${number(metric.coverage.unboundEvents)} unbound)`;
+      }
+    }
+  }
+  const asOfText = metric?.as_of ? String(metric.as_of) : "Not recorded";
+
+  const pendingEl = element("div", `Pending: ${pendingCount}`, "measure-detail");
+  pendingEl.id = `${id}-pending`;
+  const coverageEl = element("div", `Coverage: ${coverageText}`, "measure-detail");
+  coverageEl.id = `${id}-coverage`;
+  const asOfEl = element("div", `As of: ${asOfText}`, "measure-detail mono");
+  asOfEl.id = `${id}-as-of`;
+
+  details.append(pendingEl, coverageEl, asOfEl);
+  card.append(head, main, details);
+  return card;
+}
+
 function showRows() {
   const tbody = $("activity-rows"); tbody.replaceChildren();
   for (const row of activity.slice(0, visibleRows)) {
@@ -43,15 +97,34 @@ function showRows() {
 function render(data) {
   const log = data.sources.log, orca = data.sources.orca, codex = data.sources.codex;
   const share = (r) => r.rate == null ? "N/A" : `${(r.rate * 100).toFixed(1)}% (${r.numerator}/${r.denominator})`;
-  $("adoption").textContent = data.metrics.agyStart.rate == null ? "N/A" : `${(data.metrics.agyStart.rate * 100).toFixed(1)}%`;
-  $("adoption-detail").textContent = `${data.metrics.agyStart.numerator} / ${data.metrics.agyStart.denominator} confirmed snapshots · ${data.pending} awaiting start`;
-  $("snapshot-metrics").textContent = `AGY primary: ${share(data.metrics.agyPrimary)}. Luna fallback: ${share(data.metrics.lunaFallback)}. Control acceptance: N/A (not observed). Window ${data.window.start} to ${data.window.end}; outcomes as of ${data.window.as_of}.`;
+  const m = data.metrics || {};
+  const agyNum = m.agyStart?.numerator;
+  const agyDen = m.agyStart?.denominator;
+  const hasAgyDen = typeof agyDen === "number" && agyDen > 0;
+  $("adoption").textContent = hasAgyDen && m.agyStart?.rate != null ? `${(m.agyStart.rate * 100).toFixed(1)}%` : "N/A";
+  const agyRatioText = hasAgyDen
+    ? `${number(agyNum)} / ${number(agyDen)}`
+    : (agyDen === 0 ? "N/A" : "—");
+  const pendingText = data.pending != null ? `${number(data.pending)} awaiting start` : "— awaiting start";
+  $("adoption-detail").textContent = `${agyRatioText} confirmed snapshots · ${pendingText}`;
+  const acceptanceShare = m.agyAcceptedWithoutFallback?.denominator ?
+    share(m.agyAcceptedWithoutFallback) :
+    (m.agyAcceptedWithoutFallback?.status || "N/A (not observed)");
+  $("snapshot-metrics").textContent = `AGY primary: ${share(m.agyPrimary || {})}. Luna fallback: ${share(m.lunaFallback || {})}. Control acceptance: ${acceptanceShare}. Window ${data.window.start} to ${data.window.end}; outcomes as of ${data.window.as_of}.`;
   $("approvals").textContent = number(log.present ? data.tasks.approved : null);
   $("approval-detail").textContent = `${log.present ? data.tasks.recorded : "No"} assessment records · ${data.tasks.unknown} unknown grades`;
   $("workers").textContent = number(orca.available ? data.jobs.count : null);
   $("worker-detail").textContent = orca.available ? `${data.jobs.succeeded} succeeded · ${data.jobs.failed} failed · ${data.jobs.active} active` : "Orca source is unavailable";
   $("sessions").textContent = number(codex.available ? data.conversations.sessions : null);
   $("session-detail").textContent = codex.available ? `${number(data.conversations.turns)} recorded Codex turns` : "Conversation source is unavailable";
+  if ($("measures-grid")) {
+    $("measures-grid").replaceChildren(
+      renderMeasure("compliance", "Low-tier primary compliance", m.lowTierPrimaryCompliance),
+      renderMeasure("correction", "Correction utilization", m.correctionUtilization),
+      renderMeasure("acceptance", "AGY accepted without fallback", m.agyAcceptedWithoutFallback),
+      renderMeasure("leakage", "Audited upward leakage", m.upwardLeakage)
+    );
+  }
   bars($("implementation-chart"), data.models, "launches", "No Dely launch records yet", log.enabled ? "New acknowledged launches will appear when they are logged." : "Local logging is not enabled. Historical Orca rows still appear below.");
   bars($("conversation-chart"), data.conversations.models, "turns", "No Codex turns in this window", "Change the time window or workspace filter.");
   $("launch-count").textContent = `${data.models.reduce((n, r) => n + r.launches, 0)} logged launches`;
@@ -70,6 +143,7 @@ function render(data) {
   if (data.coverage.unidentified || data.coverage.unknownPhase) gaps.push(`${data.coverage.unidentified} receipts lack identity; ${data.coverage.unknownPhase} launches lack phase evidence.`);
   if (data.coverage.runtimeUnknown) gaps.push(`${data.coverage.runtimeUnknown} cohort snapshots have unverified runtime fingerprints.`);
   if (data.jobs.unknownModel) gaps.push(`${data.jobs.unknownModel} Orca workers have no recorded model; they are not assigned to a model by guesswork.`);
+  if (m.decisionEvidenceCoverage?.missingEffectiveEvents) gaps.push(`${m.decisionEvidenceCoverage.missingEffectiveEvents} approved assessments lack effective review evidence.`);
   if (!orca.complete) gaps.push("Orca inventory is partial or unavailable.");
   $("notice").textContent = gaps.length ? gaps.join(" ") : "Available source records are loaded. Shares describe the confirmed snapshot cohort.";
   $("notice").classList.toggle("good", !gaps.length);
