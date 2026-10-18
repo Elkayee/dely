@@ -96,7 +96,7 @@ function Set-FixturePins([string[]]$globalRows, [string[]]$projectRows) {
 function Set-FixtureAssessment([string]$difficulty) {
     $module = Join-Path $repoRoot "skills\delivery\scripts\task-routing.js"
     $builder = Join-Path $fixtureRoot "prepare-assessment.cjs"
-    $script = 'const r=require(process.argv[2]),fs=require("fs"); const task=r.loadTask(process.argv[3],"spec.md","context.json"); const a={policy:r.POLICY,task,status:"NOT_EVALUATED",jev:null}; fs.writeFileSync(process.argv[3]+"/assessment.json",JSON.stringify(r.review(a,process.argv[4],"Fixture source and acceptance inspected by Control")));'
+    $script = 'const r=require(process.argv[2]),fs=require("fs"); (async()=>{const task=r.loadTask(process.argv[3],"spec.md","context.json"); const a=await r.assess(task,{apiKey:""}); fs.writeFileSync(process.argv[3]+"/assessment.json",JSON.stringify(r.review(a,process.argv[4],"Fixture source and acceptance inspected by Control")));})().catch(e=>{console.error(e);process.exitCode=1;});'
     Write-Utf8NoBom $builder $script
     & $nodeExe $builder $module $repo $difficulty
     if ($LASTEXITCODE -ne 0) { throw "Could not prepare fixture assessment" }
@@ -405,9 +405,7 @@ cp.execFileSync = function(file, args, options) {
     $sonnetPreflightTerminal = @($sonnetPreflight.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
     Assert-Case "task preflight checks the reviewed Medium+ Sol medium primary" ($sonnetPreflight.ExitCode -eq 0 -and (Read-Command $sonnetPreflightTerminal) -match 'codex\.exe".*--model "gpt-6.1-sol" -c "model_reasoning_effort=medium"') $sonnetPreflight.Output
     $mediumQuota = Invoke-Scenario "medium-quota" @("--fallback", "quota")
-    $mediumQuotaTerminal = @($mediumQuota.Calls | Where-Object { $_.args[0] -eq "terminal" -and $_.args[1] -eq "create" }) | Select-Object -First 1
-    $mediumQuotaEvent = @($mediumQuota.Events | Where-Object { $_.event -eq "dispatch" }) | Select-Object -Last 1
-    Assert-Case "Medium+ quota launches Luna/max directly" ($mediumQuota.ExitCode -eq 0 -and (Read-Command $mediumQuotaTerminal) -match 'codex\.exe".*--model "gpt-6-luna" -c "model_reasoning_effort=max"' -and $mediumQuotaEvent.pinPhase -eq "implement_backup_2" -and $mediumQuotaEvent.fallbackStage -eq 1) $mediumQuota.Output
+    Assert-Case "Medium+ quota is refused before any worker launch" ($mediumQuota.ExitCode -ne 0 -and -not (Has-Launch $mediumQuota) -and $mediumQuota.Output -match "No such fallback") $mediumQuota.Output
     $mediumFinal = Invoke-Scenario "medium-final" @("--fallback", "quota", "--fallback-stage", "2")
     Assert-Case "Medium+ rejects a second fallback before launch" ($mediumFinal.ExitCode -ne 0 -and -not (Has-Launch $mediumFinal) -and $mediumFinal.Output -match "No such fallback") $mediumFinal.Output
     Set-FixtureAssessment "hard"

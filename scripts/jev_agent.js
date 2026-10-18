@@ -368,14 +368,15 @@ async function main(argv = process.argv.slice(2)) {
   const [mode, ...args] = argv;
   if (!mode || mode === "--help") {
     console.log("jev_agent.js assess [--repo PATH] --spec-file FILE --context-file FILE --out FILE\n" +
-      "jev_agent.js review [--repo PATH] --input ASSESSMENT --difficulty easy|medium_minus|medium_plus|hard --reason TEXT --out FILE\n" +
+      "jev_agent.js review [--repo PATH] --input ASSESSMENT --difficulty easy|medium_minus|medium_plus|hard --reason TEXT --out FILE [--review-evidence-json JSON]\n" +
       "jev_agent.js context|skill [--repo PATH] --input FILE --out FILE\nOutputs are advice; Control reviews them. Existing output files are never overwritten.");
     return 0;
   }
   const flags = { assess: ["spec-file", "context-file", "out"],
     review: ["input", "difficulty", "reason", "out"], context: ["input", "out"], skill: ["input", "out"] }[mode];
   if (!flags) throw Error("Unknown command");
-  const { values } = parseArgs({ args, options: { repo: { type: "string" }, ...Object.fromEntries(flags.map((f) => [f, { type: "string" }])) } });
+  const allowed = mode === "review" ? [...flags, "review-evidence-json"] : flags;
+  const { values } = parseArgs({ args, options: { repo: { type: "string" }, ...Object.fromEntries(allowed.map((f) => [f, { type: "string" }])) } });
   if (flags.some((f) => !nonempty(values[f]))) throw Error("Missing command arguments");
   const repo = fs.realpathSync(path.resolve(values.repo || process.cwd()));
   if (!fs.statSync(repo).isDirectory()) throw Error("Workspace must be a directory");
@@ -389,7 +390,8 @@ async function main(argv = process.argv.slice(2)) {
   if (mode === "assess" || mode === "review") {
     const routing = require("../skills/delivery/scripts/task-routing.js");
     result = mode === "assess" ? await routing.assess(routing.loadTask(repo, values["spec-file"], values["context-file"])) :
-      routing.review(JSON.parse(fs.readFileSync(path.resolve(repo, values.input), "utf8")), values.difficulty, values.reason);
+      routing.review(JSON.parse(fs.readFileSync(path.resolve(repo, values.input), "utf8")), values.difficulty, values.reason,
+        routing.parseReviewEvidence(values["review-evidence-json"]));
   } else {
     result = await advise(JSON.parse(fs.readFileSync(path.resolve(repo, values.input), "utf8")), mode, { repo });
   }

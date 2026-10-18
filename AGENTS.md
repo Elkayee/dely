@@ -104,9 +104,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.4
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.4
-test "$(jq -r .version package.json)" = 0.27.4
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.5
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.5
+test "$(jq -r .version package.json)" = 0.27.5
 ```
 
 ```bash
@@ -172,7 +172,7 @@ every delegated `dely dispatch`, including quota fallbacks. Pass both
 | --- | --- | --- | --- |
 | Easy | AGY Gemini 3.8 Flash Medium/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
 | Medium- | AGY Gemini 3.8 Flash Medium/default | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
-| Medium+ | Codex gpt-6.1-sol/medium | Codex Luna/max at stage 1 | Dely; Codex Control reviews |
+| Medium+ | Codex gpt-6.1-sol/medium | None | Dely; Codex Control reviews |
 | Hard | Codex gpt-6.1-sol/xhigh | None | Direct implementation and verification; no Dely |
 
 CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`. Medium- is
@@ -180,7 +180,14 @@ bounded internal work with known ownership and low coupling; Medium+ coordinates
 known internal components and integrated acceptance. Hard risk flags take
 precedence. Old assessments must be rerun under the new policy.
 `implement` supplies Codex Sol/medium, `implement_backup` supplies Flash even as a primary,
-and `implement_backup_2` supplies the single Luna quota fallback for every grade.
+and `implement_backup_2` supplies the single Luna quota fallback for final Easy/Medium-.
+Final Medium+ and Hard are Sol-only, including provider-quota and model-absence
+failures. Policy `jev-task-routing-v4` keeps Jev's raw Max Rank; an eligible
+single verification/coordination candidate needs optional
+`--review-evidence-json` and a justified Control correction before becoming
+Medium-. See [the proof contract](docs/task-risk-policy.md#optional-correction).
+Normal reviews need no proof. Native v4 admission freezes the original
+assessment and validates approval without changing `reviewed_at`.
 
 The context contains `scope`, `coupling`, `acceptance`, and source `evidence`,
 `requirements_confirmed: true`, and explicit boolean `risks` for `security`,

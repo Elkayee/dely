@@ -27,6 +27,17 @@ test("a task and duplicate receipts count once; fallback launches remain separat
   assert.equal(result.models.find((r) => r.model === "gpt-6-luna").fallbacks, 1);
 });
 
+test("case36 events/retries remain distinct from snapshots keyed by policy and taskKey", () => {
+  const v3 = { ...approval, policy: "jev-task-routing-v3" };
+  const v4 = { ...approval, policy: "jev-task-routing-v4" };
+  const result = summarize([v3, v4, v4, { ...route, policy: v4.policy }, launch], [], []);
+  assert.equal(result.tasks.events, 3);
+  assert.equal(result.tasks.recorded, 2);
+  assert.equal(result.tasks.dispatched, 1);
+  assert.equal(result.approvals.find((r) => r.policy === v3.policy).dispatched, false);
+  assert.equal(result.approvals.find((r) => r.policy === v4.policy).dispatched, true);
+});
+
 test("Hard and missing grades never enter the Dely denominator", () => {
   const hard = { ...approval, taskKey: "hard", difficulty: "hard", workflow: "direct" };
   const unknown = { ...approval, taskKey: "unknown", difficulty: null };

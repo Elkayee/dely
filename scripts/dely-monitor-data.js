@@ -11,6 +11,7 @@ const GRADES = ["easy", "medium_minus", "medium_plus", "hard"];
 const ROOTS = [path.join(os.homedir(), ".codex"), process.env.CODEX_HOME,
   path.join(process.env.APPDATA || "", "orca", "codex-runtime-home", "home")].filter(Boolean);
 const sourceLabel = (repo) => String(repo || "").replace(/\\/g, "/");
+const snapshotKey = (policy, key) => JSON.stringify([policy || null, key]);
 const isProbe = (repo) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-)/i.test(sourceLabel(repo));
 function instant(value) {
   if (typeof value !== "string") return null;
@@ -27,19 +28,20 @@ function summarize(events, workers, conversations, options = {}) {
   const filtered = events.filter(visible);
   const tasks = new Map(), routes = new Map(), launches = new Map();
   for (const e of events) if (e.event === "task_route" && e.run) {
-    routes.set(e.run, { key: taskKey(e.repo, e.specSha256, e.contextSha256), difficulty: e.difficulty, repo: e.repo });
+    routes.set(e.run, { key: snapshotKey(e.policy, taskKey(e.repo, e.specSha256, e.contextSha256)), difficulty: e.difficulty, repo: e.repo });
   }
   for (const e of filtered) {
     if (e.event === "task_assessment" && e.taskKey) {
-      const prior = tasks.get(e.taskKey);
-      if (!prior || (instant(e.ts) || 0) >= (instant(prior.ts) || 0)) tasks.set(e.taskKey, e);
+      const key = snapshotKey(e.policy, e.taskKey);
+      const prior = tasks.get(key);
+      if (!prior || (instant(e.ts) || 0) >= (instant(prior.ts) || 0)) tasks.set(key, e);
     }
     if (e.event === "dispatch" && e.dispatchId) launches.set(e.dispatchId, { ...e, taskKey: routes.get(e.run)?.key || null });
   }
   const known = [...tasks.values()].filter((t) => t.status === "APPROVED" && GRADES.includes(t.difficulty));
   const eligible = known.filter((t) => t.workflow === "dely");
   const launchedTasks = new Set([...launches.values()].map((l) => l.taskKey).filter(Boolean));
-  const adopted = eligible.filter((t) => launchedTasks.has(t.taskKey)).length;
+  const adopted = eligible.filter((t) => launchedTasks.has(snapshotKey(t.policy, t.taskKey))).length;
   const models = new Map();
   for (const l of launches.values()) {
     const model = l.launch?.effective?.model || "Unknown";
@@ -67,7 +69,7 @@ function summarize(events, workers, conversations, options = {}) {
     row.turns++; row.sessions.add(c.session); conversationModels.set(model, row);
   }
   return {
-    tasks: { recorded: tasks.size, approved: known.length, eligible: eligible.length,
+    tasks: { recorded: tasks.size, events: filtered.filter((e) => e.event === "task_assessment").length, approved: known.length, eligible: eligible.length,
       dispatched: adopted, rate: eligible.length ? adopted / eligible.length : null,
       unknown: [...tasks.values()].filter((t) => !GRADES.includes(t.difficulty)).length,
       grades: GRADES.map((grade) => ({ grade, count: known.filter((t) => t.difficulty === grade).length })) },
@@ -80,7 +82,8 @@ function summarize(events, workers, conversations, options = {}) {
       models: [...conversationModels.values()].map((r) => ({ model: r.model, turns: r.turns, sessions: r.sessions.size })) },
     activity: activity.sort((a, b) => (instant(b.ts) || 0) - (instant(a.ts) || 0)),
     approvals: known.map((t) => ({ id: t.taskKey, repo: t.repo, ts: t.ts, grade: t.difficulty,
-      model: t.primary?.model || null, workflow: t.workflow, dispatched: launchedTasks.has(t.taskKey) })),
+      model: t.primary?.model || null, workflow: t.workflow, policy: t.policy || null,
+      dispatched: launchedTasks.has(snapshotKey(t.policy, t.taskKey)) })),
     repos: [...new Set([...events, ...workers, ...conversations].map((r) => sourceLabel(r.repo)).filter(Boolean))].sort(),
   };
 }

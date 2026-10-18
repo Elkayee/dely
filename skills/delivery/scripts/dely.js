@@ -1270,6 +1270,8 @@ function dispatch(f) {
   catch (e) { out("ERROR " + e.message, 2); }
   logEvent("task_route", { run: f.run, repo: f.repo, difficulty: taskDecision.difficulty,
     specSha256: taskDecision.task.spec_sha256, contextSha256: taskDecision.task.context_sha256,
+    policy: taskDecision.policy, assessmentBasisSha256: taskDecision.assessment_basis_sha256,
+    jevDifficulty: taskDecision.jev_difficulty, correctionSha256: taskDecision.review.correction_sha256 || null,
     jevModel: taskDecision.jev ? taskDecision.jev.model : "NOT_EVALUATED", reviewSource: taskDecision.review.source });
 
   requireHandle({ run: f.run, repo: f.repo });
@@ -1319,6 +1321,12 @@ function dispatch(f) {
         pending.sourceSha256 !== sourceSha256 || pending.contextSha256 !== taskDecision.task.context_sha256) {
       unknownStart(f, pending, "the pending attempt does not match the current reviewed task/pins");
     }
+    try {
+      if (pending.pin.fallbackReason === "model_unavailable") taskRouting.verifyUnavailablePin(taskDecision, pending.pin);
+      else taskRouting.verifyPin(taskDecision, pending.pin, f);
+    } catch (_) {
+      unknownStart(f, pending, "the pending worker model/effort is not permitted by the reviewed route");
+    }
     if (!pending.id || !getOwnedTerminals(f.run).some((row) => row.terminalHandle === pending.terminalHandle && row.dispatchId === pending.id)) {
       unknownStart(f, pending, "owned dispatch identity is not proven");
     }
@@ -1348,7 +1356,6 @@ function dispatch(f) {
       if (!observed) {
         unknownStart(f, pending, "the original Codex turn has not been proven with the requested model");
       }
-      if (pending.pin.fallbackReason === "model_unavailable") taskRouting.verifyUnavailablePin(taskDecision, pending.pin);
       p = pending.pin;
       resumed = { id: pending.id, taskId: pending.taskId, terminalHandle: pending.terminalHandle,
         launch: { ...pending.launch, startEvidence: observed.kind, modelEvidence: observed } };
@@ -1503,6 +1510,9 @@ function dispatch(f) {
         run: f.run,
         repo: f.repo,
         phase: p.phase,
+        assessmentBasisSha256: taskDecision.assessment_basis_sha256,
+        contextSha256: taskDecision.task.context_sha256,
+        correctionSha256: taskDecision.review.correction_sha256 || null,
         agent: p.agent,
         pinPhase: p.pinPhase,
         fallbackReason: p.fallbackReason,

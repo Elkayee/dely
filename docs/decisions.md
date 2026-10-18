@@ -9,6 +9,55 @@ Last updated 2026-10-15.
 
 ## Settled
 
+### 2026-10-18 — Evidence-bound correction and exclusive Sol ownership
+
+Policy `jev-task-routing-v4` preserves Jev's five-dimensional Max Rank and
+original confidence/probabilities. Control can correct exactly one eligible
+verification/coordination Medium+ label to Medium-, using the optional proof
+contract in `docs/task-risk-policy.md`. Candidate metadata alone keeps Sol.
+Known Hard, raw Hard and unresolved evidence retain their vetoes. Neither
+2-Hit voting nor unknown-risk-to-false defaults are adopted.
+
+Final Medium+ is exclusively Codex Sol/medium; Hard is exclusively direct
+Sol/xhigh. Neither can fall back to Luna or AGY. Easy/Medium- retain Flash
+Medium/default and their existing single Luna/max quota or verified-model-
+absence exception. Primary selection precedes fallback-stage validation.
+Resuming an attempt revalidates its effective pin before accepting evidence.
+No launch flags, harness entries or provider startup behavior are changed.
+
+Native state advances to `native-skills-v4`. Preparation freezes the original
+assessment; review and every later gate compare its raw evidence and validate
+the approved artifact without recreating timestamps. Dispatch/worker admission
+binds policy, snapshot basis, correction hash and model/effort. A proven worker
+inherits the approved dispatch and cannot create a Control review. Historical
+v3 assessments require fresh admission and remain unchanged. Active installed
+plans retain their frozen version; runtime refresh belongs between plans.
+
+The focused instruments are exhaustive candidate vectors, schema/tamper and
+three-CLI tests, native prepare/review/preflight/dispatch/worker fixtures,
+Sol-only provider-failure counterexamples and the existing Windows quota/start
+fixtures. Mocked answers test routing, not Jev calibration. The argv/rejected
+message and release-floor probe rows are reviewed against an archived candidate;
+any unavailable or skipped live row must be reported as such. No new model or
+effort flag difference is intended relative to the release baseline.
+
+This source candidate is not an activated runtime release. The generic argv
+stub omits task assessment input and cannot pass current admission; it must
+be updated in a separate probe contract change, rather than bypassing the
+gate here. Separate-session command execution was denied by native admission.
+Live worker/Control rows and rows 4–7 (death, trust-dialog, quiet-worker and
+trust intervention) were not run, preserving active frozen plans. Deterministic
+Windows fixtures are reported separately and do not substitute for these rows.
+Pin-resolution, worker-release and OMP/Pi-specific rows have no changed trigger
+in this patch: pins, launch flags, wait/settle behavior and harness entries stay
+as before. README role-row semantics pass with CRLF-normalized Windows reads;
+literal WSL grep sees CRLF and reports a line-ending mismatch.
+
+The task template now gives independent outcomes and acceptance to local
+implementation, integration and live rollout, preserving parent responsibility
+and consequential code risks. Usage counts policy+taskKey snapshots separately
+from events and never equates them with independent user tasks.
+
 ### 2026-10-15 — Native model visibility and Codex start identity
 
 An Orca provider projection initially reported a different model from the

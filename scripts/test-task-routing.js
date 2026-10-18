@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
 const { once } = require("node:events");
+const { spawnSync } = require("node:child_process");
 const routing = require("../skills/delivery/scripts/task-routing.js");
 
 const root = path.resolve(__dirname, "../.tmp-dely", "routing-tests-" + process.pid);
@@ -45,15 +46,263 @@ function approvedFile(record) {
 }
 const flags = (record) => ({ repo: record.task.repo, "spec-file": "spec.md", "assessment-file": approvedFile(record) });
 
-test("verified missing-model route is Luna/max for every delegated grade, never Hard", () => {
-  for (const difficulty of ["easy", "medium_minus", "medium_plus"]) {
+function proof(assessment, dimension = "verification") {
+  return { schema_version: 1, assessment_basis_sha256: assessment.assessment_basis_sha256, dimension,
+    reason_code: dimension === "verification" ? "verification_instrument_available" : "routine_coordination_only",
+    explanation: "The frozen helper/caller evidence provides a focused empty-input regression; routine delivery steps do not add component ownership.",
+    evidence_refs: [{ source: "context", field: "acceptance" }, { source: "spec", excerpt: "empty-input branch" }],
+    acceptance: { method: "existing_regression", procedure: "Run the empty-input regression against the known internal caller",
+      expected_result: "The caller receives the specified empty value", would_fail_if: "Returning the previous wrong value fails the regression" },
+    ...(dimension === "coordination" ? { coordination_facts: { changed_boundary: "One private helper owned by the internal module",
+      callers_callees: "The known internal caller keeps its contract", counted_routine_steps: ["planning", "control_review"],
+      integration_obligations: "Run the caller regression in the same boundary; no separate owner handoff" } } : {}) };
+}
+
+test("case06-case11 exhaustive Max Rank and candidate eligibility across all 3125 vectors", () => {
+  const t = task();
+  const labels = ["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"];
+  const rank = ["easy", "medium_minus", "medium_plus", "hard"];
+  for (let index = 0; index < 3125; index++) {
+    let n = index;
+    const choices = routing.DIMENSIONS.map(() => { const choice = labels[n % 5]; n = Math.floor(n / 5); return choice; });
+    const jev = result(Object.fromEntries(routing.DIMENSIONS.map((name, i) => [name, choices[i]])));
+    const expected = choices.includes("insufficient_evidence") ? null : rank[Math.max(...choices.map((choice) => rank.indexOf(choice)))];
+    assert.equal(routing.rawDifficulty(jev.answers), expected);
+    const high = choices.flatMap((choice, i) => choice === "medium_plus" ? [routing.DIMENSIONS[i]] : []);
+    const eligible = expected === "medium_plus" && high.length === 1 && ["verification", "coordination"].includes(high[0]);
+    const candidate = routing.findCorrectionCandidate({ task: t, jev });
+    assert.equal(candidate?.dimension || null, eligible ? high[0] : null);
+  }
+});
+
+for (const dimension of ["verification", "coordination"]) {
+  test("case09-case14/case23 " + dimension + " correction is explicit, bound, raw-preserving and repeatable", async () => {
+    const raw = await routing.assess(task(), mock(result({ [dimension]: "medium_plus" })));
+    const before = JSON.stringify(raw);
+    assert.equal(raw.advisor_state, "EVALUATED");
+    assert.equal(raw.jev_difficulty, "medium_plus");
+    assert.equal(raw.correction_candidate.dimension, dimension);
+    assert.equal(routing.review(raw, "medium_plus", "The integrated burden remains").route.primary.model, "gpt-6.1-sol");
+    assert.throws(() => routing.review(raw, "medium_minus", "Just a short change"), /higher-risk/);
+    const p = proof(raw, dimension);
+    const approved = routing.review(raw, "medium_minus", "Control checked the frozen instrument and boundaries", { correction: p });
+    assert.equal(approved.difficulty, "medium_minus");
+    assert.equal(approved.route.primary.model, "gemini-3.8-flash-medium");
+    assert.equal(approved.review.source, "control-override-justified");
+    assert.deepEqual(approved.jev, raw.jev);
+    assert.equal(JSON.stringify(raw), before);
+    const frozen = JSON.stringify(approved);
+    const f = flags(approved);
+    for (let i = 0; i < 3; i++) {
+      assert.equal(routing.validateApprovedAssessment(approved, raw), approved);
+      assert.deepEqual(routing.requireApprovedRoute(f), approved);
+    }
+    assert.equal(JSON.stringify(approved), frozen);
+    p.explanation = "Changed caller object";
+    assert.notEqual(approved.review.correction.proof.explanation, p.explanation);
+  });
+}
+
+test("case03-case07 known Hard, unknown facts and every low-confidence raw Hard veto correction", async () => {
+  for (const dimension of routing.DIMENSIONS) {
+    const body = result({ [dimension]: "hard" });
+    body.answers[dimension].confidence = 0;
+    const assessed = await routing.assess(task(), mock(body));
+    assert.equal(assessed.jev_difficulty, "hard");
+    assert.equal(assessed.correction_candidate, null);
+    assert.throws(() => routing.review(assessed, "medium_minus", "Low confidence", { correction: proof(assessed) }));
+    assert.throws(() => routing.review(assessed, "medium_plus", "Only one Hard"), /higher-risk/);
+  }
+  const incomplete = await routing.assess(task({ requirements_confirmed: false }), mock(result()));
+  assert.equal(incomplete.status, "NOT_EVALUATED");
+  assert.equal(incomplete.jev_difficulty, null);
+  const both = await routing.assess(task(), mock(result({ risk: "hard", verification: "insufficient_evidence" })));
+  assert.equal(both.status, "NOT_EVALUATED");
+  assert.equal(both.advisor_state, "EVALUATED");
+  assert.equal(both.jev_difficulty, null);
+  assert.throws(() => routing.review(both, "medium_minus", "Ignore abstention", { correction: proof(both) }));
+  assert.throws(() => routing.review(both, "medium_plus", "Ignore abstention"), /missing evidence/);
+  assert.equal(routing.review(both, "hard", "Retain the raw Hard veto").route.workflow, "direct");
+});
+
+test("case15-case17/case19 correction rejects malformed schema, missing detector, external refs and wrong requested level", async () => {
+  const raw = await routing.assess(task(), mock(result({ verification: "medium_plus" })));
+  const invalid = [
+    null, { ...proof(raw), dimension: "scope" }, { ...proof(raw), reason_code: "routine_coordination_only" },
+    { ...proof(raw), overall: "medium_minus" }, { ...proof(raw), schema_version: 2 },
+    { ...proof(raw), coordination_facts: {} }, { ...proof(raw), explanation: " " },
+    { ...proof(raw), evidence_refs: [] }, { ...proof(raw), evidence_refs: [{ source: "context", field: "risks" }] },
+    { ...proof(raw), evidence_refs: [{ source: "spec", excerpt: "not in this snapshot" }] },
+    { ...proof(raw), evidence_refs: [{ source: "file", path: raw.task.spec_file }] },
+    { ...proof(raw), evidence_refs: [{ source: "url", url: "https://example.invalid/proof" }] },
+    ...["method", "procedure", "expected_result", "would_fail_if"].map((key) => ({ ...proof(raw), acceptance: { ...proof(raw).acceptance, [key]: "" } })),
+    { ...proof(raw), explanation: "x".repeat(8193) },
+  ];
+  for (const p of invalid) assert.throws(() => routing.review(raw, "medium_minus", "Control reason", { correction: p }));
+  for (const difficulty of ["easy", "medium_plus", "hard"]) {
+    assert.throws(() => routing.review(raw, difficulty, "Wrong requested level", { correction: proof(raw) }));
+  }
+  assert.throws(() => routing.parseReviewEvidence("{"));
+  assert.throws(() => routing.parseReviewEvidence("[]"));
+  assert.throws(() => routing.parseReviewEvidence(" ".repeat(8193)));
+  const coordination = await routing.assess(task(), mock(result({ coordination: "medium_plus" })));
+  for (const facts of [undefined, {}, { ...proof(coordination, "coordination").coordination_facts, counted_routine_steps: [] }]) {
+    assert.throws(() => routing.review(coordination, "medium_minus", "Missing facts", { correction: { ...proof(coordination, "coordination"), coordination_facts: facts } }));
+  }
+});
+
+test("case21-case22 original Jev, candidate, basis and approved correction tampering fail closed", async () => {
+  const raw = await routing.assess(task(), mock(result({ verification: "medium_plus" })));
+  const approved = routing.review(raw, "medium_minus", "Known instrument checked", { correction: proof(raw) });
+  const mutations = [
+    (a) => { a.jev.answers.verification.choice = "medium_minus"; },
+    (a) => { a.jev.model = "different"; },
+    (a) => { a.jev.answers.scope.confidence = 0.1; },
+    (a) => { a.jev = null; },
+    (a) => { a.advisor_state = "NOT_EVALUATED"; },
+    (a) => { a.correction_candidate.dimension = "coordination"; },
+    (a) => { a.review.correction.proof.explanation += " altered"; },
+    (a) => { a.review.correction.effective_labels.scope = "medium_plus"; },
+    (a) => { a.review.correction.from = "hard"; },
+    (a) => { a.review.correction.to = "easy"; },
+    (a) => { a.review.source = "control-evidence"; },
+    (a) => { a.review.correction_sha256 = "0".repeat(64); },
+    (a) => { a.review.correction.proof.assessment_basis_sha256 = "0".repeat(64); },
+  ];
+  for (const mutate of mutations) {
+    const altered = structuredClone(approved);
+    mutate(altered);
+    assert.throws(() => routing.validateApprovedAssessment(altered, raw));
+  }
+  const erased = await routing.assess(raw.task, { apiKey: "" });
+  assert.throws(() => routing.validateOriginalAssessment(erased, raw), /frozen original/);
+  const other = await routing.assess(task(), mock(result({ verification: "medium_plus" })));
+  assert.throws(() => routing.review(other, "medium_minus", "Reused proof", { correction: proof(raw) }), /different assessment basis/);
+});
+
+test("canonical basis uses stable JSON keys, ordered arrays and only finite JSON values", async () => {
+  assert.equal(routing.canonicalJson({ b: 1, a: [2, 1] }), '{"a":[2,1],"b":1}');
+  const cycle = {}; cycle.self = cycle;
+  for (const value of [undefined, NaN, Infinity, 1n, cycle, new Date(), [undefined], new Array(1), { x: () => {} }]) {
+    assert.throws(() => routing.canonicalJson(value));
+  }
+  const raw = await routing.assess(task(), mock(result({ verification: "medium_plus" })));
+  const approved = routing.review(raw, "medium_minus", "Known instrument checked", { correction: proof(raw) });
+  const reverse = (v) => Array.isArray(v) ? v.map(reverse) : v && typeof v === "object" ?
+    Object.fromEntries(Object.entries(v).reverse().map(([k, entry]) => [k, reverse(entry)])) : v;
+  assert.equal(routing.validateApprovedAssessment(reverse(approved)).assessment_basis_sha256, raw.assessment_basis_sha256);
+});
+
+test("case08/case11/case18 scope, design, risk and integrated verification retain Sol without a valid exception", async () => {
+  for (const changes of [{ scope: "medium_plus" }, { uncertainty: "medium_plus" }, { risk: "medium_plus" },
+    { verification: "medium_plus", coordination: "medium_plus" }]) {
+    const raw = await routing.assess(task(), mock(result(changes)));
+    assert.equal(raw.correction_candidate, null);
+    assert.throws(() => routing.review(raw, "medium_minus", "Small scope", { correction: proof(raw) }));
+    assert.equal(routing.review(raw, "medium_plus", "Integrated detector/dependencies still require Sol").route.primary.model, "gpt-6.1-sol");
+  }
+});
+
+test("case15/case21 extra or missing answer dimensions are invalid responses, never low routes", async () => {
+  for (const mutate of [(body) => { body.answers.extra = answer("easy"); }, (body) => { delete body.answers.scope; }]) {
+    const body = result(); mutate(body);
+    const raw = await routing.assess(task(), mock(body));
+    assert.equal(raw.status, "NOT_EVALUATED");
+    assert.equal(raw.advisor_state, "NOT_EVALUATED");
+    assert.equal(raw.jev, null);
+    assert.equal(raw.route, null);
+  }
+});
+
+test("case32 router and Jev CLI review accept optional proof and reject malformed evidence", async () => {
+  for (const script of ["skills/delivery/scripts/task-routing.js", "scripts/jev_agent.js"]) {
+    for (const correction of [false, true]) {
+      const raw = await routing.assess(task(), mock(result(correction ? { verification: "medium_plus" } : {})));
+      const input = approvedFile(raw), output = path.join(raw.task.repo, "reviewed.json");
+      const args = [path.resolve(__dirname, "..", script), "review",
+        ...(script.includes("jev_agent") ? ["--repo", raw.task.repo, "--input", input] : ["--assessment-file", input]),
+        "--difficulty", correction ? "medium_minus" : "easy", "--reason", "Control checked the frozen detector", "--out", output];
+      const p = JSON.stringify(proof(raw));
+      fs.mkdirSync(path.join(raw.task.repo, ".dely"));
+      const childOptions = { cwd: path.resolve(__dirname, ".."), encoding: "utf8",
+        env: { ...process.env, HOME: raw.task.repo, USERPROFILE: raw.task.repo } };
+      const run = spawnSync(process.execPath, correction ? [...args, "--review-evidence-json", p] : args,
+        childOptions);
+      assert.equal(run.status, 0, run.stderr);
+      const approved = JSON.parse(fs.readFileSync(output, "utf8"));
+      routing.validateApprovedAssessment(approved, raw);
+      assert.equal(approved.review.source, correction ? "control-override-justified" : "jev-and-control");
+      fs.unlinkSync(output);
+      for (const invalid of ["{", "[]", " ".repeat(8193)]) {
+        const rejected = spawnSync(process.execPath, [...args, "--review-evidence-json", invalid],
+          childOptions);
+        assert.equal(rejected.status, 2);
+        assert.equal(fs.existsSync(output), false);
+      }
+    }
+  }
+});
+
+test("correction journal contains raw/final grades and hashes without proof bodies", async () => {
+  const raw = await routing.assess(task(), mock(result({ verification: "medium_plus" })));
+  const approved = routing.review(raw, "medium_minus", "Control detector checked", { correction: proof(raw) });
+  const journal = path.join(raw.task.repo, "journal.jsonl");
+  const usage = require("../skills/delivery/scripts/usage.js");
+  usage.recordTask(raw, "assess", journal);
+  usage.recordTask(approved, "review", journal);
+  const bytes = fs.readFileSync(journal, "utf8"), rows = bytes.trim().split("\n").map(JSON.parse);
+  assert.equal(rows[0].taskKey, rows[1].taskKey);
+  assert.equal(rows[1].jev_difficulty, "medium_plus");
+  assert.equal(rows[1].difficulty, "medium_minus");
+  assert.equal(rows[1].assessment_basis_sha256, raw.assessment_basis_sha256);
+  assert.equal(rows[1].correction_sha256, approved.review.correction_sha256);
+  assert.equal(rows[1].decision_source, "control-override-justified");
+  assert.equal(rows[1].correction_reason_code, "verification_instrument_available");
+  assert.ok(!bytes.includes(approved.review.correction.proof.explanation));
+  assert.ok(!bytes.includes(raw.task.spec));
+});
+
+test("case38 equivalent effects keep their route when the repository is named All_Data", async () => {
+  const source = task();
+  for (const name of ["ordinary-project", "All_Data"]) {
+    const repo = path.join(source.repo, name);
+    fs.mkdirSync(repo);
+    fs.copyFileSync(source.spec_file, path.join(repo, "spec.md"));
+    fs.copyFileSync(source.context_file, path.join(repo, "context.json"));
+    const raw = await routing.assess(routing.loadTask(repo, "spec.md", "context.json"), mock(result({ scope: "medium_minus" })));
+    assert.equal(raw.difficulty, "medium_minus");
+    assert.equal(raw.route.primary.model, "gemini-3.8-flash-medium");
+    const context = { ...source.context, risks: { ...source.context.risks, data: true } };
+    fs.writeFileSync(path.join(repo, "context.json"), JSON.stringify(context));
+    const consequential = await routing.assess(routing.loadTask(repo, "spec.md", "context.json"), {
+      apiKey: "fixture", fetch: async () => assert.fail("A known data effect must veto before Jev") });
+    assert.equal(consequential.difficulty, "hard");
+  }
+});
+
+test("verified missing-model route is Luna/max only for Easy and Medium-", () => {
+  for (const difficulty of ["easy", "medium_minus"]) {
     const assessment = { difficulty, route: routing.route(difficulty) };
     routing.verifyUnavailablePin(assessment, { agent: "codex", model: "gpt-6-luna", effort: "max" });
     assert.throws(() => routing.verifyUnavailablePin(assessment, { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" }));
     assert.throws(() => routing.verifyUnavailablePin(assessment, { agent: "codex", model: "gpt-6-luna", effort: "default" }));
   }
-  assert.throws(() => routing.verifyUnavailablePin({ difficulty: "hard", route: routing.route("hard") },
-    { agent: "codex", model: "gpt-6-luna", effort: "max" }));
+  for (const difficulty of ["medium_plus", "hard"]) {
+    const assessment = { difficulty, route: routing.route(difficulty) };
+    assert.throws(() => routing.verifyUnavailablePin(assessment,
+      { agent: "codex", model: "gpt-6-luna", effort: "max" }));
+  }
+});
+
+test("final Medium+ and Hard retain Sol primary with an empty fallback chain", () => {
+  for (const difficulty of ["medium_plus", "hard"]) {
+    const assessment = { difficulty, route: routing.route(difficulty) };
+    assert.deepEqual(assessment.route.fallback, []);
+    assert.equal(assessment.route.modelUnavailable, undefined);
+    assert.equal(routing.selectedPin(assessment, {}).model, "gpt-6.1-sol");
+    assert.throws(() => routing.selectedPin(assessment, { fallback: "quota" }), /No such fallback/);
+    assert.throws(() => routing.selectedPin(assessment, { fallback: "quota", "fallback-stage": "1" }), /No such fallback/);
+  }
 });
 
 test("Jev client sends the documented HTTP wire format and exact model", async () => {
@@ -104,10 +353,12 @@ test("Easy and Medium- start Flash, Medium+ starts Sol/medium, Hard bypasses Del
     { agent: "codex", model: "gpt-6-luna", effort: "max" },
   ]) assert.throws(() => routing.verifyPin(plus, pin, {}), /reviewed difficulty route/);
   assert.equal(routing.selectedPhase(plus, {}), "implement");
-  for (const a of [easy, minus, plus]) {
+  for (const a of [easy, minus]) {
     assert.deepEqual(a.route.fallback, [{ harness: "codex", model: "gpt-6-luna", effort: "max" }]);
     assert.equal(routing.selectedPhase(a, { fallback: "quota" }), "implement_backup_2");
   }
+  assert.deepEqual(plus.route.fallback, []);
+  assert.throws(() => routing.selectedPhase(plus, { fallback: "quota" }), /No such fallback/);
   assert.equal(hard.route.workflow, "direct");
   assert.deepEqual(hard.route.primary, { harness: "codex", model: "gpt-6.1-sol", effort: "xhigh" });
   assert.throws(() => routing.review(hard, "medium_plus", "Only one line"), /higher-risk/);
@@ -202,13 +453,14 @@ test("approval cannot be reused for a different repo/spec or a modified route", 
   assert.throws(() => routing.requireApprovedRoute(flags(approved)), /route does not match/);
 });
 
-test("quota is the only fallback trigger and no delegated grade advances beyond Luna", async () => {
+test("quota is the only fallback trigger for low grades; Medium+ has none", async () => {
   for (const difficulty of ["easy", "medium_minus", "medium_plus"]) {
     const approved = routing.review(await routing.assess(task(), mock(result({ scope: difficulty }))), difficulty, "Internal scope and acceptance reviewed");
     const f = flags(approved);
     assert.equal(routing.requireApprovedRoute(f).difficulty, difficulty);
     const quota = { ...f, fallback: "quota" };
-    assert.equal(routing.selectedPin(routing.requireApprovedRoute(quota), quota).model, "gpt-6-luna");
+    if (difficulty === "medium_plus") assert.throws(() => routing.requireApprovedRoute(quota), /No such fallback/);
+    else assert.equal(routing.selectedPin(routing.requireApprovedRoute(quota), quota).model, "gpt-6-luna");
     assert.throws(() => routing.requireApprovedRoute({ ...quota, "fallback-stage": "2" }), /No such fallback/);
     for (const fallback of ["auth", "timeout", "unknown"]) assert.throws(() => routing.requireApprovedRoute({ ...f, fallback }), /Only explicit/);
     assert.throws(() => routing.requireApprovedRoute({ ...f, "fallback-stage": "1" }), /requires/);

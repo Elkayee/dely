@@ -78,6 +78,11 @@ supports each Hard exclusion. Unknown effects remain unevaluated.
    --reason, --skills and --skill-reason. The skills argument is a JSON array
    of supplied names, or exact catalog paths when names collide. Review loads the full selected instructions into its
    output and checks that required skills were retained.
+   Policy v4 keeps raw Jev evidence. Only an eligible single-dimension
+   verification/coordination correction uses optional `--review-evidence-json
+   <JSON>` with `--difficulty medium_minus`; no external proof file is needed.
+   See [the proof contract](task-risk-policy.md#optional-correction). Normal
+   review remains unchanged. Final Medium+/Hard are Sol-only without fallback.
 4. For a delegated grade, create the actual Dely Run before review, include
    its ID with --run, and load the installed delivery skill. Review rejects a
    missing, empty or whitespace-only Run ID and keeps the task PREPARED.
@@ -189,6 +194,13 @@ explicit-only alias from silently joining a selected policy group. Selected
 bytes and bindings must be stable while loaded; prepared evidence is rechecked
 before new selected evidence is admitted.
 Optional advice files are independent of this execution evidence.
+Native state `native-skills-v4` also freezes the original `assessment.json` and
+fingerprints `reviewed.json`. Review and admission compare raw evidence to the
+original; pure approval validation preserves `reviewed_at`. Worker admission
+binds the dispatch to the reviewed policy, basis and correction hash, and
+checks the effective model/effort against the final route. Proven workers
+inherit their dispatch's admission and cannot create Control reviews. Mutable
+worker implementation files are not immutable task evidence.
 Legacy task states require fresh prepare/review; historical records are not
 rewritten or silently promoted. Update this adapter
 and its dependencies between tasks. Changes require fresh native hook review

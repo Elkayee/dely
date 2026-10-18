@@ -354,11 +354,11 @@ Missing classification/model evidence stays explicit. See the
 
 ### Jev task routing
 
-Version `0.24.9` assesses implementation tasks with policy `jev-task-routing-v3`
+Version `0.27.5` assesses implementation tasks with policy `jev-task-routing-v4`
 before Dely creates a Run.
 Easy and Medium- use AGY Gemini 3.8 Flash Medium/default. Medium+ uses Codex
-GPT-6.1 Sol/medium. Every delegated grade has one explicit quota fallback:
-Codex Luna/max at stage 1.
+GPT-6.1 Sol/medium with no fallback. Only final Easy/Medium- retain one explicit
+quota fallback: Codex Luna/max at stage 1.
 Hard runs directly in Codex Sol/xhigh without Dely. Codex Control reviews
 delegated work. Project or personal pins that contradict the reviewed route
 are rejected before a worker starts.
@@ -369,7 +369,15 @@ integrated acceptance. Existing Hard risk exclusions take precedence.
 The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`;
 old three-grade assessments must be rerun. The model rows stay compatible:
 `implement` supplies Codex Sol/medium, `implement_backup` supplies Flash as a primary,
-and `implement_backup_2` supplies the single Luna quota fallback.
+and `implement_backup_2` supplies the single Luna quota fallback for low grades.
+
+Policy v4 preserves raw Jev Max Rank. One eligible verification/coordination Medium+
+dimension can be corrected to Medium- only by Control using optional
+`--review-evidence-json`. Candidate metadata alone keeps Sol. The
+[task risk policy](docs/task-risk-policy.md) defines proof, immutable evidence,
+unknown/Hard vetoes and independent implementation/integration/rollout slices.
+Existing reviews do not need proof. New admission requires fresh v4 snapshots;
+historical v3 records and active frozen plans remain intact.
 
 AGY must advertise the requested model in `agy models`, and its live footer
 must confirm the model and requested level before receiving the prompt. Unknown
@@ -401,7 +409,7 @@ Jev evaluates five narrow questions using `jev-1.13.0`. Control must review
 the evidence; no confidence threshold is treated as calibrated. Pass the
 reviewed file to `dely dispatch --assessment-file assessment.json`, including
 fallback dispatches. A changed spec or context invalidates the assessment.
-Medium's quota fallback is `--fallback quota --fallback-stage 1` and selects
+Easy/Medium-'s quota fallback is `--fallback quota --fallback-stage 1` and selects
 Luna/max; it never launches Flash. Hard is refused by the dispatcher.
 
 Get a TypeSafe key from the [official console](https://console.typesafe.ai/).
@@ -522,7 +530,7 @@ implement_backup_2 -> Codex CLI / gpt-6-luna / max
 review           -> Codex Control (local review, no worker dispatch)
 ```
 
-The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. Pins must match the reviewed difficulty route: Easy/Medium- select Flash Medium/default, and Medium+ selects Codex Sol/medium. Every delegated grade has one explicit primary-quota fallback, `--fallback quota --fallback-stage 1`, to Codex Luna/max after the prior attempt is inactive and released when required. There is no second quota stage. A successful nonempty AGY catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unknown failures and an unapplied requested model/level footer stop. Native Codex workers retain the bounded idle, one visibly unsubmitted-prompt Enter and fresh working-evidence checks.
+The patched Dely resolver checks the current workspace `AGENTS.md` first, then the user-level `~/.codex/AGENTS.md`. Pins must match the final reviewed route: Easy/Medium- select Flash Medium/default; Medium+ selects only Codex Sol/medium. Only Easy/Medium- have the explicit quota fallback `--fallback quota --fallback-stage 1` to Luna/max after the prior attempt is inactive and released when required, or the successful nonempty AGY-catalog exception proving the requested model absent. Medium+/Hard have no fallback. Authentication, timeout, unknown failures and an unapplied model/level footer stop. Native Codex workers retain bounded idle, one visibly unsubmitted-prompt Enter and fresh working-evidence checks.
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
@@ -590,7 +598,7 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 ### Worker model
 
-Easy and Medium- use `gemini-3.8-flash-medium` with default effort. Medium+ uses Codex `gpt-6.1-sol` with medium effort. Every delegated grade has one explicit quota fallback to Codex `gpt-6-luna` at max effort. A successful nonempty AGY catalog proving the requested model absent also selects Luna/max directly. Authentication, timeout, unusable catalog, or an unapplied requested model/level footer stops dispatch.
+Final Easy and Medium- use `gemini-3.8-flash-medium` with default effort and retain one explicit quota fallback to `gpt-6-luna/max` or the verified absent-AGY-model exception. Final Medium+ uses only `gpt-6.1-sol/medium`; Hard uses only direct `gpt-6.1-sol/xhigh`. Neither has a fallback. Authentication, timeout, unusable catalog, or an unapplied requested model/level footer stops dispatch.
 
 Prefer Dely for reversible bounded internal work. The six risk flags describe
 actual consequential changes, rather than a topic or repository name. Apply

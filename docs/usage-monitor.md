@@ -18,9 +18,11 @@ assessment observations or the dashboard API.
 ## What the numbers mean
 
 - **Dely adoption** is acknowledged launches divided by reviewed eligible
-  task revisions in the recorded cohort. Easy, Medium- and Medium+ are
-  eligible; Hard is direct. A task is counted once using repo/spec/context
-  hashes, even when it has retries or a quota fallback.
+  policy/snapshot revisions in the recorded cohort. Easy, Medium- and Medium+
+  are eligible; Hard is direct. Snapshots are keyed by policy plus the
+  repo/spec/context taskKey, including across assess/review/retry events.
+  Event counts remain separate. A snapshot is not necessarily an independent
+  user task; parent/child lineage and probes need separate interpretation.
 - **Effective model pins** count each acknowledged implementation launch.
   Primary and fallback launches are separate attempts. These are Dely's
   recorded pins, not estimated token costs or a universal model benchmark.

@@ -6,9 +6,10 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawnSync } = require("child_process");
+const vm = require("node:vm");
+const { createRequire } = require("node:module");
 const guard = require("./codex-compliance.js");
-const routingPath = process.env.COMPLIANCE_ROUTING || path.join(os.homedir(),
-  ".codex/plugins/cache/dely-orca-agy-global/dely/0.24.10/skills/delivery/scripts/task-routing.js");
+const routingPath = process.env.COMPLIANCE_ROUTING || path.resolve(__dirname, "../skills/delivery/scripts/task-routing.js");
 const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths,validateInput}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths,validateInput});\n';
 
 function fixture(t) {
@@ -70,6 +71,133 @@ function candidateFixture(t) {
   return { ...f, candidate, git };
 }
 
+async function correctionFixture(t) {
+  const f = fixture(t);
+  f.task.context.risks.routing = false;
+  const routing = require(routingPath), assess = routing.assess;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task) => assess(task, { apiKey: "fixture", fetch: async () => ({ ok: true,
+    json: async () => ({ model: routing.MODEL, answers: Object.fromEntries(routing.DIMENSIONS.map((name) => {
+      const choice = name === "verification" ? "medium_plus" : "medium_minus";
+      return [name, { type: "choice", choice, confidence: 1, probabilities: Object.fromEntries(
+        ["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"].map((label) => [label, Number(label === choice)])) }];
+    })) }) }) });
+  const prepared = await f.prepare();
+  const proof = { schema_version: 1, assessment_basis_sha256: prepared.assessment.assessment_basis_sha256,
+    dimension: "verification", reason_code: "verification_instrument_available",
+    explanation: "The known source and focused detector cover one internal adjustment without a new oracle.",
+    evidence_refs: [{ source: "context", field: "acceptance" }], acceptance: { method: "fixture_check",
+      procedure: "Run the known focused detector with the confirmed fixture", expected_result: "The fixture matches the scoped requirement",
+      would_fail_if: "The prior wrong branch returns a different fixture result" } };
+  return { ...f, prepared, proof, routing };
+}
+
+test("case32/case33 native CLI persists proof through preflight, dispatch, Control gate and worker admission", async (t) => {
+  const f = await correctionFixture(t);
+  const run = "v4_native_" + guard.digest(f.repo).slice(0, 12);
+  const native = path.join(f.home, "dely-compliance/codex-compliance.js");
+  const reviewed = spawnSync(process.execPath, [native, "review", "--home", f.home,
+    "--session", "session", "--turn", "turn", "--difficulty", "medium_minus", "--reason", "Control checked the frozen focused detector",
+    "--skills", '["required","dely:delivery"]', "--skill-reason", "Required source and delivery skills", "--run", run,
+    "--review-evidence-json", JSON.stringify(f.proof)], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" });
+  assert.equal(reviewed.status, 0, reviewed.stderr);
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const original = fs.readFileSync(state.original_assessment, "utf8");
+  assert.equal(state.assessment.review.source, "control-override-justified");
+  const assessmentFile = path.join(path.dirname(state.skill_input), "reviewed.json");
+  const flags = { repo: f.repo, run, "spec-file": state.assessment.task.spec_file, "assessment-file": assessmentFile };
+  const helper = f.settings.dely, source = fs.readFileSync(helper, "utf8");
+  const marker = source.indexOf("const [cmd, ...rest] = process.argv.slice(2);");
+  assert.ok(marker > 0);
+  const exit = {}, starts = [];
+  const context = vm.createContext({ require: createRequire(helper), __dirname: path.dirname(helper), __filename: helper,
+    Buffer, TextDecoder, console: { log: () => {} }, process: { platform: "win32", env: { DELY_POLL_S: "0.001" }, exit: (code) => { exit.code = code; throw exit; } } });
+  vm.runInContext(source.slice(0, marker), context, { filename: helper });
+  context.requireHandle = () => {};
+  context.restoreControlFocus = () => {};
+  context.recordOwnedSnapshot = () => {};
+  context.pin = (_, phase) => phase === "implement_backup_2" ? { agent: "codex", model: "gpt-6-luna", effort: "max" } :
+    { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" };
+  let receipt = "ack";
+  context.start = (_, __, pin, spec) => {
+    starts.push(pin);
+    const staged = spec.match(/Read the full task spec from (\S+)/);
+    const delivered = staged ? fs.readFileSync(path.join(f.repo, staged[1]), "utf8") : spec;
+    receipt = delivered.match(/rcpt_[a-f0-9]{16}/)?.[0] || "ack";
+    return { id: "ctx_native_v4", terminalHandle: "term_native_v4", launch: { modelEvidence: {
+      session: "worker-v4", turn: "worker-turn", model: pin.model, effort: pin.effort } } };
+  };
+  context.logEvent = (event, fields) => fs.appendFileSync(f.settings.journal, JSON.stringify({ event, ...fields }) + "\n");
+  context.orca = () => ({ result: { deliveryId: "fixture-delivery", messages: [
+    { type: "heartbeat", subject: receipt, dispatchId: "ctx_native_v4", from_handle: "term_native_v4" },
+    { type: "worker_done", dispatchId: "ctx_native_v4", payload: { outcome: "succeeded" } } ] } });
+  context.releaseWorker = () => ({ state: "released" });
+  assert.throws(() => context.preflight(flags), (e) => e === exit);
+  assert.equal(exit.code, 0);
+  assert.equal(starts[0].model, "gemini-3.8-flash-medium");
+  assert.throws(() => context.dispatch({ ...flags, phase: "implement", fallback: "quota" }), (e) => e === exit);
+  assert.equal(exit.code, 0);
+  assert.equal(starts[1].model, "gpt-6-luna");
+  const inventory = path.join(os.tmpdir(), "dely-run-" + run + ".jsonl");
+  assert.equal(fs.existsSync(inventory), false);
+  fs.writeFileSync(inventory, JSON.stringify({ owned: true, terminalHandle: "term_native_v4", dispatchId: "ctx_native_v4" }) + "\n");
+  t.after(() => fs.unlinkSync(inventory));
+  const accepted = fs.readFileSync(guard.stateFile(f.home, "session"), "utf8");
+  for (let i = 0; i < 2; i++) assert.deepEqual(guard.hook(f.event, f.home), {});
+  const worker = { ...f.event, session_id: "worker-v4", turn_id: "worker-turn", model: "gpt-6-luna" };
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE;
+  process.env.ORCA_TERMINAL_HANDLE = "term_native_v4";
+  t.after(() => {
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE;
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle;
+  });
+  guard.hook({ ...worker, hook_event_name: "UserPromptSubmit", prompt: "Read task; receipt " + receipt }, f.home);
+  assert.match(guard.hook(worker, f.home).hookSpecificOutput.additionalContext, /inherited admission checks passed/);
+  const rows = guard.logRecords(f.settings.journal);
+  const route = rows.findLast((r) => r.event === "task_route");
+  assert.equal(route.correctionSha256, state.assessment.review.correction_sha256);
+  assert.equal(route.assessmentBasisSha256, state.assessment.assessment_basis_sha256);
+  assert.equal(fs.readFileSync(state.original_assessment, "utf8"), original);
+  const checked = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(checked.assessment.review.reviewed_at, JSON.parse(accepted).assessment.review.reviewed_at);
+  fs.writeFileSync(path.join(f.repo, "implementation.js"), "changed code is not immutable evidence\n");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+for (const phase of ["review", "gate"]) {
+  test("case21/case25 native " + phase + " cannot erase a high original Jev evaluation", async (t) => {
+    const f = await correctionFixture(t);
+    if (phase === "gate") f.review({ difficulty: "medium_plus", skills: '["required","dely:delivery"]', run: "raw-preserved" });
+    const stateFile = guard.stateFile(f.home, "session"), state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const erased = await f.routing.assess(f.prepared.assessment.task, { apiKey: "" });
+    // Use a self-consistent replacement with recomputed basis; the frozen original still vetoes it.
+    erased.jev = null; erased.advisor_state = "NOT_EVALUATED"; erased.jev_difficulty = null; erased.correction_candidate = null;
+    erased.assessment_basis_sha256 = guard.digest(f.routing.canonicalJson(f.routing.deriveAssessmentBasis(erased)));
+    state.assessment = phase === "review" ? erased : f.routing.review(erased, "medium_plus", "Pretend unavailable");
+    fs.writeFileSync(stateFile, JSON.stringify(state));
+    if (phase === "review") assert.throws(f.review, /frozen original/);
+    else assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+}
+
+test("case22/case34/case35 native review retains immutable artifacts and rejects stale identity and policy", async (t) => {
+  const f = await correctionFixture(t);
+  assert.throws(() => guard.review({ ...f.options, turn: "wrong", difficulty: "medium_minus", reason: "wrong turn",
+    "skill-reason": "required", skills: '["required","dely:delivery"]', run: "wrong-turn",
+    "review-evidence-json": JSON.stringify(f.proof) }, f.home), /Prepare this turn/);
+  f.review({ difficulty: "medium_minus", skills: '["required","dely:delivery"]', run: "immutable-proof",
+    "review-evidence-json": JSON.stringify(f.proof) });
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const artifact = path.join(path.dirname(state.skill_input), "reviewed.json");
+  assert.ok(state.fingerprints[artifact]);
+  const old = structuredClone(state.assessment); old.policy = "jev-task-routing-v3";
+  const before = JSON.stringify(old);
+  assert.throws(() => f.routing.validateApprovedAssessment(old), /unsupported/);
+  assert.equal(JSON.stringify(old), before);
+  fs.appendFileSync(artifact, " ");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
 test("explicit candidate assessment retains the immutable Control prompt origin", async (t) => {
   const f = candidateFixture(t);
   const prepared = await f.prepare();
@@ -95,8 +223,12 @@ test("candidate Dely evidence must match the reviewed target and both exact hash
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const route = { event: "task_route", run: state.run, repo: f.candidate,
     specSha256: state.assessment.task.spec_sha256, contextSha256: state.assessment.task.context_sha256,
+    policy: state.assessment.policy, assessmentBasisSha256: state.assessment.assessment_basis_sha256,
+    correctionSha256: null, reviewSource: state.assessment.review.source,
     difficulty: "medium_plus" };
   const dispatch = { event: "dispatch", run: state.run, repo: f.candidate, phase: "implement",
+    assessmentBasisSha256: route.assessmentBasisSha256, contextSha256: route.contextSha256, correctionSha256: null,
+    launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } },
     promptSha256: route.specSha256, dispatchId: "fixture_dispatch" };
   for (const wrong of [
     [{ ...route, repo: f.repo }, { ...dispatch, repo: f.repo }],
@@ -906,6 +1038,9 @@ test("new user turn resets authorization; another workspace cannot reuse it", as
 test("Dely can bootstrap after review, but writes require dispatch for this exact task", async (t) => {
   const f = fixture(t);
   f.task.context.risks.routing = false;
+  const routing = require(routingPath), assess = routing.assess;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task, options) => assess(task, { ...options, apiKey: "" });
   await f.prepare();
   f.review({ difficulty: "easy", skills: '["required","dely:delivery"]', run: "run-one" });
   const coordinating = { ...f.event, tool_name: "Bash",
@@ -918,8 +1053,12 @@ test("Dely can bootstrap after review, but writes require dispatch for this exac
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const route = { event: "task_route", run: state.run, repo: f.repo, difficulty: "easy",
+    policy: state.assessment.policy, assessmentBasisSha256: state.assessment.assessment_basis_sha256,
+    correctionSha256: null, reviewSource: state.assessment.review.source,
     specSha256: state.assessment.task.spec_sha256, contextSha256: state.assessment.task.context_sha256 };
   const dispatch = { event: "dispatch", run: state.run, repo: f.repo, phase: "implement",
+    assessmentBasisSha256: route.assessmentBasisSha256, contextSha256: route.contextSha256, correctionSha256: null,
+    launch: { effective: { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" } },
     promptSha256: route.specSha256, dispatchId: "dispatch-one", ts: new Date().toISOString() };
   fs.writeFileSync(f.settings.journal, [route, { ...dispatch, promptSha256: "wrong" }].map(JSON.stringify).join("\n") + "\n");
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
@@ -939,18 +1078,27 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   const handle = "terminal-test";
   const dispatch = { event: "dispatch", run, repo: f.repo, phase: "implement",
     terminalHandle: handle, dispatchId: "dispatch-test", promptSha256: "spec-hash",
+    fallbackReason: "quota", fallbackStage: 1, assessmentBasisSha256: guard.digest("fixture basis"),
+    contextSha256: "context-hash", correctionSha256: null,
     receiptMarker: "rcpt_1234567890abcdef",
     launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" },
       modelEvidence: { session: f.event.session_id, turn: f.event.turn_id, model: "gpt-6-luna", effort: "max" } } };
   const event = { ...f.event, model: "gpt-6-luna" };
+  const route = { event: "task_route", run, repo: f.repo, specSha256: dispatch.promptSha256,
+    policy: require(routingPath).POLICY, difficulty: "easy", assessmentBasisSha256: dispatch.assessmentBasisSha256,
+    contextSha256: dispatch.contextSha256, correctionSha256: null };
   assert.equal(guard.verifiedWorker(event, f.settings, handle), false);
-  fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run, repo: f.repo,
-    specSha256: "spec-hash" }].map(JSON.stringify).join("\n") + "\n");
+  fs.writeFileSync(f.settings.journal, [dispatch, route].map(JSON.stringify).join("\n") + "\n");
   assert.equal(guard.verifiedWorker(event, f.settings, handle), false);
   fs.writeFileSync(inventory, JSON.stringify({ owned: true, terminalHandle: handle, dispatchId: "dispatch-test" }) + "\n");
   assert.equal(guard.verifiedWorker(event, f.settings, handle), false);
   const claim = { receipts: [dispatch.receiptMarker] };
   assert.equal(guard.verifiedWorker(event, f.settings, handle, claim), true);
+  for (const difficulty of ["medium_plus", "hard"]) {
+    fs.writeFileSync(f.settings.journal, [dispatch, { ...route, difficulty }].map(JSON.stringify).join("\n") + "\n");
+    assert.equal(guard.verifiedWorker(event, f.settings, handle, claim), false);
+  }
+  fs.writeFileSync(f.settings.journal, [dispatch, route].map(JSON.stringify).join("\n") + "\n");
   assert.equal(guard.verifiedWorker({ ...event, session_id: "other-session" }, f.settings, handle, claim), false);
   assert.equal(guard.verifiedWorker({ ...event, turn_id: "other-turn" }, f.settings, handle, claim), false);
   assert.equal(guard.verifiedWorker(event, f.settings, handle, { spec_sha256: dispatch.promptSha256 }), true);
@@ -958,8 +1106,7 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   assert.equal(guard.verifiedWorker(event, f.settings, "another-terminal"), false);
 
   dispatch.snapshotSha256 = guard.digest("The staged spec includes a receipt footer.");
-  fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run, repo: f.repo,
-    specSha256: dispatch.promptSha256 }].map(JSON.stringify).join("\n") + "\n");
+  fs.writeFileSync(f.settings.journal, [dispatch, route].map(JSON.stringify).join("\n") + "\n");
   const stagedClaim = { spec_sha256: dispatch.snapshotSha256 };
   assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), true);
   assert.equal(guard.verifiedWorker(event, f.settings, handle, { spec_sha256: dispatch.promptSha256 }), false);
@@ -970,8 +1117,7 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   assert.equal(guard.verifiedWorker(event, f.settings, "another-terminal", stagedClaim), false);
   fs.writeFileSync(f.settings.journal, JSON.stringify(dispatch) + "\n");
   assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false);
-  fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run, repo: f.repo,
-    specSha256: dispatch.snapshotSha256 }].map(JSON.stringify).join("\n") + "\n");
+  fs.writeFileSync(f.settings.journal, [dispatch, { ...route, specSha256: dispatch.snapshotSha256 }].map(JSON.stringify).join("\n") + "\n");
   assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false);
 });
 
@@ -989,10 +1135,14 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   });
   const dispatch = { event: "dispatch", run, repo: f.repo, phase: "implement",
     terminalHandle: handle, dispatchId: "prepared-dispatch", promptSha256: spec,
+    fallbackReason: "quota", fallbackStage: 1, assessmentBasisSha256: guard.digest("prepared fixture basis"),
+    contextSha256: "context-hash", correctionSha256: null,
     launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" },
       modelEvidence: { session: f.event.session_id, turn: f.event.turn_id, model: "gpt-6-luna", effort: "max" } } };
   fs.writeFileSync(f.settings.journal, [dispatch, { event: "task_route", run,
-    repo: f.repo, specSha256: spec }].map(JSON.stringify).join("\n") + "\n");
+    repo: f.repo, specSha256: spec, policy: require(routingPath).POLICY, difficulty: "easy",
+    assessmentBasisSha256: dispatch.assessmentBasisSha256, contextSha256: dispatch.contextSha256,
+    correctionSha256: null }].map(JSON.stringify).join("\n") + "\n");
   fs.writeFileSync(inventory, JSON.stringify({ owned: true, terminalHandle: handle,
     dispatchId: dispatch.dispatchId }) + "\n");
   const event = { ...f.event, model: "gpt-6-luna" };
@@ -1005,6 +1155,7 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   assert.equal(admitted.hookSpecificOutput.permissionDecision, undefined);
   await f.prepare();
   assert.deepEqual(guard.hook(event, f.home), admitted);
+  assert.throws(f.review, /workers cannot create Codex Control reviews/);
   const command = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"))
     .hooks.PreToolUse[0].hooks[0].command;
   const native = process.platform === "win32" ?

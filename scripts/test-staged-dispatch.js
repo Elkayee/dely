@@ -8,12 +8,57 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const vm = require("node:vm");
 const { createRequire } = require("node:module");
+const routing = require("../skills/delivery/scripts/task-routing.js");
 
 const helper = path.resolve(__dirname, "../skills/delivery/scripts/dely.js");
 const source = fs.readFileSync(helper, "utf8");
 const cli = source.indexOf("const [cmd, ...rest] = process.argv.slice(2);");
 assert.ok(cli > 0, "Load helper functions without invoking the CLI entry point.");
 const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
+
+for (const command of ["preflight", "dispatch"]) {
+  test("case27-case29 " + command + " never launches a non-Sol worker for final Medium+ or Hard", async (t) => {
+    const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dely-route-ownership-")));
+    t.after(() => {
+      assert.ok(path.basename(repo).startsWith("dely-route-ownership-"));
+      fs.rmSync(repo, { recursive: true });
+    });
+    fs.writeFileSync(path.join(repo, "spec.md"), "One known internal integration with agreed acceptance.\n");
+    fs.writeFileSync(path.join(repo, "context.json"), JSON.stringify({ scope: "Known integration", coupling: "Known components",
+      acceptance: "Agreed integrated detector", evidence: "Owners and detector inspected", requirements_confirmed: true,
+      risks: Object.fromEntries(routing.RISK_KEYS.map((key) => [key, false])) }));
+    const raw = await routing.assess(routing.loadTask(repo, "spec.md", "context.json"), { apiKey: "" });
+    const file = path.join(repo, "approved.json"), rejected = {}, starts = [];
+    const context = vm.createContext({ require: createRequire(helper), __dirname: path.dirname(helper), __filename: helper,
+      Buffer, TextDecoder, process: { platform: "win32", env: {}, exit: (code) => { rejected.code = code; throw rejected; } }, console: { log: () => {} } });
+    vm.runInContext(source.slice(0, cli), context, { filename: helper });
+    context.requireHandle = () => {};
+    context.restoreControlFocus = () => {};
+    context.logEvent = () => {};
+    context.pin = (_, phase) => phase === "implement_backup_2" ? { agent: "codex", model: "gpt-6-luna", effort: "max" } :
+      { agent: "codex", model: "gpt-6.1-sol", effort: "medium" };
+    context.start = (_, __, pin) => { starts.push(pin); return { modelUnavailable: true }; };
+    const f = { repo, run: "ownership-fixture", phase: "implement", "spec-file": "spec.md", "assessment-file": file };
+    fs.writeFileSync(file, JSON.stringify(routing.review(raw, "medium_plus", "Known integration requires Sol")));
+    assert.throws(() => context[command](f), (e) => e === rejected);
+    assert.notEqual(rejected.code, 0);
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0].model, "gpt-6.1-sol");
+    starts.length = 0;
+    if (command === "dispatch") {
+      const pendingFile = context.pendingStartPath(repo, f.run);
+      const pending = JSON.parse(fs.readFileSync(pendingFile, "utf8"));
+      pending.pin.model = "gpt-6-luna";
+      pending.pin.effort = "max";
+      fs.writeFileSync(pendingFile, JSON.stringify(pending));
+      assert.throws(() => context.dispatch(f), (e) => e === rejected);
+      assert.equal(starts.length, 0, "An unauthorized pending model cannot resume or launch a replacement");
+    }
+    fs.writeFileSync(file, JSON.stringify(routing.review(raw, "hard", "Consequential execution remains direct")));
+    assert.throws(() => context[command](f), (e) => e === rejected);
+    assert.equal(starts.length, 0);
+  });
+}
 
 function dispatchFixture(t, mode) {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "dely-staged-dispatch-"));

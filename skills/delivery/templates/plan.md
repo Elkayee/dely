@@ -20,6 +20,14 @@ Leave empty until that commit exists rather than guessing it.
 
 One paragraph. What is true when this is done, and what is out of reach.
 
+If this goal includes independent implementation, integration or live rollout,
+link their existing task/run IDs and dependencies. For each slice, name its
+outcome, changed boundary, owner/callers/callees, input contract, acceptance
+and handoff. Assess each snapshot separately; consequential code risks remain
+in the implementation slice. Keep the parent open until integrated and live
+acceptance finish. Prefer one slice when component and styling share an
+acceptance. See [task risk policy](../../../docs/task-risk-policy.md).
+
 ## Allowed scope
 
 ```

@@ -25,7 +25,7 @@ const write = (file, value) => {
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
 const settingsFile = (home) => path.join(root(home), "settings.json");
-const NATIVE_SCHEMA = "native-skills-v3";
+const NATIVE_SCHEMA = "native-skills-v4";
 const promptFile = (home, session) => path.join(root(home), "prompts", digest(session) + ".json");
 const inputFile = (home, session, turn, nonce = "") => path.join(root(home), "inputs", digest(session + "\0" + turn + "\0" + nonce) + ".json");
 const fingerprints = (files) => Object.fromEntries(files.map((file) =>
@@ -192,7 +192,8 @@ function context(event, home, state = {}) {
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
     "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
-    "Easy/Medium- use AGY gemini-3.8-flash-medium/default; Medium+ uses Codex gpt-6.1-sol/medium with explicit-quota Luna/max fallback. Verified AGY model absence also permits Luna/max. " +
+    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain the existing explicit-quota or verified-AGY-model-absence Luna/max exception. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
+    "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
     "Read-only inspection and Orca coordination remain available.";
@@ -261,10 +262,29 @@ function dispatchEvidence(state, settings) {
   const rows = logRecords(settings.journal).filter((row) => row.run === state.run);
   const route = rows.find((row) => row.event === "task_route" && row.repo &&
     samePath(row.repo, repo) && row.specSha256 === assessment.task.spec_sha256 &&
-    row.contextSha256 === assessment.task.context_sha256 && row.difficulty === assessment.difficulty);
+    row.contextSha256 === assessment.task.context_sha256 && row.difficulty === assessment.difficulty &&
+    row.policy === assessment.policy && row.assessmentBasisSha256 === assessment.assessment_basis_sha256 &&
+    row.correctionSha256 === (assessment.review.correction_sha256 || null) && row.reviewSource === assessment.review.source);
   return route && rows.find((row) => row.event === "dispatch" && row.repo &&
     samePath(row.repo, repo) && row.phase === "implement" &&
-    row.promptSha256 === assessment.task.spec_sha256 && row.dispatchId);
+    row.promptSha256 === assessment.task.spec_sha256 && row.dispatchId && permittedDispatch(route, row, settings));
+}
+
+function permittedDispatch(route, dispatch, settings) {
+  try {
+    const routing = require(settings.routing);
+    if (route.policy !== routing.POLICY || !/^[a-f0-9]{64}$/.test(route.assessmentBasisSha256 || "") ||
+        route.assessmentBasisSha256 !== dispatch.assessmentBasisSha256 ||
+        route.contextSha256 !== dispatch.contextSha256 || route.correctionSha256 !== dispatch.correctionSha256) return false;
+    const assessment = { difficulty: route.difficulty, route: routing.route(route.difficulty) };
+    if (assessment.route.workflow !== "dely") return false;
+    const pin = dispatch.launch && dispatch.launch.effective;
+    if (!pin) return false;
+    if (dispatch.fallbackReason === "model_unavailable") routing.verifyUnavailablePin(assessment, pin);
+    else routing.verifyPin(assessment, pin, { fallback: dispatch.fallbackReason ?? undefined,
+      "fallback-stage": dispatch.fallbackStage ?? undefined });
+    return true;
+  } catch (_) { return false; }
 }
 
 function verifiedWorker(event, settings, handle = process.env.ORCA_TERMINAL_HANDLE, claim = {}) {
@@ -280,9 +300,11 @@ function verifiedWorker(event, settings, handle = process.env.ORCA_TERMINAL_HAND
       native.model !== event.model || native.effort !== dispatch.launch.effective.effort) return false;
   const deliveredSha256 = dispatch.snapshotSha256 ?? dispatch.promptSha256;
   if (!(claim.receipts || []).includes(dispatch.receiptMarker) && claim.spec_sha256 !== deliveredSha256) return false;
-  const route = rows.find((row) => row.event === "task_route" && row.run === dispatch.run &&
-    row.repo && samePath(row.repo, event.cwd) && row.specSha256 === dispatch.promptSha256);
-  if (!route) return false;
+  const route = rows.findLast((row) => row.event === "task_route" && row.run === dispatch.run &&
+    row.repo && samePath(row.repo, event.cwd) && row.specSha256 === dispatch.promptSha256 &&
+    row.assessmentBasisSha256 === dispatch.assessmentBasisSha256 &&
+    row.contextSha256 === dispatch.contextSha256 && row.correctionSha256 === dispatch.correctionSha256);
+  if (!route || !permittedDispatch(route, dispatch, settings)) return false;
   const owned = path.join(os.tmpdir(), "dely-run-" + dispatch.run + ".jsonl");
   return logRecords(owned).some((row) => row.owned === true &&
     row.terminalHandle === handle && row.dispatchId === dispatch.dispatchId);
@@ -306,8 +328,7 @@ function validate(state, event, home, requireDispatch = true) {
   }
   if (state.mode !== "implement") throw Error("This task was reviewed for advice only; implementation needs a task assessment.");
   const routing = require(settings.routing);
-  const checked = routing.review(state.assessment, state.assessment.difficulty, state.assessment.review.reason);
-  if (JSON.stringify(checked.route) !== JSON.stringify(state.assessment.route)) throw Error("Reviewed route changed.");
+  const checked = routing.validateApprovedAssessment(state.assessment, read(state.original_assessment));
   if (checked.route.workflow === "direct" && event.model !== checked.route.primary.model) {
     throw Error("The Hard route requires Codex " + checked.route.primary.model + "; current model evidence does not match.");
   }
@@ -329,6 +350,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
     const prompt = typeof event.prompt === "string" ? event.prompt : "";
     const staged = prompt.match(/Task spec staged at \S+ \(\d+ bytes, SHA-256: ([a-f0-9]{64})\)/);
     const state = { session: event.session_id, turn: event.turn_id, repo: canonical(event.cwd), status: "PENDING",
+      native_model: event.model,
       mutation_admitted: false,
       input_nonce: crypto.randomBytes(12).toString("hex"),
       worker_claim: { receipts: prompt.match(/rcpt_[a-f0-9]{16}/g) || [], spec_sha256: staged && staged[1] } };
@@ -424,6 +446,7 @@ async function prepare(options, home) {
     schema: NATIVE_SCHEMA,
     session: options.session, turn: options.turn, repo, mode: task.mode, status: "PREPARED",
     prepared_at: new Date().toISOString(), worker_claim: pending.worker_claim,
+    native_model: pending.native_model,
     mutation_admitted: pending.session === options.session && pending.turn === options.turn &&
       (pending.mutation_admitted ?? !!pending.attempted),
     stop_reported: pending.session === options.session && pending.turn === options.turn && !!pending.stop_reported,
@@ -449,13 +472,14 @@ async function prepare(options, home) {
     const loadedTask = routing.loadTask(target, specFile, contextFile);
     if (routing.missingEvidence(loadedTask).length) throw Error("Complete and confirm the task context before implementation.");
     state.assessment = await routing.assess(loadedTask, { credentialRoot: settings.credential_root });
-    write(path.join(directory, "assessment.json"), state.assessment);
+    state.original_assessment = path.join(directory, "assessment.json");
+    write(state.original_assessment, state.assessment);
   }
   checkSnapshot(snapshot);
   checkExecutionRepo(state, home);
   if (JSON.stringify(instructions(repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during preparation.");
   state.fingerprints = { ...fingerprints([taskInput, skillInput, sessionRoster, sourceRoster,
-    ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file] : [])]), ...snapshot.fingerprints };
+    ...(state.assessment ? [state.assessment.task.spec_file, state.assessment.task.context_file, state.original_assessment] : [])]), ...snapshot.fingerprints };
   const latest = fs.existsSync(sessionFile) ? read(sessionFile) : {};
   if (latest.turn !== pending.turn || latest.input_nonce !== pending.input_nonce) {
     throw Error("User prompt changed during preparation; prepare and review the current request.");
@@ -471,8 +495,14 @@ function review(options, home) {
   const settings = checkedSettings(home);
   const file = stateFile(home, options.session);
   const state = read(file);
+  if (state.mode !== "implement" && options["review-evidence-json"] !== undefined) throw Error("Correction evidence requires an implementation assessment.");
+  if (options.repo && !samePath(options.repo, state.repo)) throw Error("Review belongs to another Control repository.");
   if (state.schema !== NATIVE_SCHEMA) throw Error("Legacy task evidence requires fresh prepare and review.");
   if (state.turn !== options.turn || state.status !== "PREPARED") throw Error("Prepare this turn before reviewing.");
+  if (verifiedWorker({ session_id: state.session, turn_id: state.turn, cwd: state.execution_repo || state.repo,
+    model: state.native_model }, settings, process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) {
+    throw Error("Dely workers cannot create Codex Control reviews; report to Control.");
+  }
   checkExecutionRepo(state, home);
   checkCatalogPaths(state);
   for (const [p, hash] of Object.entries(state.fingerprints)) if (!unchanged(p, hash)) throw Error("Prepared inputs changed.");
@@ -521,7 +551,9 @@ function review(options, home) {
   if (JSON.stringify(instructions(state.repo, home)) !== JSON.stringify(state.instructions)) throw Error("Instructions changed during review.");
   if (state.mode === "implement") {
     const routing = require(settings.routing);
-    state.assessment = routing.review(state.assessment, options.difficulty, options.reason);
+    routing.validateOriginalAssessment(state.assessment, read(state.original_assessment));
+    state.assessment = routing.review(state.assessment, options.difficulty, options.reason,
+      routing.parseReviewEvidence(options["review-evidence-json"]));
     if (state.assessment.route.workflow === "dely" && !loaded.some((skill) => samePath(skill.path, settings.delivery))) {
       throw Error("Delegated tasks must load the installed delivery skill.");
     }
@@ -529,7 +561,9 @@ function review(options, home) {
     if (state.assessment.route.workflow === "dely" && !state.run) {
       throw Error("Create an actual Dely Run, then review with --run <Run ID> before dispatching the reviewed task.");
     }
-    write(path.join(path.dirname(state.skill_input), "reviewed.json"), state.assessment);
+    const reviewedFile = path.join(path.dirname(state.skill_input), "reviewed.json");
+    write(reviewedFile, state.assessment);
+    Object.assign(state.fingerprints, fingerprints([reviewedFile]));
   }
   state.status = "REVIEWED";
   state.skill_review = { by: "codex-control", reason: options["skill-reason"], source: "native-session",
@@ -606,8 +640,9 @@ function install(options, home) {
 async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
   const { values } = parseArgs({ args: argv.slice(1), options: { ...Object.fromEntries(
-    ["home", "session", "turn", "repo", "task-json", "task-file", "difficulty", "reason", "skill-reason", "skills", "run", "routing", "advisor"]
+    ["home", "session", "turn", "repo", "task-json", "task-file", "difficulty", "reason", "skill-reason", "skills", "run", "routing", "advisor", "review-evidence-json"]
       .map((name) => [name, { type: "string" }])), "preserve-hooks": { type: "boolean" } } });
+  if (command !== "review" && values["review-evidence-json"] !== undefined) throw Error("Correction evidence is supported only by review.");
   const home = path.resolve(values.home || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
   let result;
   if (command === "hook") result = hook(JSON.parse(fs.readFileSync(0, "utf8")), home);

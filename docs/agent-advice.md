@@ -22,15 +22,19 @@ to Dely dispatch. Review is an explicit Control action. Hard risk, stale
 spec/context and another workspace's assessment cannot be downgraded or approved.
 
 The four labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
-Easy/Medium- select Flash Medium/default; Medium+ selects Sonnet High/default.
-Every delegated grade has one Luna/max quota fallback. Old three-grade
-assessments require a new assessment and Control review.
+Final Easy/Medium- select Flash Medium/default and retain one Luna/max quota
+fallback or verified absent-AGY-model exception. Final Medium+ selects only
+Codex Sol/medium; Hard selects only direct Sol/xhigh. Neither permits fallback.
+Old policy assessments require a fresh assessment and Control review.
 
 Apply [the task risk policy](task-risk-policy.md) to consequential effects,
 rather than task topics. Prefer Dely for known reversible bounded internal
-work; keep concrete Hard exclusions and unresolved facts protected. Version
-three clarifies these criteria and changes the Flash primary to Medium;
-reassess version-two records instead of changing their stored route.
+work; keep concrete Hard exclusions and unresolved facts protected. Policy v4
+keeps raw Jev Max Rank and adds an optional, evidence-bound correction of one
+eligible verification/coordination dimension. All other high results retain
+their vetoes. `review` accepts optional `--review-evidence-json <JSON>`;
+normal reviews need no proof. See the policy's proof schema and decomposition
+guidance; preserve historical records instead of changing their stored route.
 
 ## Context after retrieval
 

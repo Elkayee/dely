@@ -17,10 +17,10 @@ decision, then pass `--assessment-file <assessment>` on every dispatch.
 
 - Easy and Medium- (`medium_minus`): AGY Gemini 3.8 Flash Medium/default.
 - Medium+ (`medium_plus`): Codex GPT-6.1 Sol/medium.
-- Every delegated grade has one explicit primary-quota fallback: Codex
-  Luna/max at stage 1. There is no second quota stage.
+- Only final Easy/Medium- have one explicit primary-quota fallback: Codex
+  Luna/max at stage 1. Final Medium+ and Hard are Sol-only with no fallback.
 - A successful AGY catalog that lacks the requested model routes directly to
-  Codex Luna/max. This also applies to a missing Flash primary model and
+  Codex Luna/max for final Easy/Medium-. This applies to a missing Flash primary and
   the implementation preflight healthcheck. Discovery/auth/timeout
   errors and an unapplied footer still stop.
 - Hard: Codex Sol/xhigh handles design, implementation, and verification
@@ -43,6 +43,15 @@ Dely for reversible bounded internal work with known ownership and acceptance;
 retain unknown effects as unevaluated. See [task risk policy](../../docs/task-risk-policy.md).
 The CLI labels are `easy`, `medium_minus`, `medium_plus`, and `hard`.
 Reassess old policy records; the undivided `medium` label is not accepted.
+
+Policy v4 preserves Jev's raw Max Rank. Candidate metadata alone keeps
+Medium+/Sol. Control may correct exactly one eligible verification or
+coordination dimension to Medium- using optional `--review-evidence-json`;
+see the [proof contract](../../docs/task-risk-policy.md#optional-correction).
+Use normal review for tasks without correction. Known Hard, raw Hard and
+unknown evidence retain their vetoes. For a parent containing local changes,
+integration and live rollout, create independent outcomes with owners and
+acceptance, assess each slice, and retain the parent's final acceptance.
 
 The existing model rows remain: `implement` supplies Codex Sol/medium,
 `implement_backup` supplies Flash, and `implement_backup_2` supplies Luna.
