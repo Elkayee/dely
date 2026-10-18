@@ -36,12 +36,31 @@
     </section>
     <div id="notice" class="notice" role="status" aria-live="polite">Loading activity. Missing data will remain visible.</div>
     <section id="projects" class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">WORKSPACES</p><h2>Projects</h2></div><button id="all-projects" class="button" type="button">Back to all projects</button></div>
+      <div class="panel-heading"><div><p class="eyebrow">WORKSPACES</p><h2>Projects</h2></div></div>
       <p id="project-coverage" class="panel-caption"></p>
-      <div id="project-list" class="project-list"></div>
+      <div id="project-list" class="table-scroll" tabindex="0" role="region" aria-label="Projects overview table">
+        <table class="compact-table" id="project-table">
+          <thead>
+            <tr>
+              <th scope="col">Project</th>
+              <th scope="col" class="num">Snapshots</th>
+              <th scope="col" class="num">AGY Start</th>
+              <th scope="col" class="num">Approvals / Pending</th>
+              <th scope="col" class="num">Attempts / Fallbacks</th>
+              <th scope="col">Effective Models</th>
+              <th scope="col">Orca Workers</th>
+              <th scope="col">Codex Conversations</th>
+            </tr>
+          </thead>
+          <tbody id="project-rows"></tbody>
+        </table>
+      </div>
     </section>
-    <section id="project-details" class="panel">
-      <h2 id="project-title">Tasks and launch evidence · All workspaces</h2>
+    <section id="project-details" class="panel" hidden>
+      <div class="panel-heading">
+        <div><p class="eyebrow">SELECTED WORKSPACE</p><h2 id="project-title">Tasks and launch evidence · All workspaces</h2></div>
+        <button id="all-projects" class="button" type="button">Back to all projects</button>
+      </div>
       <p class="panel-caption">Snapshots, assessment tasks, launch attempts, Orca workers and conversations are separate populations. Snapshot decisions retain their first confirmed evidence; latest assessment information is labelled separately.</p>
       <div id="task-list"></div>
     </section>

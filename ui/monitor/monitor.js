@@ -181,47 +181,288 @@ function render(data) {
 
 function renderProjects(data) {
   const selected = $("repo").value;
+  $("projects").hidden = !!selected;
   $("project-list").hidden = !!selected;
   $("project-details").hidden = !selected;
   const available = data.projects || [];
-  $("project-list").replaceChildren(...available.map((p) => {
-    const card = element("article", null, "project-card");
-    const button = element("button", p.name, "button");
-    button.type = "button"; button.setAttribute("aria-pressed", String(p.repo === selected));
-    button.addEventListener("click", () => { $("repo").value = p.repo; refresh(); });
-    const logAvailable = data.sources?.log?.present;
-    const share = p.agyStart.denominator ? `${(p.agyStart.rate * 100).toFixed(1)}% (${p.agyStart.numerator}/${p.agyStart.denominator})` : "N/A (0/0 observed)";
-    card.append(button, element("p", p.repo, "project-path mono"),
-      element("p", logAvailable ? `${p.snapshots} confirmed Dely snapshots · AGY start ${share}` : "Dely source unavailable · snapshots and AGY share N/A"),
-      element("p", logAvailable ? `${p.tasks.recorded} assessment tasks · ${p.tasks.approved} approvals · ${p.pending} awaiting dispatch · ${p.tasks.unknown} unknown grades` : "Assessment tasks / approvals / pending: source unavailable"),
-      element("p", logAvailable ? `${p.launches} launch attempts · ${p.models.reduce((n, m) => n + m.fallbacks, 0)} fallbacks` : "Launch / fallback counts: source unavailable"),
-      element("p", logAvailable ? `Effective implementation models: ${p.models.map((m) => `${m.model}: ${m.launches}`).join(", ") || "Unknown / no launch evidence"}` : "Effective implementation models: source unavailable"),
-      element("p", data.sources?.orca?.available ? `${p.jobs.count} Orca workers · Observed states: ${p.jobs.states.map((s) => `${s.status}: ${s.count}`).join(", ") || "No states recorded"}` : "Orca workers: source unavailable"),
-      element("p", data.sources?.codex?.available ? `${p.conversations.sessions} Codex conversations · ${p.conversations.turns} turns` : "Codex conversations: source unavailable"));
-    return card;
-  }));
+  const logAvailable = !!data.sources?.log?.present;
+  const orcaAvailable = !!data.sources?.orca?.available;
+  const codexAvailable = !!data.sources?.codex?.available;
+
+  const projectRows = $("project-rows");
+  projectRows.replaceChildren();
+
+  if (!available.length) {
+    const emptyTr = element("tr");
+    const emptyTd = element("td", "No projects observed in this time/probe window.", "empty-cell");
+    emptyTd.colSpan = 8;
+    emptyTr.append(emptyTd);
+    projectRows.append(emptyTr);
+  } else {
+    for (const p of available) {
+      const tr = element("tr");
+
+      // Column 1: Project & Full Path
+      const tdProject = element("td");
+      const btn = element("button", p.name || p.repo || "Unnamed project", "project-open-link");
+      btn.type = "button";
+      btn.setAttribute("aria-label", `Open project ${p.name || p.repo} at ${p.repo}`);
+      btn.setAttribute("title", p.repo);
+      btn.setAttribute("aria-pressed", String(p.repo === selected));
+      btn.addEventListener("click", () => { $("repo").value = p.repo; refresh(); });
+
+      const pathDiv = element("div", p.repo || "Unknown path", "mono project-path");
+      tdProject.append(btn, pathDiv);
+
+      // Column 2: Snapshots (numeric)
+      const tdSnapshots = element("td", null, "num");
+      if (logAvailable) {
+        tdSnapshots.textContent = number(p.snapshots);
+      } else {
+        tdSnapshots.textContent = "N/A";
+        tdSnapshots.classList.add("unknown");
+      }
+
+      // Column 3: AGY Start (numeric)
+      const tdAgy = element("td", null, "num");
+      if (logAvailable) {
+        if (p.agyStart && p.agyStart.denominator) {
+          const rateDiv = element("div", `${(p.agyStart.rate * 100).toFixed(1)}%`, "cell-primary");
+          const countDiv = element("div", `(${p.agyStart.numerator}/${p.agyStart.denominator})`, "cell-secondary mono");
+          tdAgy.append(rateDiv, countDiv);
+        } else {
+          tdAgy.append(
+            element("div", "N/A", "cell-primary unknown"),
+            element("div", "(0/0 observed)", "cell-secondary mono")
+          );
+        }
+      } else {
+        tdAgy.textContent = "N/A";
+        tdAgy.classList.add("unknown");
+      }
+
+      // Column 4: Approvals / Pending (numeric)
+      const tdApprovals = element("td", null, "num");
+      if (logAvailable) {
+        const approved = p.tasks?.approved ?? 0;
+        const pending = p.pending ?? 0;
+        const primary = element("div", `${approved} / ${pending}`, "cell-primary");
+        const secondary = element("div", `${p.tasks?.recorded ?? 0} rec${p.tasks?.unknown ? `, ${p.tasks.unknown} unk` : ""}`, "cell-secondary");
+        tdApprovals.append(primary, secondary);
+      } else {
+        tdApprovals.textContent = "N/A";
+        tdApprovals.classList.add("unknown");
+      }
+
+      // Column 5: Attempts / Fallbacks (numeric)
+      const tdAttempts = element("td", null, "num");
+      if (logAvailable) {
+        const fallbacks = (p.models || []).reduce((n, m) => n + (m.fallbacks || 0), 0);
+        const primary = element("div", `${p.launches ?? 0} / ${fallbacks}`, "cell-primary");
+        tdAttempts.append(primary);
+      } else {
+        tdAttempts.textContent = "N/A";
+        tdAttempts.classList.add("unknown");
+      }
+
+      // Column 6: Effective Models
+      const tdModels = element("td");
+      if (logAvailable) {
+        const models = p.models || [];
+        if (models.length) {
+          const fullText = models.map((m) => `${m.model}: ${m.launches}`).join(", ");
+          if (models.length > 1 && (models.length > 2 || fullText.length > 36)) {
+            const details = element("details", null, "compact-details");
+            const summary = element("summary", `${models[0].model}: ${models[0].launches} (+${models.length - 1} more)`, "compact-summary");
+            const content = element("div", fullText, "details-content mono");
+            details.append(summary, content);
+            tdModels.append(details);
+          } else {
+            tdModels.textContent = fullText;
+          }
+        } else {
+          tdModels.textContent = "Unknown / no launch evidence";
+          tdModels.classList.add("unknown");
+        }
+      } else {
+        tdModels.textContent = "N/A";
+        tdModels.classList.add("unknown");
+      }
+
+      // Column 7: Orca Workers
+      const tdWorkers = element("td");
+      if (orcaAvailable) {
+        const count = p.jobs?.count ?? 0;
+        const primary = element("div", `${count} worker${count === 1 ? "" : "s"}`, "cell-primary");
+        const states = (p.jobs?.states || []).map((s) => `${s.status}: ${s.count}`).join(", ");
+        const secondary = element("div", states || "No states recorded", "cell-secondary");
+        tdWorkers.append(primary, secondary);
+      } else {
+        tdWorkers.textContent = "N/A";
+        tdWorkers.classList.add("unknown");
+      }
+
+      // Column 8: Codex Conversations
+      const tdCodex = element("td");
+      if (codexAvailable) {
+        const sessions = p.conversations?.sessions ?? 0;
+        const turns = p.conversations?.turns ?? 0;
+        const primary = element("div", `${sessions} session${sessions === 1 ? "" : "s"}`, "cell-primary");
+        const secondary = element("div", `${turns} turn${turns === 1 ? "" : "s"}`, "cell-secondary");
+        tdCodex.append(primary, secondary);
+      } else {
+        tdCodex.textContent = "N/A";
+        tdCodex.classList.add("unknown");
+      }
+
+      tr.append(tdProject, tdSnapshots, tdAgy, tdApprovals, tdAttempts, tdModels, tdWorkers, tdCodex);
+      projectRows.append(tr);
+    }
+  }
+
   $("project-coverage").textContent = `${available.length} projects in the active time/probe window. ${data.unassigned?.records || 0} unassigned/unknown project records across that window; never attributed to the selected project. Source coverage is shared with the panels below.`;
   $("project-title").textContent = `Tasks and launch evidence · ${selected || "All workspaces"}`;
+
   const tasks = data.taskDetails || [];
   let shown = 20;
+
   function showTasks() {
-  $("task-list").replaceChildren(element("p", `Showing ${Math.min(shown, tasks.length)} of ${tasks.length} task / worker records`), ...tasks.slice(0, shown).map((t) => {
-    const card = element("article", null, "task-card");
-    card.append(element("h3", t.task_title || "Missing frozen task title"), element("p", t.id, "mono project-path"),
-      element("p", t.repo || "Unknown project", "project-path"),
-      element("p", `${t.domain ? `Domain: ${t.domain} · ` : ""}${t.confirmedSnapshot ? "First snapshot" : "Approved"} grade: ${names[t.grade] || "Unknown"} · ${t.status} · ${t.ts || "Unknown time"}`));
-    if (t.firstImplementation) card.append(element("p", `First confirmed implementation: ${t.firstImplementation.model || "Unknown model"} / ${t.firstImplementation.effort || "Unknown effort"}`));
-    if (t.confirmedSnapshot && !t.inSnapshotWindow) card.append(element("p", "Historical first snapshot outside this window; attempts below do not add a snapshot."));
-    if (t.latestApproval) card.append(element("p", `Latest assessment: ${t.latestApproval.status || "Unknown"} · ${t.latestApproval.status === "APPROVED" ? "Approved" : "Proposed, unapproved"} grade: ${names[t.latestApproval.grade] || "Unknown"} · ${t.latestApproval.ts || "Unknown time"}`));
-    for (const a of t.attempts) card.append(element("p", `${a.id} · ${a.source} · ${a.model || "Unknown model"} / ${a.effort || "Unknown effort"} · ${a.status} · Fallback: ${a.fallback || "Not recorded"} · ${a.bound ? "Bound snapshot evidence" : "Binding not confirmed"} · ${a.ts || "Unknown time"}`, "attempt project-path"));
-    return card;
-  }));
-  if (!tasks.length) $("task-list").append(element("p", "No task or launch evidence in this window. Conversation-only projects have no implied implementation tasks.", "empty"));
-  if (shown < tasks.length) {
-    const more = element("button", "Show more task records", "button"); more.type = "button";
-    more.addEventListener("click", () => { shown += 20; showTasks(); }); $("task-list").append(more);
+    $("task-list").replaceChildren();
+
+    const countP = element("p", `Showing ${Math.min(shown, tasks.length)} of ${tasks.length} task / worker records`, "panel-caption");
+    countP.id = "task-records-count";
+
+    if (!tasks.length) {
+      const emptyP = element("p", "No task or launch evidence in this window. Conversation-only projects have no implied implementation tasks.", "empty");
+      $("task-list").append(countP, emptyP);
+      return;
+    }
+
+    const scrollContainer = element("div", null, "table-scroll");
+    scrollContainer.tabIndex = 0;
+    scrollContainer.setAttribute("role", "region");
+    scrollContainer.setAttribute("aria-label", "Task records table");
+
+    const table = element("table", null, "compact-table task-table");
+    const thead = element("thead");
+    const headerTr = element("tr");
+
+    const thHeaders = [
+      "Task / Identity",
+      "Grade / Domain",
+      "First Implementation",
+      "Status",
+      "Time",
+      "Evidence & Attempts"
+    ];
+
+    for (const h of thHeaders) {
+      const th = element("th", h);
+      th.setAttribute("scope", "col");
+      headerTr.append(th);
+    }
+    thead.append(headerTr);
+
+    const tbody = element("tbody");
+    tbody.id = "task-rows";
+
+    for (const t of tasks.slice(0, shown)) {
+      const tr = element("tr");
+
+      // Column 1: Task / Identity
+      const td1 = element("td");
+      const titleDiv = element("strong", t.task_title || "Missing frozen task title", "task-title");
+      titleDiv.title = t.task_title || "Missing frozen task title";
+      const idDiv = element("div", t.id, "mono task-id");
+      idDiv.title = t.id;
+      idDiv.setAttribute("aria-label", `Task ID: ${t.id}`);
+      const repoDiv = element("div", t.repo || "Unknown project", "task-repo mono");
+      repoDiv.title = t.repo || "Unknown project";
+      repoDiv.setAttribute("aria-label", `Project: ${t.repo || "Unknown project"}`);
+      td1.append(titleDiv, idDiv, repoDiv);
+      if (t.confirmedSnapshot && !t.inSnapshotWindow) {
+        td1.append(element("div", "Historical first snapshot outside this window; attempts below do not add a snapshot.", "note-tag"));
+      }
+
+      // Column 2: Grade / Domain
+      const td2 = element("td");
+      const gradePrefix = t.confirmedSnapshot ? "First snapshot" : "Approved";
+      const gradeName = names[t.grade] || "Unknown";
+      const gradeDiv = element("div", `${gradePrefix} grade: ${gradeName}`, "cell-primary");
+      const domainDiv = element("div", t.domain ? `Domain: ${t.domain}` : "Domain: —", "cell-secondary");
+      td2.append(gradeDiv, domainDiv);
+
+      // Column 3: First Confirmed Implementation
+      const td3 = element("td");
+      if (t.firstImplementation) {
+        const modelDiv = element("div", t.firstImplementation.model || "Unknown model", "cell-primary");
+        const effortDiv = element("div", `Effort: ${t.firstImplementation.effort || "Unknown"}`, "cell-secondary");
+        td3.append(modelDiv, effortDiv);
+      } else {
+        td3.textContent = "—";
+        td3.classList.add("unknown");
+      }
+
+      // Column 4: Status
+      const td4 = element("td");
+      const statusSpan = element("span", t.status || "Unknown", "status");
+      if (t.status === "succeeded") statusSpan.classList.add("success");
+      else if (t.status === "failed") statusSpan.classList.add("failed");
+      else if (["running", "starting", "queued", "Launch observed"].includes(t.status)) statusSpan.classList.add("active");
+      td4.append(statusSpan);
+
+      // Column 5: Time
+      const td5 = element("td", null, "mono cell-time");
+      td5.textContent = t.ts || "Unknown time";
+
+      // Column 6: Evidence & Attempts (Native details/summary)
+      const td6 = element("td");
+      const details = element("details", null, "evidence-details");
+      const attemptsCount = t.attempts ? t.attempts.length : 0;
+      const summaryText = `${attemptsCount} attempt${attemptsCount === 1 ? "" : "s"}${t.latestApproval ? " · assessment" : ""}`;
+      const summary = element("summary", summaryText, "evidence-summary");
+      details.append(summary);
+
+      if (t.latestApproval) {
+        const la = t.latestApproval;
+        const laGrade = names[la.grade] || "Unknown";
+        const laStatus = la.status === "APPROVED" ? "Approved" : "Proposed, unapproved";
+        const laDiv = element("div", `Latest assessment: ${la.status || "Unknown"} · ${laStatus} grade: ${laGrade} · ${la.ts || "Unknown time"}`, "latest-assessment");
+        details.append(laDiv);
+      }
+
+      if (t.attempts && t.attempts.length) {
+        for (const a of t.attempts) {
+          const attemptText = `${a.id} · ${a.source} · ${a.model || "Unknown model"} / ${a.effort || "Unknown effort"} · ${a.status} · Fallback: ${a.fallback || "Not recorded"} · ${a.bound ? "Bound snapshot evidence" : "Binding not confirmed"} · ${a.ts || "Unknown time"}`;
+          const attemptDiv = element("div", attemptText, "attempt mono");
+          details.append(attemptDiv);
+        }
+      } else if (!t.latestApproval) {
+        details.append(element("div", "No attempt or assessment evidence recorded", "cell-secondary"));
+      }
+      td6.append(details);
+
+      tr.append(td1, td2, td3, td4, td5, td6);
+      tbody.append(tr);
+    }
+
+    table.append(thead, tbody);
+    scrollContainer.append(table);
+    $("task-list").append(countP, scrollContainer);
+
+    if (shown < tasks.length) {
+      const more = element("button", "Show more task records", "button");
+      more.type = "button";
+      more.id = "show-more-tasks";
+      more.style.marginTop = "14px";
+      more.addEventListener("click", () => {
+        shown += 20;
+        showTasks();
+      });
+      $("task-list").append(more);
+    }
   }
-  }
+
   showTasks();
 }
 
