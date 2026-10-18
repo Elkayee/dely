@@ -18,6 +18,10 @@ replacing eligible-snapshot launch adoption; the dashboard and usage contract
 are updated together. Unknown history, runtime identity and Control acceptance
 remain explicit. Empty cohorts report N/A. The observation target never changes
 classification or imposes an AGY percentage floor or cap.
+Fallback outcomes accumulate through the reporting cutoff across valid later
+approvals of the same snapshot, while primary/start remain fixed at its first
+confirmed decision. A later basis is validated against its own route/dispatch;
+it need not equal the first basis. Sol-only decisions never supply a fallback.
 
 Both configured Codex homes resolved the frozen v4 bundle with matching
 router/dispatcher/usage/advisor bindings and unchanged native hook definitions.

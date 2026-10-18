@@ -136,6 +136,23 @@ test("fallback after the cohort window counts only through as_of and worker succ
   assert.equal(result.metrics.agyAcceptedWithoutFallback.rate, null);
 });
 
+test("a later approved basis can add a valid fallback to the original snapshot cohort", () => {
+  const later = "2026-10-11T01:00:00Z", nextBasis = "d".repeat(64);
+  const next = { ...approval, ts: later, assessment_basis_sha256: nextBasis };
+  const nextRoute = { ...route, ts: later, assessmentBasisSha256: nextBasis };
+  const fallback = { ...launch, ts: later, dispatchId: "new-basis-fallback", assessmentBasisSha256: nextBasis,
+    fallbackReason: "quota", fallbackStage: 1,
+    launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" } } };
+  const result = summarize([approval, route, launch, next, nextRoute, fallback], [], []);
+  assert.equal(result.metrics.agyStart.denominator, 1); assert.equal(result.metrics.agyStart.rate, 1);
+  assert.equal(result.metrics.lunaFallback.rate, 1);
+  const sol = { harness: "codex", model: "gpt-6.1-sol", effort: "medium" };
+  const invalid = summarize([approval, route, launch, { ...next, difficulty: "medium_plus", primary: sol },
+    { ...nextRoute, difficulty: "medium_plus" }, fallback], [], []);
+  assert.equal(invalid.metrics.agyPrimary.rate, 1);
+  assert.equal(invalid.metrics.lunaFallback.rate, 0);
+});
+
 test("titles use frozen headings outside fences, preserving Unicode graphemes and optional domains", () => {
   const grapheme = "e\u0302\u0301", emoji = "👩🏽‍💻";
   const task = { spec: "```md\n# Hidden\n~~~\n```\n~~~md\n# Also hidden\n~~~\n#   " + grapheme.repeat(59) + emoji + "extra  ###\n",

@@ -76,8 +76,7 @@ function snapshotCohort(events, options, visible) {
   const start = cohort.filter((l) => l.launch.effective.agent === "antigravity");
   const fallback = primary.filter((l) => [...boundLaunches.values()].some((next) =>
     next.taskKey === l.taskKey && next.assessment && next.launch?.effective?.agent === "codex" &&
-    next.assessment.assessment_basis_sha256 === l.assessment.assessment_basis_sha256 &&
-    (next.assessment.correction_sha256 || null) === (l.assessment.correction_sha256 || null) &&
+    ["easy", "medium_minus"].includes(next.assessment.difficulty) && next.assessment.primary?.harness === "antigravity" &&
     next.launch.effective.model === "gpt-6-luna" && next.launch.effective.effort === "max" &&
     ((next.fallbackReason === "quota" && next.fallbackStage === 1) ||
       (next.fallbackReason === "model_unavailable" && next.fallbackStage === null && next.pinPhase === "implement_backup_2"))));
