@@ -236,9 +236,10 @@ function snapshotCohort(events, options, visible) {
 
 function summarize(events, workers, conversations, options = {}) {
   const since = options.since || 0;
-  const repo = options.repo || "";
+  const repo = sourceLabel(options.repo);
   const visible = (r) => (!repo || sourceLabel(r.repo) === repo) &&
-    (options.probes || !isProbe(r.repo)) && (instant(r.ts) == null || instant(r.ts) >= since);
+    (options.probes || !isProbe(r.repo)) && (instant(r.ts) == null ||
+      (instant(r.ts) >= since && instant(r.ts) <= (options.asOf ?? Date.now())));
   const filtered = events.filter((e) => visible(e) && (instant(e.ts) == null || instant(e.ts) <= (options.asOf ?? Date.now())));
   const tasks = new Map();
   const snapshots = snapshotCohort(events, options, visible);
@@ -266,7 +267,8 @@ function summarize(events, workers, conversations, options = {}) {
     id: l.dispatchId, run: l.run, repo: l.repo, ts: l.ts,
     task_title: l.assessment?.task_title || null, domain: l.assessment?.domain || null,
     grade: l.assessment?.difficulty || null,
-    model: l.launch?.effective?.model || null, requestedModel: l.launch?.requested?.model || null,
+    model: l.launch?.effective?.model || null, effort: l.launch?.effective?.effort || null,
+    snapshotId: l.taskKey, bound: !!l.assessment, requestedModel: l.launch?.requested?.model || null,
     status: workerById.get(l.dispatchId)?.status || "Not observed", fallback: l.fallbackReason || null,
     source: "Dely log",
   }));
@@ -281,7 +283,45 @@ function summarize(events, workers, conversations, options = {}) {
     const row = conversationModels.get(model) || { model, turns: 0, sessions: new Set() };
     row.turns++; row.sessions.add(c.session); conversationModels.set(model, row);
   }
-  return {
+  const detailTasks = new Map();
+  for (const [id, t] of tasks) detailTasks.set(id, { id, repo: sourceLabel(t.repo),
+    task_title: t.task_title || null, domain: t.domain || null, grade: t.status === "APPROVED" ? t.difficulty || null : null,
+    latestApproval: { grade: t.difficulty || null, status: t.status || null, ts: t.ts },
+    ts: t.ts, status: t.status !== "APPROVED" ? t.status || "NOT_EVALUATED" :
+      t.workflow === "dely" ? "Awaiting dispatch" : t.workflow === "direct" ? "Direct Control work / no Dely dispatch expected" : "Unknown workflow", attempts: [] });
+  for (const [id, task] of detailTasks) {
+    const first = snapshots.first.get(id);
+    if (!first?.assessment) continue;
+    task.task_title = first.assessment.task_title || null; task.domain = first.assessment.domain || null;
+    task.grade = first.assessment.difficulty || null; task.ts = first.ts;
+    task.confirmedSnapshot = true; task.inSnapshotWindow = snapshots.cohort.some((s) => s.taskKey === id);
+    task.status = "First implementation confirmed / no attempts in this window";
+    task.firstImplementation = { model: first.launch.effective.model, effort: first.launch.effective.effort };
+  }
+  for (const t of filtered.filter((e) => e.event === "task_assessment" && !e.taskKey)) {
+    const id = `unidentified:${crypto.createHash("sha256").update(JSON.stringify(t)).digest("hex")}`;
+    detailTasks.set(id, { id, repo: sourceLabel(t.repo), task_title: null, grade: null,
+      ts: t.ts, status: "Missing task identity / unconfirmed assessment", attempts: [] });
+  }
+  for (const l of launches.values()) {
+    const first = snapshots.first.get(l.taskKey);
+    const frozen = first?.assessment;
+    const id = l.taskKey || `dispatch:${l.dispatchId}`;
+    const task = detailTasks.get(id) || { id, repo: sourceLabel(l.repo), latestApproval: null, attempts: [] };
+    // Full-history first confirmation owns snapshot metadata, even outside the reset window.
+    const metadata = frozen || l.assessment;
+    task.task_title = metadata?.task_title || null; task.domain = metadata?.domain || null;
+    task.grade = metadata?.difficulty || null; task.ts = first?.ts || l.ts;
+    task.status = "Launch observed"; task.confirmedSnapshot = !!frozen;
+    task.firstImplementation = frozen ? { model: first.launch.effective.model, effort: first.launch.effective.effort } : null;
+    task.inSnapshotWindow = snapshots.cohort.some((s) => s.taskKey === l.taskKey);
+    task.attempts.push(activity.find((a) => a.id === l.dispatchId));
+    detailTasks.set(id, task);
+  }
+  for (const w of activity.filter((a) => a.source === "Orca")) detailTasks.set(`worker:${w.id}`, {
+    id: `worker:${w.id}`, repo: sourceLabel(w.repo), task_title: null, grade: null,
+    ts: w.ts, status: w.status || "Unknown", attempts: [w] });
+  const result = {
     metrics: snapshots.metrics, coverage: snapshots.coverage, window: snapshots.window,
     runtimeCohorts: snapshots.runtimeCohorts,
     pending: eligible.filter((t) => !snapshots.first.has(snapshotKey(t.policy, t.taskKey))).length,
@@ -291,18 +331,39 @@ function summarize(events, workers, conversations, options = {}) {
       grades: GRADES.map((grade) => ({ grade, count: known.filter((t) => t.difficulty === grade).length })) },
     models: [...models.values()].sort((a, b) => b.launches - a.launches),
     jobs: { count: jobs.length, succeeded: jobs.filter((w) => w.status === "succeeded").length,
+      states: [...new Set(jobs.map((w) => w.status || "Unknown"))].map((status) => ({ status,
+        count: jobs.filter((w) => (w.status || "Unknown") === status).length })),
       failed: jobs.filter((w) => w.status === "failed").length,
       active: jobs.filter((w) => ["running", "queued", "starting"].includes(w.status)).length,
       unknownModel: jobs.filter((w) => !w.model && !launches.has(w.id)).length },
     conversations: { sessions: new Set(sessions.map((c) => c.session)).size, turns: sessions.length,
       models: [...conversationModels.values()].map((r) => ({ model: r.model, turns: r.turns, sessions: r.sessions.size })) },
     activity: activity.sort((a, b) => (instant(b.ts) || 0) - (instant(a.ts) || 0)),
+    taskDetails: [...detailTasks.values()].sort((a, b) => (instant(b.ts) || 0) - (instant(a.ts) || 0)),
     approvals: known.map((t) => ({ id: t.taskKey, repo: t.repo, ts: t.ts, grade: t.difficulty,
       task_title: t.task_title || null, domain: t.domain || null,
       model: t.primary?.model || null, workflow: t.workflow, policy: t.policy || null,
       dispatched: launchedTasks.has(snapshotKey(t.policy, t.taskKey)) })),
     repos: [...new Set([...events, ...workers, ...conversations].map((r) => sourceLabel(r.repo)).filter(Boolean))].sort(),
   };
+  if (!options.projectSummary) {
+    const allOptions = { ...options, repo: "", projectSummary: true };
+    const allVisible = (r) => (options.probes || !isProbe(r.repo)) && (instant(r.ts) == null ||
+      (instant(r.ts) >= since && instant(r.ts) <= (options.asOf ?? Date.now())));
+    const rows = [...events, ...workers, ...conversations].filter(allVisible);
+    const paths = [...new Set(rows.map((r) => sourceLabel(r.repo)).filter(Boolean))].sort();
+    const project = (path, summary) => ({ repo: path, name: path.split("/").filter(Boolean).pop(),
+      snapshots: summary.metrics.agyStart.denominator, agyStart: summary.metrics.agyStart,
+      tasks: summary.tasks, pending: summary.pending, models: summary.models,
+      jobs: summary.jobs, conversations: summary.conversations,
+      launches: summary.activity.filter((a) => a.source === "Dely log").length,
+      coverage: summary.coverage });
+    result.projects = paths.map((path) => project(path, summarize(events, workers, conversations, { ...allOptions, repo: path })));
+    const unknown = (r) => !sourceLabel(r.repo);
+    result.unassigned = { records: rows.filter(unknown).length,
+      ...project("", summarize(events.filter(unknown), workers.filter(unknown), conversations.filter(unknown), allOptions)) };
+  }
+  return result;
 }
 
 async function jsonLines(file, visit) {

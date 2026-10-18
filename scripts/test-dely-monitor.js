@@ -30,6 +30,73 @@ const control = { event: "task_control_result", ts: later, reviewed_at: later, r
   taskKey: key, assessment_basis_sha256: basis, evidence_sha256: "e".repeat(64) };
 const metrics = (events, options = {}) => summarize(events, [], [], options).metrics;
 
+test("project overview keeps same-name paths and independent populations under selection and filters", () => {
+  const second = "E:/else/project", worker = "D:/worker-only", chat = "D:/chat-only";
+  const events = [approval, route, launch, { ...approval, repo: second, taskKey: "pending", task_title: "Pending task" },
+    { ...approval, repo: null, taskKey: "unknown", difficulty: null },
+    { ...approval, repo: "D:/project/.tmp-dely/probe", taskKey: "probe" }];
+  const workers = [{ id: "worker", repo: worker, ts, status: "ready" }, { id: "unassigned", ts, status: "failed" }];
+  const conversations = [{ repo: chat, ts, session: "chat", model: null }];
+  const result = summarize(events, workers, conversations, { repo: "D:\\project", asOf: Date.parse(last) });
+  assert.deepEqual(result.projects.map((p) => p.repo), [chat, repo, worker, second]);
+  const a = result.projects.find((p) => p.repo === repo), b = result.projects.find((p) => p.repo === second);
+  assert.equal(a.name, b.name);
+  assert.equal(a.snapshots, 1); assert.equal(b.snapshots, 0);
+  assert.equal(a.agyStart.numerator, 1); assert.equal(b.agyStart.rate, null);
+  assert.equal(b.pending, 1); assert.equal(b.tasks.recorded, 1);
+  assert.equal(result.taskDetails.length, 1); assert.equal(result.unassigned.records, 2);
+  assert.deepEqual(result.projects.find((p) => p.repo === worker).jobs.states, [{ status: "ready", count: 1 }]);
+  assert.equal(result.projects.find((p) => p.repo === chat).conversations.sessions, 1);
+  assert.equal(result.projects.find((p) => p.repo === chat).tasks.recorded, 0);
+  assert.equal(summarize(events, workers, conversations, { since: Date.parse(later) }).projects.length, 0);
+  assert.equal(summarize(events, workers, conversations, { probes: true }).projects.length, 5);
+  assert.equal(summarize([], [], []).projects.length, 0);
+});
+
+test("project details freeze the original snapshot across current reviews, retries, fallback and reset", () => {
+  const first = { ...approval, task_title: "Frozen task", domain: "Monitor" };
+  const current = { ...first, ts: later, difficulty: "medium_plus", task_title: "Changed review title", primary: { harness: "codex", model: "gpt-6.1-sol", effort: "medium" } };
+  const retry = { ...launch, ts: later, dispatchId: "retry", fallbackReason: "quota", fallbackStage: 1,
+    launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" } } };
+  const events = [first, route, launch, retry, current, current];
+  const result = summarize(events, [], [], { asOf: Date.parse(last) });
+  assert.equal(result.projects[0].snapshots, 1);
+  assert.equal(result.projects[0].launches, 2);
+  assert.equal(result.taskDetails.length, 1);
+  const task = result.taskDetails[0];
+  assert.equal(task.task_title, "Frozen task"); assert.equal(task.grade, "medium_minus");
+  assert.equal(task.latestApproval.grade, "medium_plus"); assert.equal(task.attempts.length, 2);
+  assert.equal(task.attempts[1].effort, "max");
+  const reset = summarize(events, [], [], { since: Date.parse(later), asOf: Date.parse(last) });
+  assert.equal(reset.projects[0].snapshots, 0); assert.equal(reset.projects[0].launches, 1);
+  assert.equal(reset.taskDetails[0].task_title, "Frozen task");
+  assert.equal(reset.taskDetails[0].inSnapshotWindow, false);
+  const reviewOnly = summarize([first, route, launch, current], [], [], { since: Date.parse(later), asOf: Date.parse(last) });
+  assert.equal(reviewOnly.taskDetails[0].grade, "medium_minus");
+  assert.equal(reviewOnly.taskDetails[0].task_title, "Frozen task");
+  assert.match(reviewOnly.taskDetails[0].status, /no attempts in this window/);
+  assert.equal(reviewOnly.taskDetails[0].firstImplementation.model, "gemini-3.8-flash-medium");
+  assert.equal(reviewOnly.pending, 0);
+});
+
+test("task detail distinguishes proposed reviews, unknown states and approved direct Control work", () => {
+  const events = [
+    { ...approval, taskKey: "review", status: "REVIEW_REQUIRED", difficulty: "hard" },
+    { ...approval, taskKey: "unknown", status: "NOT_EVALUATED", difficulty: null },
+    { ...approval, taskKey: "direct", difficulty: "hard", workflow: "direct" },
+    { ...approval, taskKey: "pending" }, { event: "task_assessment", repo, ts },
+  ];
+  const result = summarize(events, [], []);
+  const details = result.taskDetails;
+  assert.equal(details.find((t) => t.id.endsWith('"review"]')).grade, null);
+  assert.equal(details.find((t) => t.id.endsWith('"review"]')).status, "REVIEW_REQUIRED");
+  assert.equal(details.find((t) => t.id.endsWith('"unknown"]')).status, "NOT_EVALUATED");
+  assert.match(details.find((t) => t.grade === "hard").status, /Direct Control/);
+  assert.equal(details.filter((t) => t.status === "Awaiting dispatch").length, 1);
+  assert.equal(details.filter((t) => t.id.startsWith("unidentified:")).length, 1);
+  assert.equal(details.filter((t) => !t.task_title).length, 5);
+});
+
 test("independent decision cohorts deduplicate bases and keep missing and contradictory effective reviews pending", () => {
   const m = metrics([reviewed, reviewed, { ...reviewed, ts: later }]);
   assert.equal(m.lowTierPrimaryCompliance.denominator, 1);

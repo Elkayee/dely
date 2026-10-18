@@ -121,6 +121,7 @@ function showRows() {
 
 function render(data) {
   observationStatus(data);
+  renderProjects(data);
   const log = data.sources.log, orca = data.sources.orca, codex = data.sources.codex;
   const share = (r) => r.rate == null ? "N/A" : `${(r.rate * 100).toFixed(1)}% (${r.numerator}/${r.denominator})`;
   const m = data.metrics || {};
@@ -178,6 +179,52 @@ function render(data) {
   $("updated").textContent = `Updated ${new Date(data.collectedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+function renderProjects(data) {
+  const selected = $("repo").value;
+  $("project-list").hidden = !!selected;
+  $("project-details").hidden = !selected;
+  const available = data.projects || [];
+  $("project-list").replaceChildren(...available.map((p) => {
+    const card = element("article", null, "project-card");
+    const button = element("button", p.name, "button");
+    button.type = "button"; button.setAttribute("aria-pressed", String(p.repo === selected));
+    button.addEventListener("click", () => { $("repo").value = p.repo; refresh(); });
+    const logAvailable = data.sources?.log?.present;
+    const share = p.agyStart.denominator ? `${(p.agyStart.rate * 100).toFixed(1)}% (${p.agyStart.numerator}/${p.agyStart.denominator})` : "N/A (0/0 observed)";
+    card.append(button, element("p", p.repo, "project-path mono"),
+      element("p", logAvailable ? `${p.snapshots} confirmed Dely snapshots · AGY start ${share}` : "Dely source unavailable · snapshots and AGY share N/A"),
+      element("p", logAvailable ? `${p.tasks.recorded} assessment tasks · ${p.tasks.approved} approvals · ${p.pending} awaiting dispatch · ${p.tasks.unknown} unknown grades` : "Assessment tasks / approvals / pending: source unavailable"),
+      element("p", logAvailable ? `${p.launches} launch attempts · ${p.models.reduce((n, m) => n + m.fallbacks, 0)} fallbacks` : "Launch / fallback counts: source unavailable"),
+      element("p", logAvailable ? `Effective implementation models: ${p.models.map((m) => `${m.model}: ${m.launches}`).join(", ") || "Unknown / no launch evidence"}` : "Effective implementation models: source unavailable"),
+      element("p", data.sources?.orca?.available ? `${p.jobs.count} Orca workers · Observed states: ${p.jobs.states.map((s) => `${s.status}: ${s.count}`).join(", ") || "No states recorded"}` : "Orca workers: source unavailable"),
+      element("p", data.sources?.codex?.available ? `${p.conversations.sessions} Codex conversations · ${p.conversations.turns} turns` : "Codex conversations: source unavailable"));
+    return card;
+  }));
+  $("project-coverage").textContent = `${available.length} projects in the active time/probe window. ${data.unassigned?.records || 0} unassigned/unknown project records across that window; never attributed to the selected project. Source coverage is shared with the panels below.`;
+  $("project-title").textContent = `Tasks and launch evidence · ${selected || "All workspaces"}`;
+  const tasks = data.taskDetails || [];
+  let shown = 20;
+  function showTasks() {
+  $("task-list").replaceChildren(element("p", `Showing ${Math.min(shown, tasks.length)} of ${tasks.length} task / worker records`), ...tasks.slice(0, shown).map((t) => {
+    const card = element("article", null, "task-card");
+    card.append(element("h3", t.task_title || "Missing frozen task title"), element("p", t.id, "mono project-path"),
+      element("p", t.repo || "Unknown project", "project-path"),
+      element("p", `${t.domain ? `Domain: ${t.domain} · ` : ""}${t.confirmedSnapshot ? "First snapshot" : "Approved"} grade: ${names[t.grade] || "Unknown"} · ${t.status} · ${t.ts || "Unknown time"}`));
+    if (t.firstImplementation) card.append(element("p", `First confirmed implementation: ${t.firstImplementation.model || "Unknown model"} / ${t.firstImplementation.effort || "Unknown effort"}`));
+    if (t.confirmedSnapshot && !t.inSnapshotWindow) card.append(element("p", "Historical first snapshot outside this window; attempts below do not add a snapshot."));
+    if (t.latestApproval) card.append(element("p", `Latest assessment: ${t.latestApproval.status || "Unknown"} · ${t.latestApproval.status === "APPROVED" ? "Approved" : "Proposed, unapproved"} grade: ${names[t.latestApproval.grade] || "Unknown"} · ${t.latestApproval.ts || "Unknown time"}`));
+    for (const a of t.attempts) card.append(element("p", `${a.id} · ${a.source} · ${a.model || "Unknown model"} / ${a.effort || "Unknown effort"} · ${a.status} · Fallback: ${a.fallback || "Not recorded"} · ${a.bound ? "Bound snapshot evidence" : "Binding not confirmed"} · ${a.ts || "Unknown time"}`, "attempt project-path"));
+    return card;
+  }));
+  if (!tasks.length) $("task-list").append(element("p", "No task or launch evidence in this window. Conversation-only projects have no implied implementation tasks.", "empty"));
+  if (shown < tasks.length) {
+    const more = element("button", "Show more task records", "button"); more.type = "button";
+    more.addEventListener("click", () => { shown += 20; showTasks(); }); $("task-list").append(more);
+  }
+  }
+  showTasks();
+}
+
 async function refresh() {
   const requestId = ++refreshId;
   $("refresh").disabled = true; $("updated").textContent = "Reading local sources…";
@@ -193,6 +240,7 @@ async function refresh() {
 $("reset-statistics").addEventListener("click", () => setObservation(new Date().toISOString()));
 $("resume-window").addEventListener("click", () => setObservation(null));
 $("refresh").addEventListener("click", refresh);
+$("all-projects").addEventListener("click", () => { $("repo").value = ""; refresh(); });
 for (const id of ["days", "repo", "probes"]) $(id).addEventListener("change", refresh);
 $("more").addEventListener("click", () => { visibleRows += 50; showRows(); });
 observationStatus();

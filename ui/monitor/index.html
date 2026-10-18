@@ -35,6 +35,16 @@
       <button id="resume-window" class="button" type="button" hidden>Resume rolling window</button>
     </section>
     <div id="notice" class="notice" role="status" aria-live="polite">Loading activity. Missing data will remain visible.</div>
+    <section id="projects" class="panel">
+      <div class="panel-heading"><div><p class="eyebrow">WORKSPACES</p><h2>Projects</h2></div><button id="all-projects" class="button" type="button">Back to all projects</button></div>
+      <p id="project-coverage" class="panel-caption"></p>
+      <div id="project-list" class="project-list"></div>
+    </section>
+    <section id="project-details" class="panel">
+      <h2 id="project-title">Tasks and launch evidence · All workspaces</h2>
+      <p class="panel-caption">Snapshots, assessment tasks, launch attempts, Orca workers and conversations are separate populations. Snapshot decisions retain their first confirmed evidence; latest assessment information is labelled separately.</p>
+      <div id="task-list"></div>
+    </section>
     <section class="metrics" aria-label="Usage metrics">
       <article class="metric"><p>AGY start share <span class="tag">SNAPSHOTS</span></p><div id="adoption" class="metric-number">N/A</div><p id="adoption-detail" class="metric-detail">First confirmed implementation dispatch</p><div class="metric-rule blue"></div></article>
       <article class="metric"><p>Recorded approvals <span class="tag">COVERAGE</span></p><div id="approvals" class="metric-number">—</div><p id="approval-detail" class="metric-detail">Classification is never inferred</p><div class="metric-rule violet"></div></article>
