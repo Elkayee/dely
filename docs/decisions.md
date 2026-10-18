@@ -50,8 +50,12 @@ and rejects an explicit-effort deletion mutant without disabling admission.
 The legacy full-CLI argv row remains incompatible with this fork's restricted
 v4 worker routes; it is not reported green. Other portable harness live rows
 cannot be certified using pins that this deployment does not authorize.
-Controlled trust-dialog/trust-intervention fixtures remain unavailable and
-their rows are reported as skipped. Native worker/lifecycle rows, deterministic
+The legacy release-floor rows four through seven are skipped: their full
+procedures require Claude worker pins, a background Control wake mode, or a
+live quiet transcript worker. This deployment authorizes AGY/Sol terminal
+workers and Codex Control; redrawing terminal workers are explicitly outside
+the quiet-worker row. No unauthorized Claude route or trust-store intervention
+is introduced to make those rows pass. Native worker/lifecycle rows, deterministic
 regressions and browser checks have distinct evidence; none certifies all
 harnesses or an ordinary-workload adoption improvement.
 
