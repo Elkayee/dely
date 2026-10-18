@@ -3,11 +3,48 @@
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-15.
+Last updated 2026-10-18.
 
 ---
 
 ## Settled
+
+### 2026-10-18 — Frozen v4 activation and confirmed snapshot observation
+
+Release `0.27.6` retains the v4 route/proof algorithm and publishes optional
+frozen-title/domain metadata plus the existing monitor's confirmed-snapshot
+cohort. The existing `tasks.rate` response now means AGY first-start share,
+replacing eligible-snapshot launch adoption; the dashboard and usage contract
+are updated together. Unknown history, runtime identity and Control acceptance
+remain explicit. Empty cohorts report N/A. The observation target never changes
+classification or imposes an AGY percentage floor or cap.
+
+Both configured Codex homes resolved the frozen v4 bundle with matching
+router/dispatcher/usage/advisor bindings and unchanged native hook definitions.
+The successful Flash Medium/default preflight was corroborated by exact durable
+Task/Dispatch completion, the live footer before submission and no reclaimable
+worker. Earlier unconfirmed-footer evidence remains historical; no gate was
+weakened and no production startup fix was inferred. Native installer cache
+pruning was detected and the original version restored byte-for-byte without
+changing active v4 bindings or historical approvals.
+
+The historical routing specification now uses descriptive case/source names
+instead of shorthand identifiers. Acceptance and provenance text is preserved;
+the lexical disclosure gate is unchanged. The untracked supplied research and
+current machine-local native task/handover/telemetry evidence are excluded from publication.
+The release target is the owner's fork, not the upstream project. The local
+fetch-only checkout keeps its push guard; publication uses an isolated clone.
+
+The portable argv stub still lacks the reviewed task input required by v4 and
+is skipped rather than bypassing admission. The generic rejected-message and
+live release-floor rows (death after acknowledgement, trust dialog, quiet worker
+and trust intervention) are also not rerun: this delta preserves launch, pin,
+harness, wait and settlement behavior, and no controlled untrusted harness
+fixture is available in this deployment. The successful local preflight and
+the deterministic regression instruments are reported separately, not as
+those portable rows. Pin-resolution, worker-release, Control wake and OMP/Pi
+rows have no changed trigger. This fork release does not certify every portable
+harness or claim measured improvement in ordinary AGY adoption.
 
 ### 2026-10-18 — Evidence-bound correction and exclusive Sol ownership
 

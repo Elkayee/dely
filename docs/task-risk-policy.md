@@ -52,6 +52,10 @@ change authorization or compatibility. Writing a consequential migration
 retains data risk before deployment. Converting missing values to zero or
 changing units/timezones can change business meaning without deleting data.
 In the same data repository, rendering unchanged values can preserve it.
+Evidence identifies the relevant file/function, schema, endpoint, contract or
+requirement; before/after behavior; affected consumers; and a detector for a
+wrong result. A destructive command or a line number for unwritten code is
+not required. Missing facts require context before low-tier approval.
 
 Resolve missing facts or incorrectly assigned Hard flags in a **new snapshot**
 and assess again. Preserve the old record and explain the changed facts.
@@ -64,6 +68,11 @@ confirmed evidence, six false risks, and a valid Jev response with exactly one
 Medium+ dimension: verification or coordination. Every other dimension must
 be at most Medium-. Candidate metadata grants no route change: normal review
 retains Medium+/Sol until Control explicitly approves a valid correction.
+Control reads all five stored answers and records its decision against the
+rubric and frozen snapshot. Retaining Medium+ with a reason is a valid normal
+review without a proof file. Missing correction proof does not make otherwise
+complete task evidence incomplete. Correct only when the proof establishes
+the exception; otherwise retain Medium+ or assess a new, corrected snapshot.
 
 Only that one dimension may change `medium_plus -> medium_minus`; recompute
 the vector maximum and require final `medium_minus`. Scope, uncertainty,
@@ -156,6 +165,10 @@ Prefer independent outcomes and acceptance over splitting by file type.
 Each slice names outcome, boundary, owner/callers/callees, input contract,
 acceptance, handoff and remaining integration dependencies. Assess it anew.
 A UI component and CSS sharing one acceptance may belong in one slice.
+Local implementation and integration do not have predetermined grades.
+Optional domain (`ui_frontend`, `backend_api`, `data_pipeline`, `other`) and
+blast-radius labels describe work; neither these labels nor file counts
+select difficulty, workers or fallback authority.
 
 For a report feedback task with live delivery, implementation can own a local
 UI fixture and focused detector; integration owns report-flow acceptance;
@@ -167,7 +180,15 @@ completion. Use existing task/run links; no planner or DAG engine is added.
 
 Journal metadata includes raw/final grades, basis, known Hard flags, decision
 source, candidate/correction dimension, reason code and correction hash.
-Prompts, context bodies and explanations stay out of the journal. Logging
+Optional `task_title` comes from the first level-one heading outside fenced code in the frozen
+spec, normalized to one line and limited to 60 Unicode graphemes; no heading gives
+null. Optional `domain` comes from the frozen context and is null when invalid.
+These fields cannot block admission or change routing. Metadata extraction
+failure retains the basic event. Runtime metadata records the bundle version
+and router/dispatcher/usage hashes, with null when unavailable.
+Full prompts, context bodies and explanations stay out of the journal. Logging
 failure never changes routing. Separate events from policy+taskKey snapshots,
 and snapshots from parent/child tasks. Mock/replay results are not classifier
 calibration or proof of increased AGY adoption.
+See [usage measurement](usage-monitor.md) for confirmed-dispatch cohorts and
+coverage. The 35–50% expectation is observational, never a classifier gate.

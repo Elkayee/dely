@@ -354,7 +354,7 @@ Missing classification/model evidence stays explicit. See the
 
 ### Jev task routing
 
-Version `0.27.5` assesses implementation tasks with policy `jev-task-routing-v4`
+Version `0.27.6` assesses implementation tasks with policy `jev-task-routing-v4`
 before Dely creates a Run.
 Easy and Medium- use AGY Gemini 3.8 Flash Medium/default. Medium+ uses Codex
 GPT-6.1 Sol/medium with no fallback. Only final Easy/Medium- retain one explicit

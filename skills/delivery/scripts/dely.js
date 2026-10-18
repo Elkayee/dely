@@ -303,6 +303,7 @@ function logEvent(event, extra) {
       sha: delySha(),
       orca: orcaVersion(),
       event,
+      runtime: require("./usage.js").runtimeFingerprint(),
     };
     for (const k of Object.keys(extra)) {
       if (k in rec) continue;

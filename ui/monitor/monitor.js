@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const names = { easy: "Easy", medium_minus: "Medium−", medium_plus: "Medium+", hard: "Hard" };
 let activity = [], visibleRows = 25;
 const number = (value) => value == null ? "—" : value.toLocaleString();
-const modelName = (value) => value ? value.replace("gemini-3.8-flash-high", "Gemini Flash High").replace("claude-sonnet-5-5-high", "Sonnet 5.5 High").replace("gpt-6.1-sol", "GPT-6.1 Sol").replace("gpt-6-luna", "GPT-6 Luna") : "Unknown";
+const modelName = (value) => value ? value.replace("gemini-3.8-flash-medium", "Gemini Flash Medium").replace("gemini-3.8-flash-high", "Gemini Flash High").replace("claude-sonnet-5-5-high", "Sonnet 5.5 High").replace("gpt-6.1-sol", "GPT-6.1 Sol").replace("gpt-6-luna", "GPT-6 Luna") : "Unknown";
 const element = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
 
 function bars(target, rows, field, emptyTitle, emptyDetail) {
@@ -42,8 +42,10 @@ function showRows() {
 
 function render(data) {
   const log = data.sources.log, orca = data.sources.orca, codex = data.sources.codex;
-  $("adoption").textContent = data.tasks.rate == null ? "—" : `${(data.tasks.rate * 100).toFixed(1)}%`;
-  $("adoption-detail").textContent = data.tasks.eligible ? `${data.tasks.dispatched} / ${data.tasks.eligible} reviewed eligible tasks launched` : "No reviewed eligible tasks recorded yet";
+  const share = (r) => r.rate == null ? "N/A" : `${(r.rate * 100).toFixed(1)}% (${r.numerator}/${r.denominator})`;
+  $("adoption").textContent = data.metrics.agyStart.rate == null ? "N/A" : `${(data.metrics.agyStart.rate * 100).toFixed(1)}%`;
+  $("adoption-detail").textContent = `${data.metrics.agyStart.numerator} / ${data.metrics.agyStart.denominator} confirmed snapshots · ${data.pending} awaiting start`;
+  $("snapshot-metrics").textContent = `AGY primary: ${share(data.metrics.agyPrimary)}. Luna fallback: ${share(data.metrics.lunaFallback)}. Control acceptance: N/A (not observed). Window ${data.window.start} to ${data.window.end}; outcomes as of ${data.window.as_of}.`;
   $("approvals").textContent = number(log.present ? data.tasks.approved : null);
   $("approval-detail").textContent = `${log.present ? data.tasks.recorded : "No"} assessment records · ${data.tasks.unknown} unknown grades`;
   $("workers").textContent = number(orca.available ? data.jobs.count : null);
@@ -55,17 +57,21 @@ function render(data) {
   $("launch-count").textContent = `${data.models.reduce((n, r) => n + r.launches, 0)} logged launches`;
   $("grade-grid").replaceChildren(...data.tasks.grades.map((r) => {
     const box = element("div", null, "grade");
-    box.append(element("p", names[r.grade]), element("b", log.present ? number(r.count) : "—"), element("small", r.grade === "hard" ? "Sol · direct" : r.grade === "medium_plus" ? "Sonnet → Luna" : "Flash → Luna")); return box;
+    box.append(element("p", names[r.grade]), element("b", log.present ? number(r.count) : "—"), element("small", r.grade === "hard" ? "Sol · direct" : r.grade === "medium_plus" ? "Sol · no fallback" : "Flash → Luna")); return box;
   }));
   $("sources").replaceChildren(
     sourceRow("Dely activity log", log.present ? `${log.malformed} unreadable lines · local metadata` : "No activity log has been recorded", log.present ? "Available" : log.enabled ? "Waiting for events" : "Not enabled", log.present),
     sourceRow("Orca workers", orca.available ? `${orca.loaded} / ${orca.total ?? "unknown"} records · ${orca.scope || "unknown scope"}` : "Local Orca connection unavailable", orca.available ? orca.complete ? "Complete page set" : "Partial" : "Unavailable", orca.available && orca.complete),
     sourceRow("Codex conversations", codex.available ? `${codex.files} local rollout files · ${codex.malformed} unreadable lines` : "Local conversation metadata unavailable", codex.available ? "Available" : "Unavailable", codex.available));
   const gaps = [];
-  if (!log.present) gaps.push("Task-level adoption becomes available after assessments and launches are logged.");
+  if (!log.present) gaps.push("Snapshot shares become available after bound assessments and confirmed launches are logged.");
+  if (data.coverage.history !== "COMPLETE") gaps.push("Retained journal history is not verified complete; shares describe observed snapshots only.");
+  if (data.coverage.unbound || data.coverage.conflicting) gaps.push(`${data.coverage.unbound} unbound launches; ${data.coverage.conflicting} conflicting receipts excluded.`);
+  if (data.coverage.unidentified || data.coverage.unknownPhase) gaps.push(`${data.coverage.unidentified} receipts lack identity; ${data.coverage.unknownPhase} launches lack phase evidence.`);
+  if (data.coverage.runtimeUnknown) gaps.push(`${data.coverage.runtimeUnknown} cohort snapshots have unverified runtime fingerprints.`);
   if (data.jobs.unknownModel) gaps.push(`${data.jobs.unknownModel} Orca workers have no recorded model; they are not assigned to a model by guesswork.`);
   if (!orca.complete) gaps.push("Orca inventory is partial or unavailable.");
-  $("notice").textContent = gaps.length ? gaps.join(" ") : "Available source records are loaded. Adoption is measured only within the recorded assessment cohort.";
+  $("notice").textContent = gaps.length ? gaps.join(" ") : "Available source records are loaded. Shares describe the confirmed snapshot cohort.";
   $("notice").classList.toggle("good", !gaps.length);
   const selected = $("repo").value;
   $("repo").replaceChildren(element("option", "All workspaces"), ...data.repos.map((repo) => { const o = element("option", repo); o.value = repo; return o; }));

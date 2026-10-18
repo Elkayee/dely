@@ -58,6 +58,13 @@ consequential changes, rather than task topics or the presence of data, APIs,
 authentication code or production code in a repository. Apply the
 [task risk policy](task-risk-policy.md), and record the actual effect that
 supports each Hard exclusion. Unknown effects remain unevaluated.
+Evidence names the relevant location/contract, before/after behavior, affected
+consumers and detector. Read-only semantics/exposure can retain data risk;
+destructive commands and line numbers for unwritten code are not required.
+Assess slices independently. Optional domain/leaf labels select no grade or
+worker. For each correction candidate, consider all five saved answers and
+record the Control decision. Normal review can retain Medium+ with no proof;
+missing correction proof is distinct from missing task evidence.
 
 1. Build a task JSON from the actual request and current session skill catalog.
    Supply complete descriptions and absolute SKILL.md paths. Include every
@@ -97,7 +104,10 @@ supports each Hard exclusion. Unknown effects remain unevaluated.
 
 Preparation and review record assessment metadata in the configured opt-in
 journal, including calls through this adapter. They create no logging directory
-and record no prompts, context bodies, source text or credentials. Missing or
+and record no full prompts, context bodies or credentials. Optional titles
+contain at most 60 graphemes of the frozen spec's first level-one heading outside code fences;
+domain is an optional enum or null. Extraction errors retain the base event.
+Neither field changes admission or routing. Missing or
 unwritable logging never changes routing or admission. Tests use a private
 journal so their results do not inflate ordinary usage.
 

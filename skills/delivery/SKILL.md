@@ -52,6 +52,12 @@ Use normal review for tasks without correction. Known Hard, raw Hard and
 unknown evidence retain their vetoes. For a parent containing local changes,
 integration and live rollout, create independent outcomes with owners and
 acceptance, assess each slice, and retain the parent's final acceptance.
+For a candidate, read the five stored answers and record the Control decision
+against the rubric and snapshot. Retaining Medium+ with a reason needs no
+correction proof. Missing proof is distinct from missing task evidence.
+Assess every slice independently; local implementation and integration have
+no preset grade. Domain, file count and leaf labels describe work and confer
+no routing authority.
 
 The existing model rows remain: `implement` supplies Codex Sol/medium,
 `implement_backup` supplies Flash, and `implement_backup_2` supplies Luna.

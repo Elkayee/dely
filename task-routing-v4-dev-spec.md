@@ -97,7 +97,7 @@ Giữ các trạng thái hiện có: `NOT_EVALUATED`, `DIRECT_CODEX`, `REVIEW_RE
 | Jev đủ dữ liệu, max là Medium+ | `REVIEW_REQUIRED`, proposed route Sol/medium; có thể kèm candidate metadata |
 | Jev đủ dữ liệu, max là Easy hoặc Medium- | `REVIEW_REQUIRED`; review thông thường rồi AGY |
 
-Router v3 thực tế kiểm tra knownHard trước `missingEvidence()`. V4 giữ thứ tự bảo vệ này. Classification Hard từ một flag đã biết không tự tạo quyền thực thi khi native prepare/review còn thiếu đầu vào; các cổng native hiện có tiếp tục áp dụng.
+Router v3 thực tế kiểm tra knownHard trước `missingEvidence()`. version four giữ thứ tự bảo vệ này. Classification Hard từ một flag đã biết không tự tạo quyền thực thi khi native prepare/review còn thiếu đầu vào; các cổng native hiện có tiếp tục áp dụng.
 
 Nếu Jev có cả `hard` và `insufficient_evidence`, assessment vẫn theo nhánh thiếu dữ liệu; câu trả lời Hard đã có vẫn là veto đối với mọi quyết định thấp hơn. Không dùng việc chưa đủ dữ liệu để xóa cảnh báo Hard.
 
@@ -181,7 +181,7 @@ Public JavaScript API `review()` nhận thêm optional object, ví dụ `review(
 
 JSON giới hạn 8 KiB UTF-8, object thuần, đúng schema/version, không nhận field lạ dùng để yêu cầu đổi route hoặc nhiều chiều. Parse JSON lỗi phải trả lỗi, không fallback sang normal review/hạ mức. `--reason` vẫn bắt buộc và không thay thế proof.
 
-Chọn JSON qua lệnh review hiện được phép để không bắt Control tự ghi proof file sau `prepare`. Lệnh review tự lưu proof bên trong record được duyệt. Không thêm ngoại lệ ghi tùy ý vào compliance directory. V1 không cần thêm `--review-evidence-file`.
+Chọn JSON qua lệnh review hiện được phép để không bắt Control tự ghi proof file sau `prepare`. Lệnh review tự lưu proof bên trong record được duyệt. Không thêm ngoại lệ ghi tùy ý vào compliance directory. initial version không cần thêm `--review-evidence-file`.
 
 Trong `jev_agent.js`, tách allowed flags và required flags: hiện một danh sách đang làm cả hai vai trò. Thêm proof vào allowlist nhưng không được biến nó thành bắt buộc cho mọi review. Trong các CLI khác, cũng chỉ nhận option này trong mode review.
 
@@ -434,48 +434,48 @@ Test deterministic bằng fixtures/mock response, không cần gọi Jev live đ
 
 | ID | Tình huống | Kết quả bắt buộc |
 | --- | --- | --- |
-| T01 | 5 Easy | Normal review Easy, primary AGY đúng model/effort |
-| T02 | Hỗn hợp Easy/M- | Normal review M-, primary AGY |
-| T03 | Mỗi một trong 6 risk true | Hard/direct Sol/xhigh; không gọi Jev |
-| T04 | Risk true đã biết nhưng thiếu field khác ở router core | Giữ Hard classification trước missing; native prepare vẫn áp dụng yêu cầu đầy đủ của nó |
-| T05 | Không knownHard, risk thiếu/null hoặc requirements chưa confirmed | NOT_EVALUATED; không điền false |
-| T06 | Một Jev Hard, bốn Easy; lặp ở từng chiều và confidence thấp | Không correction; không AGY/Luna |
-| T07 | Jev có insufficient, kể cả cùng một Hard | Không non-Hard correction/approval; không xóa Hard evidence |
-| T08 | Chỉ scope, uncertainty hoặc risk ở M+ | Không candidate, giữ Sol khi duyệt M+ |
-| T09 | Chỉ verification M+, chưa có proof | Candidate nhưng proposed/final normal M+ vẫn Sol |
-| T10 | Chỉ coordination M+, chưa có proof | Candidate nhưng chưa cấp route thấp |
-| T11 | Có hai hoặc nhiều M+, kể cả verification + coordination | Không correction |
-| T12 | Một verification M+, proof hợp lệ đầy đủ | Final M-, AGY; Jev raw không đổi |
-| T13 | Một coordination M+, proof + boundary facts hợp lệ | Final M-, AGY; provenance đầy đủ |
-| T14 | Chỉ --reason, không proof, xin M- từ M+ | Reject |
-| T15 | Proof sai reason/dimension; unknown field; malformed/oversized JSON | Reject, không fallback tự động |
-| T16 | Xin Easy/M+/Hard kèm correction proof, hoặc sửa hai chiều | Reject; giữ/nâng mức dùng normal review không proof |
-| T17 | Thiếu detector, expected_result, would_fail_if hoặc coordination facts bắt buộc | Reject cấu trúc; Control không phê chuẩn lời giải thích chung chung |
-| T18 | Thực sự cần oracle mới hoặc dependency phối hợp M+ | Control giữ Sol; fixture phản ví dụ được phân biệt với lỗi áp rubric |
-| T19 | Evidence ref không có trong snapshot hoặc chỉ trỏ file/URL ngoài | Reject; yêu cầu cập nhật snapshot bằng workflow chuẩn |
-| T20 | Sửa spec/context sau review; repo/spec khác | Stale/mismatch, không dispatch |
-| T21 | Sửa choice/model/probability hoặc xóa Jev khỏi raw EVALUATED | Reject basis/source mismatch; native đối chiếu original frozen file |
-| T22 | Thay proof/effective_labels/from/to/source/hash hoặc fake candidate | Reject hoặc tính lại không khớp; không tin metadata |
-| T23 | Gate chạy nhiều lần với cùng approved record | Cùng quyết định; reviewed_at và raw/proof không đổi |
-| T24 | API unavailable + complete evidence, không Jev hợp lệ | Existing Control-evidence review hoạt động; không source override |
-| T25 | API failure rồi tự set low/default, hoặc high Jev giả thành unavailable | Không có đường tự cấp thấp; original native evidence phát hiện thay đổi |
-| T26 | M+ primary với fallback=[] | Primary Sol/medium được chọn thành công |
-| T27 | M+ xin quota Luna hoặc AGY pin | Reject trước worker start |
-| T28 | M+ gặp model-unavailable | Không start Luna/AGY; trả lỗi/chờ rõ ràng |
-| T29 | Hard bị gửi Dely hoặc model khác Sol/xhigh | Reject theo Hard path/admission |
-| T30 | Easy/M- quota hoặc model-unavailable hợp lệ | Giữ fallback Luna/max hiện có, đúng phase/pin và evidence |
-| T31 | fallback-stage không kèm quota, stage sai hoặc không tồn tại | Reject; primary không bị nhánh stage rỗng tác động |
-| T32 | Cả ba CLI review có/không proof | Option là optional, schema/exit behavior nhất quán; normal review không bắt proof |
-| T33 | Native prepare → review correction → preflight → dispatch → worker admission | Proof sống qua toàn bộ cổng; không cần ghi file proof trái bootstrap |
-| T34 | Input/review thuộc sai session/turn/run hoặc worker tự review | Các cổng hiện hữu vẫn reject |
-| T35 | v3 assessment đưa vào v4 admission mới | Reject và yêu cầu fresh assessment; lịch sử v3 không bị ghi lại |
-| T36 | Log assess/review/retry cho cùng snapshot | Event được giữ nhưng reporting không nhân thành task độc lập |
-| T37 | Parent có implementation + live rollout, worker xong | Parent vẫn mở đến integration/rollout acceptance; task con không tự xóa data/security effects |
-| T38 | Đổi tên repo thành All_Data nhưng giữ effects/context tương đương | Logic risk không dùng tên repo; paired semantic fixture giữ cùng nhãn mong đợi |
+| case-all-easy | 5 Easy | Normal review Easy, primary AGY đúng model/effort |
+| case-mixed-low | Hỗn hợp Easy/M- | Normal review M-, primary AGY |
+| case-known-hard | Mỗi một trong 6 risk true | Hard/direct Sol/xhigh; không gọi Jev |
+| case-known-hard-before-missing | Risk true đã biết nhưng thiếu field khác ở router core | Giữ Hard classification trước missing; native prepare vẫn áp dụng yêu cầu đầy đủ của nó |
+| case-missing-facts | Không knownHard, risk thiếu/null hoặc requirements chưa confirmed | NOT_EVALUATED; không điền false |
+| case-raw-hard-veto | Một Jev Hard, bốn Easy; lặp ở từng chiều và confidence thấp | Không correction; không AGY/Luna |
+| case-abstention-veto | Jev có insufficient, kể cả cùng một Hard | Không non-Hard correction/approval; không xóa Hard evidence |
+| case-noneligible-high | Chỉ scope, uncertainty hoặc risk ở M+ | Không candidate, giữ Sol khi duyệt M+ |
+| case-verification-candidate-retained | Chỉ verification M+, chưa có proof | Candidate nhưng proposed/final normal M+ vẫn Sol |
+| case-coordination-candidate-retained | Chỉ coordination M+, chưa có proof | Candidate nhưng chưa cấp route thấp |
+| case-multiple-high-veto | Có hai hoặc nhiều M+, kể cả verification + coordination | Không correction |
+| case-verification-correction | Một verification M+, proof hợp lệ đầy đủ | Final M-, AGY; Jev raw không đổi |
+| case-coordination-correction | Một coordination M+, proof + boundary facts hợp lệ | Final M-, AGY; provenance đầy đủ |
+| case-no-proof-downgrade-rejected | Chỉ --reason, không proof, xin M- từ M+ | Reject |
+| case-invalid-proof | Proof sai reason/dimension; unknown field; malformed/oversized JSON | Reject, không fallback tự động |
+| case-invalid-correction-target | Xin Easy/M+/Hard kèm correction proof, hoặc sửa hai chiều | Reject; giữ/nâng mức dùng normal review không proof |
+| case-incomplete-detector | Thiếu detector, expected_result, would_fail_if hoặc coordination facts bắt buộc | Reject cấu trúc; Control không phê chuẩn lời giải thích chung chung |
+| case-genuinely-integrated-work | Thực sự cần oracle mới hoặc dependency phối hợp M+ | Control giữ Sol; fixture phản ví dụ được phân biệt với lỗi áp rubric |
+| case-unbound-reference | Evidence ref không có trong snapshot hoặc chỉ trỏ file/URL ngoài | Reject; yêu cầu cập nhật snapshot bằng workflow chuẩn |
+| case-stale-snapshot | Sửa spec/context sau review; repo/spec khác | Stale/mismatch, không dispatch |
+| case-raw-evidence-tampering | Sửa choice/model/probability hoặc xóa Jev khỏi raw EVALUATED | Reject basis/source mismatch; native đối chiếu original frozen file |
+| case-proof-tampering | Thay proof/effective_labels/from/to/source/hash hoặc fake candidate | Reject hoặc tính lại không khớp; không tin metadata |
+| case-idempotent-validation | Gate chạy nhiều lần với cùng approved record | Cùng quyết định; reviewed_at và raw/proof không đổi |
+| case-no-jev-complete-evidence | API unavailable + complete evidence, không Jev hợp lệ | Existing Control-evidence review hoạt động; không source override |
+| case-fabricated-low-route-rejected | API failure rồi tự set low/default, hoặc high Jev giả thành unavailable | Không có đường tự cấp thấp; original native evidence phát hiện thay đổi |
+| case-sol-primary-without-fallback | M+ primary với fallback=[] | Primary Sol/medium được chọn thành công |
+| case-sol-quota-rejection | M+ xin quota Luna hoặc AGY pin | Reject trước worker start |
+| case-sol-model-absence-rejection | M+ gặp model-unavailable | Không start Luna/AGY; trả lỗi/chờ rõ ràng |
+| case-hard-direct-only | Hard bị gửi Dely hoặc model khác Sol/xhigh | Reject theo Hard path/admission |
+| case-valid-low-fallback | Easy/M- quota hoặc model-unavailable hợp lệ | Giữ fallback Luna/max hiện có, đúng phase/pin và evidence |
+| case-invalid-fallback-stage | fallback-stage không kèm quota, stage sai hoặc không tồn tại | Reject; primary không bị nhánh stage rỗng tác động |
+| case-optional-proof-cli | Cả ba CLI review có/không proof | Option là optional, schema/exit behavior nhất quán; normal review không bắt proof |
+| case-end-to-end-proof-admission | Native prepare → review correction → preflight → dispatch → worker admission | Proof sống qua toàn bộ cổng; không cần ghi file proof trái bootstrap |
+| case-owner-identity-rejection | Input/review thuộc sai session/turn/run hoặc worker tự review | Các cổng hiện hữu vẫn reject |
+| case-legacy-assessment-rejection | v3 assessment đưa vào v4 admission mới | Reject và yêu cầu fresh assessment; lịch sử v3 không bị ghi lại |
+| case-snapshot-event-dedup | Log assess/review/retry cho cùng snapshot | Event được giữ nhưng reporting không nhân thành task độc lập |
+| case-parent-acceptance | Parent có implementation + live rollout, worker xong | Parent vẫn mở đến integration/rollout acceptance; task con không tự xóa data/security effects |
+| case-repository-name-invariance | Đổi tên repo thành All_Data nhưng giữ effects/context tương đương | Logic risk không dùng tên repo; paired semantic fixture giữ cùng nhãn mong đợi |
 
 Nên bổ sung exhaustive test cho hàm thuần aggregation/candidate trên mọi vector 5 chiều của các label được hỗ trợ. Điều này rẻ và bắt lỗi ưu tiên Hard/insufficient hoặc loại bỏ nhầm chiều. Không cần thêm hệ thống benchmark hoặc test mạng dài để kiểm chứng vài điều kiện boolean.
 
-Nhóm T18, T37, T38 gồm cả kiểm tra thiết kế/template hoặc human-labeled corpus; không tuyên bố rằng JS validator đã tự chứng minh các câu văn về rủi ro. Phần routing tương ứng dùng fixture/schema cụ thể để test hành vi thực thi.
+Nhóm case-genuinely-integrated-work, case-parent-acceptance, case-repository-name-invariance gồm cả kiểm tra thiết kế/template hoặc human-labeled corpus; không tuyên bố rằng JS validator đã tự chứng minh các câu văn về rủi ro. Phần routing tương ứng dùng fixture/schema cụ thể để test hành vi thực thi.
 
 ### 14.1 Suite và lệnh kiểm tra
 
@@ -545,13 +545,13 @@ Các plan đang chạy trên snapshot plugin đã freeze phải giữ bản đó
 
 Các đường dẫn dưới đây là nguồn local Windows đã đọc, không phải đường dẫn tải xuống của tài liệu này. Tên hàm được dùng thay line number vì patch sẽ làm số dòng đổi.
 
-- **S1 Router:** `D:\orca\skills\delivery\scripts\task-routing.js`; `loadTask`, `missingEvidence`, `knownHard`, `questions`, `validateAnswers`, `assess`, `review`, `requireApprovedRoute`, `selectedPin`, `verifyUnavailablePin`.
-- **S2 Policy:** `D:\orca\docs\task-risk-policy.md`, baseline `jev-task-routing-v3`.
-- **S3 Callers và logging:** `D:\orca\scripts\jev_agent.js`; `D:\orca\scripts\codex-compliance.js`; `D:\orca\skills\delivery\scripts\dely.js`; `D:\orca\skills\delivery\scripts\usage.js`.
-- **S4 Lịch sử:** `C:\Users\Home33\.dely\log.jsonl`; snapshots trong `C:\Users\Home33\.codex\dely-compliance\tasks` và `C:\Users\Home33\AppData\Roaming\orca\codex-runtime-home\home\dely-compliance\tasks`, theo cutoff và cách nhóm ở mục 2.
-- **S5 Mẫu UI + live rollout:** các snapshot `a4030cf99136738ad08ba4c6` và `05f2e623d34b520e7c9da8e2` trong thư mục tasks của default home; spec/context bao gồm live activation, không chỉ code UI.
-- **S6 Mẫu data:** snapshot `4fd18e6b733e0bffad8451a5`; context.risk_evidence nêu persisted dataset/manifest compatibility, identity/null/value và pointer atomicity; không có production không đồng nghĩa không có data risk.
-- **S7 Semantic Hard:** snapshots `14f29b925de2070bc2dd3940` và `2aae67b1011afadccdb73fdf`; mỗi mẫu có scope/uncertainty/risk/coordination Medium+ và verification Hard.
-- **S8 Tests:** `D:\orca\scripts\test-task-routing.js` và `D:\orca\scripts\test-task-risk-cases.js`, baseline 24/24 pass với Jev mock.
-- **S9 Workflow/version:** `D:\orca\AGENTS.md`; `D:\orca\skills\delivery\SKILL.md`; `D:\orca\docs\codex-compliance.md`; `D:\orca\docs\agent-advice.md`.
-- **S10 Runtime đã đối chiếu:** `C:\Users\Home33\.codex\plugins\cache\dely-orca-agy-global\dely\0.27.2\skills\delivery\scripts\task-routing.js`; baseline SHA-256 trùng source: `eb12f46e5b9c574c303965c9cc6ee1c2cceecce685e1a2b470b00b71e6771676`. Kiểm tra lại các version thực tế khi triển khai; số cache này không phải yêu cầu giữ version cũ.
+- **source-router Router:** `D:\orca\skills\delivery\scripts\task-routing.js`; `loadTask`, `missingEvidence`, `knownHard`, `questions`, `validateAnswers`, `assess`, `review`, `requireApprovedRoute`, `selectedPin`, `verifyUnavailablePin`.
+- **source-policy Policy:** `D:\orca\docs\task-risk-policy.md`, baseline `jev-task-routing-v3`.
+- **source-callers-and-logging Callers và logging:** `D:\orca\scripts\jev_agent.js`; `D:\orca\scripts\codex-compliance.js`; `D:\orca\skills\delivery\scripts\dely.js`; `D:\orca\skills\delivery\scripts\usage.js`.
+- **source-historical-evidence Lịch sử:** `C:\Users\Home33\.dely\log.jsonl`; snapshots trong `C:\Users\Home33\.codex\dely-compliance\tasks` và `C:\Users\Home33\AppData\Roaming\orca\codex-runtime-home\home\dely-compliance\tasks`, theo cutoff và cách nhóm ở mục 2.
+- **source-ui-rollout-samples Mẫu UI + live rollout:** các snapshot `a4030cf99136738ad08ba4c6` và `05f2e623d34b520e7c9da8e2` trong thư mục tasks của default home; spec/context bao gồm live activation, không chỉ code UI.
+- **source-data-sample Mẫu data:** snapshot `4fd18e6b733e0bffad8451a5`; context.risk_evidence nêu persisted dataset/manifest compatibility, identity/null/value và pointer atomicity; không có production không đồng nghĩa không có data risk.
+- **source-hard-semantics-samples Semantic Hard:** snapshots `14f29b925de2070bc2dd3940` và `2aae67b1011afadccdb73fdf`; mỗi mẫu có scope/uncertainty/risk/coordination Medium+ và verification Hard.
+- **source-regressions Tests:** `D:\orca\scripts\test-task-routing.js` và `D:\orca\scripts\test-task-risk-cases.js`, baseline 24/24 pass với Jev mock.
+- **source-workflow Workflow/version:** `D:\orca\AGENTS.md`; `D:\orca\skills\delivery\SKILL.md`; `D:\orca\docs\codex-compliance.md`; `D:\orca\docs\agent-advice.md`.
+- **source-installed-runtime Runtime đã đối chiếu:** `C:\Users\Home33\.codex\plugins\cache\dely-orca-agy-global\dely\0.27.2\skills\delivery\scripts\task-routing.js`; baseline SHA-256 trùng source: `eb12f46e5b9c574c303965c9cc6ee1c2cceecce685e1a2b470b00b71e6771676`. Kiểm tra lại các version thực tế khi triển khai; số cache này không phải yêu cầu giữ version cũ.

@@ -35,6 +35,7 @@ function createMonitor(options = {}) {
         const result = summarize(data.events, data.workers, data.conversations, {
           since: Date.now() - days * 86400000, repo: url.searchParams.get("repo") || "",
           probes: url.searchParams.get("probes") === "true",
+          asOf: Date.parse(data.collectedAt) || Date.now(), runtimes: data.sources?.runtimes || [],
         });
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(JSON.stringify({ ...result, sources: data.sources, collectedAt: data.collectedAt }));

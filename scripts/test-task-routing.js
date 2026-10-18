@@ -377,6 +377,23 @@ test("known security/data exclusions cannot be cleared by Jev or Control", async
   }
 });
 
+test("read-only semantics and leaf permissions retain consequential risk; metadata never selects a worker", async () => {
+  for (const [flag, effect] of [["data", "Read-only reporting changes null to zero or the accounting timezone"],
+    ["security", "One isolated leaf changes the caller permission check"]]) {
+    const t = task({ scope: effect, domain: "ui_frontend", blast_radius: "isolated_leaf",
+      risks: { ...Object.fromEntries(routing.RISK_KEYS.map((key) => [key, false])), [flag]: true } });
+    const assessed = await routing.assess(t, mock(result()));
+    assert.equal(assessed.difficulty, "hard");
+    assert.equal(assessed.route.primary.model, "gpt-6.1-sol");
+    assert.equal(assessed.jev, null);
+  }
+  for (const domain of ["ui_frontend", "backend_api", "data_pipeline", "other", "invalid", null]) {
+    const assessed = await routing.assess(task({ domain, blast_radius: "isolated_leaf" }), mock(result({ scope: "medium_plus" })));
+    assert.equal(assessed.difficulty, "medium_plus");
+    assert.equal(routing.review(assessed, "medium_plus", "Frozen evidence retains the raw scope grade").route.primary.model, "gpt-6.1-sol");
+  }
+});
+
 test("missing, null, numeric and string risk flags stay unknown and never call Jev", async () => {
   for (const risks of [{}, { security: null }, { security: 0 }, { security: "false" }]) {
     const assessed = await routing.assess(task({ risks }), { apiKey: "test-key", fetch: async () => assert.fail("Missing evidence must not call Jev") });
