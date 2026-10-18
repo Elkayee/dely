@@ -119,10 +119,38 @@ Conversation metadata covers thirty days of locally available rollout files.
 Time and workspace filters apply to the records that carry that evidence.
 Probe runs are excluded by default; their filter can be enabled explicitly.
 
+## Saved Jev statistics
+
+The Jev section loads in the background after the fast Dely overview. It reads
+only immediate `assessment.json`, `reviewed.json`, `skill-advice.json` and
+`context-advice.json` files under `dely-compliance/tasks/<task>/` in the native
+`~/.codex` home and Orca's runtime Codex home. Each home is limited to 4096
+task folders and each file to 256 KiB; links are excluded. Unchanged small JSON
+files reuse cached projections. Missing, malformed, unreadable, oversized and
+capped sources remain visible in source coverage. Other filenames/locations,
+session transcripts and unsaved advisor calls are outside this coverage.
+
+Unique recorded evaluations comprise valid structured output and recognized
+recorded request errors. Missing credentials/evidence, hard skips and unknown
+records are separate populations. Reviews and identical assessment copies do
+not add evaluations. Original Jev proposals/answers and Control routing
+decisions are displayed separately in expandable rows. A reviewed artifact
+without its original is labeled `ORIGINAL_UNAVAILABLE`; its frozen answers can
+still be inspected. Only result fields are projected; frozen specifications,
+context, candidate bodies, skill catalogs and arbitrary error text are excluded.
+
+The existing time, workspace, probe and browser observation-start filters apply
+to Jev rows. Advisor artifacts without their own time/workspace use their
+co-located original assessment; that attribution is labeled and is not request
+timing. Unknown times remain visible under date/reset filters. Source coverage
+describes the entire bounded read, while mode counts describe filtered rows.
+An absent advisor mode has unknown API coverage. Latency, API-call counts and
+unavailable output are never inferred from file timestamps or review counts.
+
 ## Checks
 
 ```powershell
-node --test scripts/test-dely-monitor.js scripts/test-task-routing.js scripts/test-jev-agent.js
+node --test scripts/test-dely-monitor.js scripts/test-dely-monitor-jev.js scripts/test-task-routing.js scripts/test-jev-agent.js
 ```
 
 Tests cover task/dispatch identity, retry/fallback counts, unknown data,

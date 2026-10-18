@@ -7,6 +7,8 @@ const readline = require("node:readline");
 const { execFile } = require("node:child_process");
 const { taskKey, runtimeFingerprint } = require("../skills/delivery/scripts/usage.js");
 const crypto = require("node:crypto");
+const { createJevReader } = require("./dely-monitor-jev.js");
+const readJev = createJevReader();
 
 const GRADES = ["easy", "medium_minus", "medium_plus", "hard"];
 const ROOTS = [path.join(os.homedir(), ".codex"), process.env.CODEX_HOME,
@@ -460,15 +462,26 @@ async function collect(options = {}) {
   if (sources.log.present) sources.log.malformed = await jsonLines(file, (e) => {
     if (e && ["task_assessment", "task_route", "dispatch", "task_control_result", "task_reference_audit"].includes(e.event)) events.push(e);
   });
-  let workers = [], conversations = [];
+  let workers = [], conversations = [], jev = [];
   const collectedAt = new Date().toISOString();
   sources.orca = { available: false, state: "loading", total: null, loaded: 0, complete: false, scope: null };
   sources.codex = { available: false, state: "loading", files: null, malformed: null };
+  sources.jev = { available: false, state: "loading", coverage: [] };
   sources.runtimes = readRuntimes();
-  const snapshot = () => ({ events, workers, conversations, sources: { ...sources }, collectedAt });
+  const snapshot = () => ({ events, workers, conversations, jev, sources: { ...sources }, collectedAt });
   const publish = () => options.onUpdate?.(snapshot());
   publish();
   await Promise.all([
+    (async () => {
+      try {
+        const result = await (options.readJev || readJev)();
+        jev = result.rows;
+        sources.jev = { available: result.coverage.some((s) => ["ready", "partial"].includes(s.state)),
+          state: result.coverage.every((s) => s.state === "ready") ? "ready" : "partial",
+          asOf: new Date().toISOString(), coverage: result.coverage, cache: result.cache };
+      } catch (_) { sources.jev = { ...sources.jev, state: "error" }; }
+      publish();
+    })(),
     (async () => {
       try {
         const result = await (options.readWorkers || readWorkers)();

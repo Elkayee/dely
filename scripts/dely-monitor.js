@@ -7,6 +7,7 @@ const os = require("node:os");
 const http = require("node:http");
 const { parseArgs } = require("node:util");
 const { collect, summarize } = require("./dely-monitor-data.js");
+const { summarizeJev } = require("./dely-monitor-jev.js");
 
 function sinceTimestamp(value) {
   if (value === null) return null;
@@ -30,7 +31,7 @@ function createMonitor(options = {}) {
       attempted = now();
       const publish = (data) => {
         const next = { ...data, sources: { ...data.sources } };
-        for (const [source, field] of [["orca", "workers"], ["codex", "conversations"]]) {
+        for (const [source, field] of [["orca", "workers"], ["codex", "conversations"], ["jev", "jev"]]) {
           if (data.sources?.[source]?.state === "loading" && cache?.data.sources?.[source]?.available) {
             next[field] = cache.data[field];
             next.sources[source] = { ...cache.data.sources[source], state: "refreshing" };
@@ -75,6 +76,9 @@ function createMonitor(options = {}) {
           probes: url.searchParams.get("probes") === "true",
           asOf, end: Math.max(start, asOf), runtimes: data.sources?.runtimes || [],
         });
+        result.jev = summarizeJev(data.jev, { since: start, asOf,
+          repo: url.searchParams.get("repo") || "", probes: url.searchParams.get("probes") === "true" });
+        result.repos = [...new Set([...result.repos, ...(data.jev || []).map((r) => r.repo).filter(Boolean)])].sort();
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(JSON.stringify({ ...result, sources: data.sources, collectedAt: data.collectedAt,
           refreshing: !!pending,

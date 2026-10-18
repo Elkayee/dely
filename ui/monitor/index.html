@@ -15,6 +15,7 @@
     <a class="nav-item" href="#models"><span class="nav-icon">▥</span> Model activity</a>
     <a class="nav-item" href="#measures"><span class="nav-icon">◎</span> Usage measures</a>
     <a class="nav-item" href="#routing"><span class="nav-icon">↗</span> Routing coverage</a>
+    <a class="nav-item" href="#jev"><span class="nav-icon">◷</span> Jev statistics</a>
     <a class="nav-item" href="#activity"><span class="nav-icon">≡</span> Recent launches</a>
     <div class="sidebar-bottom"><span class="local-dot"></span> Local observation<p>Metadata only. Your prompts<br>stay out of this dashboard.</p></div>
   </aside>
@@ -146,6 +147,14 @@
     <section id="routing" class="routing-grid">
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">FOUR-TIER POLICY</p><h2>Routing coverage</h2></div><span class="pill">Recorded approvals</span></div><div id="grade-grid" class="grade-grid"></div><p id="snapshot-metrics" class="footnote"></p><p class="footnote">Shares use snapshots whose first confirmed implementation dispatch falls in the window. Hard is direct Sol and reported separately. Worker success does not prove Control acceptance.</p></article>
       <article class="panel sources-panel"><div class="panel-heading"><div><p class="eyebrow">OBSERVABILITY</p><h2>Source health</h2></div></div><div id="sources"></div><p class="footnote">The date filter applies to timestamped records. Orca inventory rows without a timestamp remain a current snapshot.</p></article>
+    </section>
+    <section id="jev" class="panel activity-panel" aria-labelledby="jev-title">
+      <div class="panel-heading"><div><p class="eyebrow">SAVED ADVISOR EVIDENCE</p><h2 id="jev-title">Jev statistics</h2></div><span id="jev-count" class="pill">Loading</span></div>
+      <p id="jev-summary" class="footnote" aria-live="polite">Reading saved evaluations in the background…</p>
+      <details class="jev-coverage"><summary>Source and mode coverage</summary><div id="jev-coverage"></div></details>
+      <p class="footnote">Recorded evaluations include valid outputs and recorded request errors; they are not API-call counts. Reviews and identical copies count once. Unknown time remains visible under date/reset filters. Latency and unsaved output are unavailable.</p>
+      <div class="table-scroll"><table class="jev-table"><thead><tr><th>Time / workspace</th><th>Mode / status</th><th>Jev model</th><th>Original proposal</th><th>Recorded result / output</th></tr></thead><tbody id="jev-rows"></tbody></table></div>
+      <button id="jev-more" class="text-button" hidden>Show more Jev records</button>
     </section>
     <section id="activity" class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">EXECUTION HISTORY</p><h2>Recent launches & workers</h2></div><span id="activity-count" class="pill">—</span></div><div class="table-scroll"><table><thead><tr><th>Workspace / launch</th><th>Grade</th><th>Model</th><th>Status</th><th>Evidence</th><th>Time</th></tr></thead><tbody id="activity-rows"></tbody></table></div><button id="more" class="text-button" hidden>Show more records</button></section>
     <footer><span>Dely Monitor · read-only local UI</span><span>Routing compliance depends on recorded assessments; missing approvals are not silently treated as Hard.</span></footer>

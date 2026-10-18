@@ -9,10 +9,48 @@ const os = require("node:os");
 const path = require("node:path");
 const { summarize, jsonLines, collect, readRuntimes, createConversationReader } = require("./dely-monitor-data.js");
 const { createMonitor } = require("./dely-monitor.js");
+const { createJevReader } = require("./dely-monitor-jev.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
 const specHash = "a".repeat(64), contextHash = "b".repeat(64), basis = "c".repeat(64);
 const key = taskKey(repo, specHash, contextHash);
+test("Jev loading stays progressive, API projections respect every filter and source failures stay visible", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-jev-api-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const taskDir = path.join(dir, "dely-compliance/tasks/one"); fs.mkdirSync(taskDir, { recursive: true });
+  const artifact = { policy: "jev-task-routing-v4", assessed_at: ts, status: "NOT_EVALUATED", jev: null,
+    reason: "Jev HTTP 503", task: { repo, spec: "PRIVATE_SPEC", context: { secret: "PRIVATE_CONTEXT" } } };
+  fs.writeFileSync(path.join(taskDir, "assessment.json"), JSON.stringify(artifact));
+  const probeDir = path.join(dir, "dely-compliance/tasks/probe"); fs.mkdirSync(probeDir);
+  fs.writeFileSync(path.join(probeDir, "assessment.json"), JSON.stringify({ ...artifact, task: { ...artifact.task, repo: "D:/.tmp-dely/probe" } }));
+  const reader = createJevReader({ homes: [dir] });
+  let finish;
+  const held = new Promise((resolve) => { finish = resolve; });
+  const server = createMonitor({ now: () => Date.parse(ts) + 3600000, collect: (options) => collect({ ...options,
+    journal: path.join(dir, "absent.jsonl"), readJev: () => held,
+    readWorkers: async () => ({ rows: [], complete: true }), readConversations: async () => ({ rows: [], available: true }) }) });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}/api/usage?days=30`;
+  try {
+    const partial = await (await fetch(url + "&progressive=true")).json();
+    assert.equal(partial.sources.jev.state, "loading"); assert.equal(partial.refreshing, true);
+    assert.equal(partial.jev.recorded, 0);
+    finish(await reader());
+    const data = await (await fetch(url)).json();
+    assert.equal(data.jev.errors, 1); assert.equal(data.jev.evaluations, 1);
+    assert.equal(data.sources.jev.state, "ready"); assert.equal(data.sources.jev.coverage[0].modes.task, 2);
+    assert.ok(data.repos.includes(repo)); assert.doesNotMatch(JSON.stringify(data.jev), /PRIVATE_/);
+    assert.equal(data.jev.rows[0].task, undefined); assert.equal(data.jev.rows[0].context, undefined);
+    assert.equal((await (await fetch(url + "&probes=true")).json()).jev.recorded, 2);
+    assert.equal((await (await fetch(url + "&repo=D:/other")).json()).jev.recorded, 0);
+    assert.equal((await (await fetch(url + "&since=2026-10-10T00:00:00Z")).json()).jev.recorded, 0);
+    assert.equal((await (await fetch(url.replace("days=30", "days=1"))).json()).jev.recorded, 0);
+  } finally { finish({ rows: [], coverage: [], cache: {} }); await new Promise((resolve) => server.close(resolve)); }
+  const failed = await collect({ journal: path.join(dir, "absent.jsonl"), readJev: async () => { throw Error("PRIVATE_ERROR"); },
+    readWorkers: async () => ({ rows: [] }), readConversations: async () => ({ rows: [] }) });
+  assert.equal(failed.sources.jev.state, "error"); assert.equal(failed.sources.jev.available, false);
+  assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_ERROR/);
+});
 const approval = { event: "task_assessment", taskKey: key, ts, repo,
   policy: "jev-task-routing-v4", reviewer: "codex-control", decision_source: "jev-reviewed", assessment_basis_sha256: basis,
   status: "APPROVED", difficulty: "medium_minus", workflow: "dely",

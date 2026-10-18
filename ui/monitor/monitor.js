@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const names = { easy: "Easy", medium_minus: "Medium−", medium_plus: "Medium+", hard: "Hard" };
 let activity = [], visibleRows = 25, taskRowsShown = 20, displayedScope = "";
+let jevRows = [], jevShown = 25, jevScope = "";
 const observationKey = "dely-monitor.observation-start";
 let observationStart = null, storageWarning = "", refreshId = 0, loadingTimer = null;
 try {
@@ -119,7 +120,60 @@ function showRows() {
   $("activity-count").textContent = `${number(activity.length)} records`;
 }
 
+function showJevRows() {
+  const tbody = $("jev-rows"); tbody.replaceChildren();
+  for (const row of jevRows.slice(0, jevShown)) {
+    const tr = element("tr"), workspace = element("td");
+    workspace.append(element("div", row.ts ? new Date(row.ts).toLocaleString() : "Unknown time"),
+      element("div", row.repo || "Unknown workspace", "cell-secondary mono"));
+    if (row.timeSource === "co-located assessment") workspace.append(element("div", "Time: co-located assessment", "cell-secondary"));
+    const mode = element("td"); mode.append(element("div", row.mode), element("div", row.status, "cell-secondary"));
+    if (row.policy) mode.append(element("div", row.policy, "cell-secondary"));
+    const result = element("td"), details = element("details", null, "evidence-details");
+    result.append(element("div", row.category === "valid" ? "Valid recorded output" : row.category.replace(/_/g, " ")));
+    if (row.reason !== "NOT_RECORDED") result.append(element("div", row.reason, "cell-secondary"));
+    details.append(element("summary", "Output, Control decision & provenance", "evidence-summary"));
+    // Build large structured output only when expanded; use textContent throughout.
+    details.addEventListener("toggle", () => {
+      if (!details.open || details.dataset.loaded) return;
+      details.dataset.loaded = "true";
+      details.append(element("p", row.output ? "Original Jev structured output" : "Jev output unavailable in saved artifacts", "cell-secondary"));
+      if (row.output) details.append(element("pre", JSON.stringify(row.output, null, 2), "jev-output"));
+      details.append(element("p", "Control reviewed routing decision (separate from Jev)", "cell-secondary"));
+      details.append(element("pre", row.control.length ? JSON.stringify(row.control, null, 2) : "NOT_EVALUATED / no saved review", "jev-output"));
+      for (const source of row.sources) details.append(element("div", `${source.home}/dely-compliance/tasks/${source.task}/${source.file}`, "mono cell-secondary"));
+    });
+    result.append(details);
+    tr.append(workspace, mode, element("td", row.model || "NOT_EVALUATED", "mono"),
+      element("td", row.proposal || (row.mode === "task" ? "NOT_EVALUATED" : "See structured output")), result);
+    tbody.append(tr);
+  }
+  if (!jevRows.length) {
+    const td = element("td", "No saved Jev records match these filters; source coverage does not establish complete API history.", "empty-cell");
+    td.colSpan = 5; const tr = element("tr"); tr.append(td); tbody.append(tr);
+  }
+  $("jev-more").hidden = jevShown >= jevRows.length;
+}
+
+function renderJev(data) {
+  const source = data.sources.jev, stats = data.jev;
+  const pending = !source || ["loading", "refreshing"].includes(source.state);
+  $("jev-count").textContent = pending ? "Reading saved evidence…" : `${stats.recorded} unique records`;
+  $("jev-summary").textContent = pending && !source?.available ? "Reading saved evaluations in the background…" :
+    `${stats.evaluations} recorded evaluations · ${stats.valid} valid outputs · ${stats.errors} recorded errors · ${stats.notEvaluated} NOT_EVALUATED · ${stats.skipped} hard skips · ${stats.unknown} unknown. ${stats.unknownTime} unknown time · ${stats.unknownWorkspace} unknown workspace.${pending ? " Refreshing; last available values shown." : ""}`;
+  const coverage = $("jev-coverage"); coverage.replaceChildren();
+  coverage.append(element("p", `Source state: ${source?.state || "NOT_EVALUATED"}. Filtered modes: task ${stats.modes.task}, skill ${stats.modes.skill}, context ${stats.modes.context}. Absent advisor modes have unknown coverage, not zero API use.`, "footnote"));
+  for (const s of source?.coverage || []) {
+    coverage.append(element("p", `${s.home}: ${s.state} · ${s.directories} task folders · ${s.loaded} readable artifacts (includes review/copy files) · ${s.missing} missing assessments · ${s.malformed} malformed · ${s.unreadable} unreadable · ${s.oversized} oversized · ${s.excluded} excluded links · ${s.truncated ? "directory cap reached" : "within directory cap"}. Saved modes: task ${s.modes.task}, skill ${s.modes.skill}, context ${s.modes.context}.`, "footnote mono"));
+  }
+  coverage.append(element("p", "Only immediate assessment.json, reviewed.json, skill-advice.json and context-advice.json in the two compliance task homes are read (256 KiB/file, 4096 folders/home). Other saved locations and unsaved calls are NOT_EVALUATED. Advisor workspace/time comes from its co-located assessment when absent; it is not measured request timing.", "footnote"));
+  const scope = JSON.stringify([$("days").value, $("repo").value, $("probes").checked, observationStart]);
+  if (scope !== jevScope) { jevShown = 25; jevScope = scope; }
+  jevRows = stats.rows; showJevRows();
+}
+
 function render(data) {
+  renderJev(data);
   observationStatus(data);
   const scope = JSON.stringify([$("repo").value, $("days").value, $("probes").checked, observationStart]);
   if (scope !== displayedScope) { displayedScope = scope; visibleRows = 25; taskRowsShown = 20; }
@@ -499,6 +553,7 @@ $("refresh").addEventListener("click", refresh);
 $("all-projects").addEventListener("click", () => { $("repo").value = ""; refresh(); });
 for (const id of ["days", "repo", "probes"]) $(id).addEventListener("change", refresh);
 $("more").addEventListener("click", () => { visibleRows += 50; showRows(); });
+$("jev-more").addEventListener("click", () => { jevShown += 25; showJevRows(); });
 window.addEventListener("pagehide", () => clearTimeout(loadingTimer));
 window.addEventListener("pageshow", (event) => { if (event.persisted) refresh(); });
 observationStatus();
