@@ -3,6 +3,31 @@
 const $ = (id) => document.getElementById(id);
 const names = { easy: "Easy", medium_minus: "Medium−", medium_plus: "Medium+", hard: "Hard" };
 let activity = [], visibleRows = 25;
+const observationKey = "dely-monitor.observation-start";
+let observationStart = null, storageWarning = "", refreshId = 0;
+try {
+  const saved = localStorage.getItem(observationKey);
+  if (saved && Number.isFinite(Date.parse(saved)) && new Date(saved).toISOString() === saved) observationStart = saved;
+} catch (_) { storageWarning = "Browser storage is unavailable; window changes apply only until reload."; }
+
+function observationStatus(data) {
+  const active = data ? ` Active start: ${data.window.start}.` : "";
+  $("observation-start").textContent = (observationStart
+    ? `Statistics reset at ${observationStart}.${active} Limited by the selected rolling window.`
+    : `Using selected rolling window.${active}`) + (storageWarning ? ` ${storageWarning}` : "");
+  $("resume-window").hidden = !observationStart;
+}
+
+function setObservation(start) {
+  observationStart = start;
+  try {
+    if (start) localStorage.setItem(observationKey, start);
+    else localStorage.removeItem(observationKey);
+    storageWarning = "";
+  } catch (_) { storageWarning = "Browser storage is unavailable; this change may not survive reload."; }
+  observationStatus();
+  refresh();
+}
 const number = (value) => value == null ? "—" : value.toLocaleString();
 const modelName = (value) => value ? value.replace("gemini-3.8-flash-medium", "Gemini Flash Medium").replace("gemini-3.8-flash-high", "Gemini Flash High").replace("claude-sonnet-5-5-high", "Sonnet 5.5 High").replace("gpt-6.1-sol", "GPT-6.1 Sol").replace("gpt-6-luna", "GPT-6 Luna") : "Unknown";
 const element = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
@@ -95,6 +120,7 @@ function showRows() {
 }
 
 function render(data) {
+  observationStatus(data);
   const log = data.sources.log, orca = data.sources.orca, codex = data.sources.codex;
   const share = (r) => r.rate == null ? "N/A" : `${(r.rate * 100).toFixed(1)}% (${r.numerator}/${r.denominator})`;
   const m = data.metrics || {};
@@ -107,9 +133,7 @@ function render(data) {
     : (agyDen === 0 ? "N/A" : "—");
   const pendingText = data.pending != null ? `${number(data.pending)} awaiting start` : "— awaiting start";
   $("adoption-detail").textContent = `${agyRatioText} confirmed snapshots · ${pendingText}`;
-  const acceptanceShare = m.agyAcceptedWithoutFallback?.denominator ?
-    share(m.agyAcceptedWithoutFallback) :
-    (m.agyAcceptedWithoutFallback?.status || "N/A (not observed)");
+  const acceptanceShare = share(m.agyAcceptedWithoutFallback || {});
   $("snapshot-metrics").textContent = `AGY primary: ${share(m.agyPrimary || {})}. Luna fallback: ${share(m.lunaFallback || {})}. Control acceptance: ${acceptanceShare}. Window ${data.window.start} to ${data.window.end}; outcomes as of ${data.window.as_of}.`;
   $("approvals").textContent = number(log.present ? data.tasks.approved : null);
   $("approval-detail").textContent = `${log.present ? data.tasks.recorded : "No"} assessment records · ${data.tasks.unknown} unknown grades`;
@@ -155,15 +179,21 @@ function render(data) {
 }
 
 async function refresh() {
+  const requestId = ++refreshId;
   $("refresh").disabled = true; $("updated").textContent = "Reading local sources…";
   try {
     const query = new URLSearchParams({ days: $("days").value, repo: $("repo").value, probes: String($("probes").checked) });
+    if (observationStart) query.set("since", observationStart);
     const response = await fetch(`/api/usage?${query}`); if (!response.ok) throw new Error("Local monitor source is temporarily unavailable");
-    render(await response.json());
-  } catch (e) { $("notice").textContent = e.message; $("updated").textContent = "Refresh failed"; }
-  finally { $("refresh").disabled = false; }
+    const data = await response.json();
+    if (requestId === refreshId) render(data);
+  } catch (e) { if (requestId === refreshId) { $("notice").textContent = e.message; $("updated").textContent = "Refresh failed"; } }
+  finally { if (requestId === refreshId) $("refresh").disabled = false; }
 }
+$("reset-statistics").addEventListener("click", () => setObservation(new Date().toISOString()));
+$("resume-window").addEventListener("click", () => setObservation(null));
 $("refresh").addEventListener("click", refresh);
 for (const id of ["days", "repo", "probes"]) $(id).addEventListener("change", refresh);
 $("more").addEventListener("click", () => { visibleRows += 50; showRows(); });
+observationStatus();
 refresh();

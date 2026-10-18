@@ -8,13 +8,21 @@ const http = require("node:http");
 const { parseArgs } = require("node:util");
 const { collect, summarize } = require("./dely-monitor-data.js");
 
+function sinceTimestamp(value) {
+  if (value === null) return null;
+  if (!/^\d{4}-\d\d-\d\dT(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(value)) return NaN;
+  const date = Date.parse(value.slice(0, 10));
+  if (!Number.isFinite(date) || new Date(date).toISOString().slice(0, 10) !== value.slice(0, 10)) return NaN;
+  return Date.parse(value);
+}
+
 function createMonitor(options = {}) {
   const assets = path.resolve(__dirname, "../ui/monitor");
   const files = { "/": ["index.html", "text/html"], "/monitor.css": ["monitor.css", "text/css"],
     "/monitor.js": ["monitor.js", "text/javascript"] };
   let cache = null, pending = null;
-  const load = () => {
-    if (cache && Date.now() - cache.loaded < 30000) return Promise.resolve(cache.data);
+  const load = (fresh = false) => {
+    if (!fresh && cache && Date.now() - cache.loaded < 30000) return Promise.resolve(cache.data);
     if (!pending) pending = (options.collect || collect)().then((data) => {
       cache = { loaded: Date.now(), data }; return data;
     }).finally(() => { pending = null; });
@@ -29,13 +37,17 @@ function createMonitor(options = {}) {
     const url = new URL(req.url, "http://127.0.0.1");
     if (url.pathname === "/api/usage") {
       const days = Number(url.searchParams.get("days") || 7);
-      if (![1, 7, 30].includes(days)) { res.writeHead(400).end(); return; }
+      const since = sinceTimestamp(url.searchParams.get("since"));
+      if (![1, 7, 30].includes(days) || Number.isNaN(since)) { res.writeHead(400).end(); return; }
       try {
-        const data = await load();
+        let data = await load();
+        if (since !== null && since > Date.parse(data.collectedAt)) data = await load(true);
+        const asOf = Date.parse(data.collectedAt) || Date.now();
+        const start = Math.max(asOf - days * 86400000, since ?? -Infinity);
         const result = summarize(data.events, data.workers, data.conversations, {
-          since: (Date.parse(data.collectedAt) || Date.now()) - days * 86400000, repo: url.searchParams.get("repo") || "",
+          since: start, repo: url.searchParams.get("repo") || "",
           probes: url.searchParams.get("probes") === "true",
-          asOf: Date.parse(data.collectedAt) || Date.now(), runtimes: data.sources?.runtimes || [],
+          asOf, end: Math.max(start, asOf), runtimes: data.sources?.runtimes || [],
         });
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(JSON.stringify({ ...result, sources: data.sources, collectedAt: data.collectedAt }));

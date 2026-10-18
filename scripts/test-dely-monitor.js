@@ -419,3 +419,71 @@ test("loopback API exposes only sanitized metadata and rejects write/path/host r
     assert.equal(foreign, 403);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+test("since intersects the rolling window without letting historical snapshots re-enter through retries", async () => {
+  const nextContext = "f".repeat(64), nextBasis = "e".repeat(64);
+  const nextApproval = { ...reviewed, ts: later, reviewed_at: later, context_sha256: nextContext,
+    taskKey: taskKey(repo, specHash, nextContext), assessment_basis_sha256: nextBasis };
+  const nextRoute = { ...route, ts: later, run: "new-snapshot", contextSha256: nextContext, assessmentBasisSha256: nextBasis };
+  const nextLaunch = { ...launch, ts: later, run: nextRoute.run, dispatchId: "new-first",
+    contextSha256: nextContext, assessmentBasisSha256: nextBasis };
+  const retry = { ...launch, ts: later, dispatchId: "old-retry" };
+  const fallback = { ...retry, dispatchId: "old-fallback", fallbackReason: "quota", fallbackStage: 1,
+    launch: { effective: { agent: "codex", model: "gpt-6-luna", effort: "max" } } };
+  const events = [reviewed, route, launch, retry, fallback, nextApproval, nextRoute, nextLaunch];
+  const original = JSON.stringify(events);
+  const probeRepo = "D:/.tmp-dely-probe";
+  const workers = [{ id: "old-worker", repo, ts }, { id: "new-worker", repo, ts: later },
+    { id: "probe-worker", repo: probeRepo, ts: later }];
+  const conversations = [{ session: "old", repo, ts }, { session: "new", repo, ts: later },
+    { session: "probe", repo: probeRepo, ts: later }];
+  const server = createMonitor({ collect: async () => ({ events, workers, conversations, sources: {}, collectedAt: last }) });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = "http://127.0.0.1:" + server.address().port + "/api/usage";
+  const get = async (query = "") => (await fetch(url + query)).json();
+  try {
+    assert.equal((await get()).metrics.agyStart.denominator, 2);
+    const reset = await get("?since=" + encodeURIComponent(later));
+    assert.equal(reset.window.start, new Date(later).toISOString());
+    assert.equal(reset.metrics.agyStart.denominator, 1);
+    assert.equal(reset.metrics.lunaFallback.numerator, 0);
+    assert.equal(reset.jobs.count, 1); assert.equal(reset.conversations.turns, 1);
+    const probes = await get("?probes=true&since=" + encodeURIComponent(later));
+    assert.equal(probes.jobs.count, 2); assert.equal(probes.conversations.turns, 2);
+    const scoped = await get("?probes=true&repo=" + encodeURIComponent(repo) + "&since=" + encodeURIComponent(later));
+    assert.equal(scoped.jobs.count, 1); assert.equal(scoped.conversations.turns, 1);
+    const after = await get("?since=" + encodeURIComponent("2026-10-10T01:00:00.001Z"));
+    assert.equal(after.metrics.agyStart.denominator, 0);
+    assert.equal(after.metrics.agyStart.rate, null);
+    assert.equal(after.jobs.count, 0); assert.equal(after.conversations.turns, 0);
+    const rolling = await get("?days=1&since=" + encodeURIComponent(ts));
+    assert.equal(rolling.window.start, new Date(later).toISOString());
+    assert.equal(rolling.metrics.agyStart.denominator, 1);
+    const missingRepo = await get("?repo=D:/absent&since=" + encodeURIComponent(later));
+    assert.equal(missingRepo.metrics.agyStart.denominator, 0); assert.equal(missingRepo.jobs.count, 0);
+    assert.equal((await get("?since=" + encodeURIComponent("2026-10-10T03:00:00+02:00"))).window.start, reset.window.start);
+    for (const invalid of ["", "yesterday", "2026-02-30T00:00:00Z", "2026-10-10", "2026-10-10T01:00:00", "Infinity"]) {
+      assert.equal((await fetch(url + "?since=" + encodeURIComponent(invalid))).status, 400, invalid);
+    }
+    const future = await get("?since=" + encodeURIComponent("2026-10-12T01:00:00Z"));
+    assert.equal(future.window.start, future.window.end);
+    assert.equal(future.metrics.agyStart.denominator, 0);
+    assert.equal((await get()).metrics.agyStart.denominator, 2);
+    assert.equal(JSON.stringify(events), original);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("reset newer than the collector cache reloads sources before summarizing", async () => {
+  let reads = 0;
+  const server = createMonitor({ collect: async () => ({ events: [], workers: [], conversations: [], sources: {},
+    collectedAt: ++reads === 1 ? ts : last }) });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = "http://127.0.0.1:" + server.address().port + "/api/usage";
+  try {
+    await fetch(url); assert.equal(reads, 1);
+    const response = await (await fetch(url + "?since=" + encodeURIComponent(later))).json();
+    assert.equal(reads, 2); assert.equal(response.collectedAt, last);
+    assert.equal(response.window.start, new Date(later).toISOString());
+    assert.equal(response.window.end, new Date(last).toISOString());
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
