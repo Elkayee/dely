@@ -482,9 +482,9 @@ async function readWorkerDiagnostic(id, read = orca) {
     id, status: known(dispatch.status, ["pending", "dispatched", "completed", "failed", "canceled", "cancelled"]),
     outcome: known(projection?.outcome, ["in_progress", "succeeded", "failed", "canceled", "cancelled", "unknown"]),
     terminationReason, depth: Number.isSafeInteger(dispatch.depth) && dispatch.depth >= 0 ? dispatch.depth : null,
-    liveness: { verdict: known(projection?.liveness?.verdict, ["live", "exited", "unknown"]) || "unknown",
+    liveness: { verdict: known(projection?.liveness?.verdict, ["live", "unverifiable", "exited", "unknown"]) || "unknown",
       source: "projection.liveness", evidenceSource: known(projection?.liveness?.source,
-        ["agent_status", "terminal", "terminal_status", "process", "durable"]) },
+        ["agent_status", "terminal", "terminal_status", "process", "durable", "execution_host"]) },
     failure,
   };
 }

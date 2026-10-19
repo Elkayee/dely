@@ -53,6 +53,62 @@ test("worker diagnostics preserve raw outcomes, structured cause and missing evi
   await assert.rejects(readWorkerDiagnostic(id, async () => ({ result: { dispatch: { id: "ctx_ffffffffffff" } } })));
 });
 
+test("worker diagnostics preserve native unverifiable verdict and execution_host evidence source", async () => {
+  const id = "ctx_123456abcdef";
+  const read = (dispatch, projection = {}) => readWorkerDiagnostic(id, async () => ({ result: {
+    dispatch: { id, status: "failed", ...dispatch }, projection,
+  } }));
+
+  const unverifiable = await read({ depth: 0 }, {
+    outcome: "failed",
+    liveness: { verdict: "unverifiable", source: "execution_host" },
+  });
+  assert.equal(unverifiable.status, "failed");
+  assert.equal(unverifiable.outcome, "failed");
+  assert.equal(unverifiable.depth, 0);
+  assert.equal(unverifiable.failure.kind, "unknown");
+  assert.deepEqual(unverifiable.liveness, {
+    verdict: "unverifiable",
+    source: "projection.liveness",
+    evidenceSource: "execution_host",
+  });
+
+  for (const verdict of ["live", "unverifiable", "exited", "unknown"]) {
+    const res = await read({}, { liveness: { verdict } });
+    assert.equal(res.liveness.verdict, verdict);
+  }
+  for (const source of ["agent_status", "terminal", "terminal_status", "process", "durable", "execution_host"]) {
+    const res = await read({}, { liveness: { verdict: "live", source } });
+    assert.equal(res.liveness.evidenceSource, source);
+  }
+
+  for (const badVerdict of [null, undefined, "secret", "PRIVATE_VERDICT", 42, {}]) {
+    const res = await read({}, { liveness: { verdict: badVerdict } });
+    assert.equal(res.liveness.verdict, "unknown");
+    assert.doesNotMatch(JSON.stringify(res), /PRIVATE_VERDICT/);
+  }
+  for (const badSource of [null, undefined, "secret", "PRIVATE_SOURCE", "unknown", 42, {}]) {
+    const res = await read({}, { liveness: { verdict: "live", source: badSource } });
+    assert.equal(res.liveness.evidenceSource, null);
+    assert.doesNotMatch(JSON.stringify(res), /PRIVATE_SOURCE/);
+  }
+
+  const structured = await read(
+    { terminationReason: "operator_close", depth: 2 },
+    { outcome: "succeeded", liveness: { verdict: "unverifiable", source: "execution_host" } }
+  );
+  assert.equal(structured.status, "failed");
+  assert.equal(structured.outcome, "succeeded");
+  assert.equal(structured.depth, 2);
+  assert.equal(structured.failure.kind, "operator_close");
+  assert.equal(structured.failure.source, "dispatch.terminationReason");
+  assert.deepEqual(structured.liveness, {
+    verdict: "unverifiable",
+    source: "projection.liveness",
+    evidenceSource: "execution_host",
+  });
+});
+
 test("diagnostic API only reads observed ids on demand, deduplicates and strips private fields", async () => {
   const id = "ctx_123456abcdef", failedId = "ctx_000000000001";
   let calls = 0, release, started;
