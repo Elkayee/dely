@@ -1,6 +1,8 @@
 # Jev recovery follow-up verification record
 
-Status: VERIFIED AND COMPLETED. Follow-up contract approved by user and coordinated under dispatch `ctx_5ec31d25f2c1`.
+Status: REMEDIATION COMPLETED (LITERAL GATES VERIFIED; SEPARATE-HOME NATIVE COVERAGE BLOCKED). Follow-up contract approved by user and coordinated under dispatch `ctx_dbdd1bae5800`.
+- Disclosure labels and literal closure gates: VERIFIED AND PASSING across all ten original code blocks.
+- Separate-home native advisory coverage: BLOCKED. The native probe created an Orca-home Codex thread that printed OK, but it did NOT verify actual Jev advice, identical reuse, PENDING retention, or denied mutation. Existing `hooks.json` points script and `--home` at the standard home, and compliance definitions are not trusted in the separate profile. This limitation remains visible and is treated strictly as blocked coverage, not a passed advisory probe.
 
 ## 1. Disclosure-label cleanup
 
@@ -21,27 +23,45 @@ Status: VERIFIED AND COMPLETED. Follow-up contract approved by user and coordina
 - **Source**: `https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-windows-amd64.exe`.
 - **Integrity**: SHA-256 verified against official release checksum (`a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627`).
 - **Location**: Installed to user-writable `C:\Users\Home33\.local\bin\jq.exe`. No administrator or system-wide modifications performed.
-- **Discovery**: Verified in both PowerShell (`jq.exe`, version `jq-1.8.2`) and Git Bash (`/c/Users/Home33/.local/bin/jq`, version `jq-1.8.2`).
-- **Closure gates executed with jq 1.8.2**:
-  - `jq -e . harnesses.json plugin.json ...` -> PASS.
-  - `jq -e '.harnesses | all(...)' harnesses.json` -> PASS.
-  - Manifest version equality (`0.27.9`) and `has("type") == false` -> PASS.
-  - README role row verification with jq against `README.md` (9 of 9 rows matched) -> PASS.
+- **Git Bash Launcher**: Added tiny LF-encoded launcher script at `C:\Users\Home33\.local\bin\jq`:
+  ```bash
+  #!/usr/bin/env bash
+  exec "$(dirname "$0")/jq.exe" --binary "$@"
+  ```
+  Per official jq manual recommendations for native `jq.exe` under MSYS2/Cygwin/WSL, `--binary` prevents Windows CRLF line endings from corrupting Bash pipes and line-matching utilities.
+- **Discovery**:
+  - PowerShell discovers native `jq.exe` (`C:\Users\Home33\.local\bin\jq.exe`, version `jq-1.8.2`).
+  - Git Bash discovers the launcher `/c/Users/Home33/.local/bin/jq` (version `jq-1.8.2`).
+- **Gate reproduction & resolution**:
+  - Direct `jq.exe` without `--binary` output CRLF line endings in Git Bash, which caused the literal README role row gate (`grep -qxF -- "$row" README.md`) in `.tmp-dely/jev-recovery-followup/control-original-gates.sh` to fail with exit 1 (`README lacks: | Claude Code | ...`).
+  - With the launcher forwarding arguments with `--binary`, all ten original `AGENTS.md` code blocks and `control-original-gates.sh` pass cleanly with exit code 0 without modifying `AGENTS.md`, `README.md`, or the gate commands:
+    - `git diff --check` -> PASS.
+    - `jq -e . harnesses.json plugin.json ...` -> PASS.
+    - `jq -e '.harnesses | all(...)' harnesses.json` -> PASS.
+    - `node --check` and `bash -n` checks -> PASS.
+    - Manifest version equality (`0.27.9`) and `has("type") == false` -> PASS.
+    - Retired rail absence checks -> PASS.
+    - Lexical disclosure gates (0 hits outside `docs/_plans`) -> PASS.
+    - README role row verification with jq against `README.md` (9 of 9 rows matched) -> PASS.
 
 ## 3. Native Codex advisory probe in Orca home
 
 - **Execution**: Owned Orca terminal `term_80b7ee6b-a912-4473-8ab8-af05e8d9d9c9` was created in worktree `D:/orca`.
 - **Environment**: Process-local `$env:CODEX_HOME` set to `C:/Users/Home33/AppData/Roaming/orca/codex-runtime-home/home`.
 - **Session**: Native `codex exec` launched in this terminal, loading configuration from Orca home (`config.toml`), creating thread `01a15516-fbfe-7c30-b20d-3c2b6385c2f5` and generating rollout file `rollout-2026-10-19T23-55-32-01a15516-fbfe-7c30-b20d-3c2b6385c2f5.jsonl` under `C:\Users\Home33\AppData\Roaming\orca\codex-runtime-home\home\sessions\2026\10\19\`.
-- **Wiring blocker analysis**:
-  - The dely-compliance hooks did not execute because:
+- **Accurate coverage & limitation**:
+  - The thread completed and printed OK; however, it did **NOT** verify actual Jev advice, identical reuse, PENDING retention, or denied mutation.
+  - The separate-home guard is **BLOCKED**:
     1. Hook definition wiring: `C:/Users/Home33/AppData/Roaming/orca/codex-runtime-home/home/hooks.json` explicitly hardcodes `--home 'C:\Users\Home33\.codex'`.
     2. Hook trust state: `C:/Users/Home33/AppData/Roaming/orca/codex-runtime-home/home/config.toml` only has `[hooks.state]` trust entries for Orca hook commands (`0:0`) and Herdr agent state (`1:0`); compliance hooks (indices 1/2) have no trust entries and are skipped by native Codex.
-- **Preservation & Cleanup**: Per contract, hook definitions, configuration, credential root, and existing sessions were strictly preserved without modifying trust or authority. The owned terminal was cleanly closed and verified exited.
+  - This limitation is treated strictly as **blocked coverage**, not a passed advisory probe.
+- **Preservation & Cleanup**: Per contract, hook definitions, configuration, credential root, prior evidence, and existing sessions were strictly preserved without modifying trust or authority. The owned terminal was cleanly closed and verified exited (operator_close and disconnected state confirmed by Control). No further native probes were launched.
 
 ## 4. Retained evidence
 
 Private metadata-only evidence is retained under `.tmp-dely/jev-recovery-followup/`:
+- `control-original-gates.sh`: Control's exact-command runner demonstrating all ten original AGENTS.md code blocks pass.
+- `control-document-check.json`: Document mapping symmetry and reversal check.
 - `token-mapping.json`: Exact token replacement counts and before/after verification.
 - `run-gates.sh`: Executable gate validation script.
 - `check-readme.cjs`: README role row matcher against jq output.
