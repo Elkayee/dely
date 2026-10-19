@@ -272,11 +272,11 @@ function summarize(events, workers, conversations, options = {}) {
     model: l.launch?.effective?.model || null, effort: l.launch?.effective?.effort || null,
     snapshotId: l.taskKey, bound: !!l.assessment, requestedModel: l.launch?.requested?.model || null,
     status: workerById.get(l.dispatchId)?.status || "Not observed", fallback: l.fallbackReason || null,
-    source: "Dely log",
+    source: "Dely log", diagnosticAvailable: workerById.has(l.dispatchId),
   }));
   const launchIds = new Set(activity.map((l) => l.id));
   for (const w of jobs) if (!launchIds.has(w.id)) activity.push({
-    ...w, grade: null, model: w.model || null, fallback: null, source: "Orca",
+    ...w, grade: null, model: w.model || null, fallback: null, source: "Orca", diagnosticAvailable: true,
   });
   const sessions = conversations.filter(visible);
   const conversationModels = new Map();
@@ -456,6 +456,39 @@ async function readWorkers() {
   return { rows, total, pages, complete: !cursor, scope };
 }
 
+const workerId = /^ctx_[a-f0-9]{12}$/;
+async function readWorkerDiagnostic(id, read = orca) {
+  if (typeof id !== "string" || id.length !== 16 || !workerId.test(id)) throw new Error("Invalid dispatch id");
+  const result = (await read(["orchestration", "worker-show", "--dispatch", id, "--json"]))?.result;
+  const dispatch = result?.dispatch, projection = result?.projection;
+  if (!dispatch || dispatch.id !== id) throw new Error("Worker diagnostic is unavailable");
+  const known = (value, values) => values.includes(value) ? value : null;
+  const terminationReason = known(dispatch.terminationReason, ["operator_close"]);
+  const failure = { kind: terminationReason || "unknown", source: terminationReason ? "dispatch.terminationReason" : null,
+    reportedDepth: null, maxDepth: null };
+  if (!terminationReason && typeof dispatch.lastFailure === "string" && dispatch.lastFailure.length <= 16384) {
+    let report;
+    try { report = JSON.parse(dispatch.lastFailure); } catch (_) { /* Unreadable evidence remains unknown. */ }
+    if (report?.provenance === "worker_report" && report.outcome === "failed" && typeof report.body === "string") {
+      failure.kind = "worker_report"; failure.source = "dispatch.lastFailure.worker_report";
+      const matches = [...report.body.matchAll(/\bnested dispatch depth (\d{1,3}) exceeds max (\d{1,3})\b/g)];
+      if (matches.length === 1 && Number(matches[0][1]) > Number(matches[0][2])) {
+        failure.kind = "reported_depth_limit";
+        failure.reportedDepth = Number(matches[0][1]); failure.maxDepth = Number(matches[0][2]);
+      }
+    }
+  }
+  return {
+    id, status: known(dispatch.status, ["pending", "dispatched", "completed", "failed", "canceled", "cancelled"]),
+    outcome: known(projection?.outcome, ["in_progress", "succeeded", "failed", "canceled", "cancelled", "unknown"]),
+    terminationReason, depth: Number.isSafeInteger(dispatch.depth) && dispatch.depth >= 0 ? dispatch.depth : null,
+    liveness: { verdict: known(projection?.liveness?.verdict, ["live", "exited", "unknown"]) || "unknown",
+      source: "projection.liveness", evidenceSource: known(projection?.liveness?.source,
+        ["agent_status", "terminal", "terminal_status", "process", "durable"]) },
+    failure,
+  };
+}
+
 async function collect(options = {}) {
   const file = options.journal || path.join(os.homedir(), ".dely", "log.jsonl"), events = [];
   const sources = { log: { file, enabled: fs.existsSync(path.dirname(file)), present: fs.existsSync(file), malformed: 0 } };
@@ -519,4 +552,4 @@ function readRuntimes(homes = ROOTS) {
   });
 }
 
-module.exports = { GRADES, instant, isProbe, summarize, jsonLines, createConversationReader, readConversations, readRuntimes, collect };
+module.exports = { GRADES, instant, isProbe, summarize, jsonLines, createConversationReader, readConversations, readRuntimes, collect, readWorkerDiagnostic };

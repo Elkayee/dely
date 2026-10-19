@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const names = { easy: "Easy", medium_minus: "Medium−", medium_plus: "Medium+", hard: "Hard" };
 let activity = [], visibleRows = 25, taskRowsShown = 20, displayedScope = "";
 let jevRows = [], jevShown = 25, jevScope = "";
+const workerDetails = new Map();
 const observationKey = "dely-monitor.observation-start";
 let observationStart = null, storageWarning = "", refreshId = 0, loadingTimer = null;
 try {
@@ -104,6 +105,55 @@ function renderMeasure(id, title, metric) {
   return card;
 }
 
+function paintWorkerDetail(box, entry) {
+  box.replaceChildren();
+  if (!entry.detail) { box.textContent = entry.loading ? "Loading worker diagnostic…" : "Worker diagnostic unavailable; source outcome is unchanged."; return; }
+  const d = entry.detail, f = d.failure;
+  for (const text of [
+    `Raw dispatch status: ${d.status ?? "Unknown"} (dispatch.status) · Raw outcome: ${d.outcome ?? "Unknown"} (projection.outcome)`,
+    `Observed cause: ${f.kind} · Evidence: ${f.source ?? "Unknown"}`,
+    `Actual dispatch depth: ${d.depth ?? "Unknown"} (dispatch.depth)`,
+    `Liveness: ${d.liveness.verdict} (${d.liveness.source}; evidence source: ${d.liveness.evidenceSource ?? "Unknown"})`,
+    ...(f.kind === "reported_depth_limit" ? [`Worker-reported nested depth ${f.reportedDepth}, max ${f.maxDepth}; not independently verified. Use root Control depth 0; keep max depth unchanged.`] : []),
+    "Raw failed status includes operator interruptions. Missing liveness evidence does not prove inactivity.",
+  ]) box.append(element("p", text));
+}
+
+function workerDetail(row) {
+  const wrap = element("div"), button = element("button", "Worker details", "button");
+  button.type = "button";
+  const box = element("div", null, "details-content"); box.id = `worker-detail-${row.id}`;
+  const saved = workerDetails.get(row.id);
+  box.hidden = !saved?.open; button.setAttribute("aria-expanded", String(!box.hidden));
+  button.setAttribute("aria-controls", box.id);
+  if (saved) paintWorkerDetail(box, saved);
+  button.addEventListener("click", async () => {
+    let entry = workerDetails.get(row.id);
+    if (!entry) {
+      if (workerDetails.size >= 32) {
+        const oldest = [...workerDetails].find(([, value]) => !value.loading);
+        if (oldest) workerDetails.delete(oldest[0]);
+        else return;
+      }
+      entry = { open: false, loading: false, detail: null, loaded: 0 }; workerDetails.set(row.id, entry);
+    }
+    entry.open = !entry.open; box.hidden = !entry.open; button.setAttribute("aria-expanded", String(entry.open));
+    if (!entry.open) return;
+    if (entry.loading || Date.now() - entry.loaded < 30000) { paintWorkerDetail(box, entry); return; }
+    entry.loading = true; entry.detail = null; paintWorkerDetail(box, entry);
+    try {
+      const response = await fetch(`/api/workers/${encodeURIComponent(row.id)}`);
+      if (!response.ok) throw new Error("Unavailable");
+      entry.detail = await response.json();
+    } catch (_) { entry.detail = null; }
+    finally {
+      entry.loading = false; entry.loaded = Date.now();
+      const current = document.getElementById(box.id); if (current) paintWorkerDetail(current, entry);
+    }
+  });
+  wrap.append(button, box); return wrap;
+}
+
 function showRows() {
   const tbody = $("activity-rows"); tbody.replaceChildren();
   for (const row of activity.slice(0, visibleRows)) {
@@ -112,6 +162,7 @@ function showRows() {
     workspace.append(element("span", row.repo ? row.repo.replace(/\\/g, "/").split("/").filter(Boolean).pop() : "Unknown workspace", "workspace-name"), element("span", row.id, "mono"));
     tr.append(workspace, element("td", names[row.grade] || "Unclassified", row.grade ? "" : "unknown"), element("td", modelName(row.model), row.model ? "" : "unknown"));
     const state = element("td"); state.append(element("span", row.status, "status " + (row.status === "succeeded" ? "success" : row.status === "failed" ? "failed" : ["running", "starting", "queued"].includes(row.status) ? "active" : "")));
+    if (row.diagnosticAvailable && row.id?.length === 16 && /^ctx_[a-f0-9]{12}$/.test(row.id)) state.append(workerDetail(row));
     tr.append(state, element("td", row.fallback ? `${row.source} · ${row.fallback}` : row.source), element("td", row.ts ? new Date(row.ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not recorded", row.ts ? "" : "unknown"));
     tbody.append(tr);
   }
@@ -209,7 +260,7 @@ function render(data) {
   $("approvals").textContent = number(log.present ? data.tasks.approved : null);
   $("approval-detail").textContent = `${log.present ? data.tasks.recorded : "No"} assessment records · ${data.tasks.unknown} unknown grades`;
   $("workers").textContent = number(orca.available ? data.jobs.count : null);
-  $("worker-detail").textContent = sourceProgress(orca) ? "Reading worker inventory…" : orca.available ? `${data.jobs.succeeded} succeeded · ${data.jobs.failed} failed · ${data.jobs.active} active` : "Orca source is unavailable";
+  $("worker-detail").textContent = sourceProgress(orca) ? "Reading worker inventory…" : orca.available ? `${data.jobs.succeeded} succeeded · ${data.jobs.failed} failed · ${data.jobs.active} active; failed includes operator interruptions` : "Orca source is unavailable";
   $("sessions").textContent = number(codex.available ? data.conversations.sessions : null);
   $("session-detail").textContent = sourceProgress(codex) ? "Reading conversation metadata…" : codex.available ? `${number(data.conversations.turns)} recorded Codex turns` : "Conversation source is unavailable";
   if ($("measures-grid")) {

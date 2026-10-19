@@ -6,7 +6,7 @@ const path = require("node:path");
 const os = require("node:os");
 const http = require("node:http");
 const { parseArgs } = require("node:util");
-const { collect, summarize } = require("./dely-monitor-data.js");
+const { collect, summarize, readWorkerDiagnostic } = require("./dely-monitor-data.js");
 const { summarizeJev } = require("./dely-monitor-jev.js");
 
 function sinceTimestamp(value) {
@@ -22,6 +22,7 @@ function createMonitor(options = {}) {
   const files = { "/": ["index.html", "text/html"], "/monitor.css": ["monitor.css", "text/css"],
     "/monitor.js": ["monitor.js", "text/javascript"], "/jev-view.js": ["jev-view.js", "text/javascript"] };
   const now = options.now || Date.now;
+  const diagnostics = new Map();
   let cache = null, preview = null, pending = null, first = null, lastError = null, attempted = 0;
   const load = async (fresh = false, progressive = false) => {
     if (!pending && (!cache || fresh || now() - cache.loaded >= 30000) &&
@@ -60,6 +61,31 @@ function createMonitor(options = {}) {
     res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'");
     if (req.method !== "GET") { res.writeHead(405).end(); return; }
     const url = new URL(req.url, "http://127.0.0.1");
+    if (url.pathname.startsWith("/api/workers/")) {
+      const id = url.pathname.slice("/api/workers/".length);
+      if (id.length !== 16 || !/^ctx_[a-f0-9]{12}$/.test(id)) { res.writeHead(400).end(); return; }
+      // Only inventory rows already observed by normal collection authorize a detail read.
+      if (!(preview || cache?.data)?.workers?.some((w) => w.id === id)) { res.writeHead(404).end(); return; }
+      let entry = diagnostics.get(id);
+      if (entry && !entry.pending && now() - entry.loaded >= 30000) { diagnostics.delete(id); entry = null; }
+      if (!entry) {
+        if (diagnostics.size >= 32) {
+          const oldest = [...diagnostics].find(([, value]) => !value.pending);
+          if (oldest) diagnostics.delete(oldest[0]);
+        }
+        if (diagnostics.size < 32) {
+          entry = { pending: true, loaded: now() };
+          entry.promise = readWorkerDiagnostic(id, options.orca).catch(() => null).then((value) => {
+            entry.pending = false; entry.loaded = now(); return value;
+          });
+          diagnostics.set(id, entry);
+        }
+      }
+      const detail = entry ? await entry.promise : null;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.writeHead(detail ? 200 : 503).end(JSON.stringify(detail || { error: "Worker diagnostic is unavailable" }));
+      return;
+    }
     if (url.pathname === "/api/usage") {
       const days = Number(url.searchParams.get("days") || 7);
       const since = sinceTimestamp(url.searchParams.get("since"));

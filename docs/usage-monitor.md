@@ -10,6 +10,29 @@ Open http://127.0.0.1:8787. Use `--port` for another local port. The monitor
 binds only to loopback and serves a metadata-only, read-only API. It has no
 external assets, framework, database or scheduled automation.
 
+Activity rows observed in the Orca inventory have a **Worker details** button.
+Opening it reads that dispatch through `orca orchestration worker-show`; normal
+startup, refresh and filtering never request worker details. Only strictly valid,
+already observed dispatch IDs are accepted. Concurrent reads of the same ID
+share one request, with an eight-second CLI timeout and a 32-entry, 30-second
+cache (including unavailable results). The browser retains at most 32 opened
+detail records; another read requires an explicit open after cache expiry.
+
+Details keep raw dispatch status and raw outcome separate from the observed
+cause. Raw failed counts include operator interruptions and remain unchanged by
+diagnostic reads, as do active/succeeded counts and all adoption denominators.
+Only structured `dispatch.terminationReason=operator_close` establishes that
+cause; the word “operator” in report text does not. A bounded, known nested
+depth/max pattern from a failed `worker_report` is labeled **reported_depth_limit**
+and attributed to that report, without independent verification of the nested
+attempt. Actual `dispatch.depth` is shown separately, including unknown/null.
+For a reported depth limit, use root Control at depth 0 and keep max depth
+unchanged. Other recognized failed reports are **worker_report**; absent or
+unreadable evidence is **unknown**. Missing liveness never proves inactivity.
+Loading and unavailable details do not change the source outcome. Only a small
+field allowlist is returned: no report bodies/paths, prompts, raw failure JSON,
+stacks, argv or credentials. The monitor adds no lifecycle actions.
+
 `--enable-logging` explicitly creates the machine-local `~/.dely/` directory.
 Dely itself still never creates this directory. Without it, logging remains
 disabled. Existing prompt/source content and credentials are not copied into

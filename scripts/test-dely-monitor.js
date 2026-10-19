@@ -7,13 +7,112 @@ const { once } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { summarize, jsonLines, collect, readRuntimes, createConversationReader } = require("./dely-monitor-data.js");
+const { summarize, jsonLines, collect, readRuntimes, createConversationReader, readWorkerDiagnostic } = require("./dely-monitor-data.js");
 const { createMonitor } = require("./dely-monitor.js");
 const { createJevReader } = require("./dely-monitor-jev.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
 const specHash = "a".repeat(64), contextHash = "b".repeat(64), basis = "c".repeat(64);
 const key = taskKey(repo, specHash, contextHash);
+test("worker diagnostics preserve raw outcomes, structured cause and missing evidence", async () => {
+  const id = "ctx_123456abcdef";
+  const read = (dispatch, projection = {}) => readWorkerDiagnostic(id, async () => ({ result: {
+    dispatch: { id, status: "failed", ...dispatch }, projection,
+  } }));
+  const closed = await read({ terminationReason: "operator_close", depth: 1 },
+    { outcome: "failed", liveness: { verdict: "exited", source: "terminal" } });
+  assert.equal(closed.status, "failed"); assert.equal(closed.outcome, "failed");
+  assert.equal(closed.failure.kind, "operator_close");
+  assert.equal(closed.failure.source, "dispatch.terminationReason");
+  assert.equal(closed.depth, 1); assert.equal(closed.liveness.verdict, "exited");
+  for (const lastFailure of [null, "malformed", { body: "operator closed PRIVATE_SECRET" }]) {
+    const unknown = await read({ lastFailure });
+    assert.equal(unknown.failure.kind, "unknown"); assert.equal(unknown.terminationReason, null);
+    assert.equal(unknown.depth, null); assert.equal(unknown.liveness.verdict, "unknown");
+    assert.doesNotMatch(JSON.stringify(unknown), /PRIVATE_SECRET|operator closed/);
+  }
+  const report = (body, extra = {}) => JSON.stringify({ provenance: "worker_report", outcome: "failed", body, ...extra });
+  const nested = await read({ depth: 1, lastFailure: report("actual Dely preflight failed because nested dispatch depth 2 exceeds max 1. PRIVATE_BODY") }, { outcome: "failed" });
+  assert.equal(nested.depth, 1); assert.equal(nested.status, "failed"); assert.equal(nested.outcome, "failed");
+  assert.deepEqual(nested.failure, { kind: "reported_depth_limit", source: "dispatch.lastFailure.worker_report", reportedDepth: 2, maxDepth: 1 });
+  assert.equal(nested.terminationReason, null); assert.doesNotMatch(JSON.stringify(nested), /PRIVATE_/);
+  for (const body of ["operator interrupted PRIVATE_BODY", "nested dispatch depth x exceeds max 1",
+    "nested dispatch depth 1 exceeds max 2", "nested dispatch depth 2 exceeds max 1; nested dispatch depth 3 exceeds max 1"]) {
+    const ordinary = await read({ lastFailure: report(body) });
+    assert.equal(ordinary.failure.kind, "worker_report"); assert.equal(ordinary.terminationReason, null);
+    assert.equal(ordinary.failure.reportedDepth, null); assert.equal(ordinary.depth, null);
+  }
+  for (const lastFailure of [report("nested dispatch depth 2 exceeds max 1", { provenance: "exception" }),
+    report(null), report("x".repeat(16385)), "null"]) assert.equal((await read({ lastFailure })).failure.kind, "unknown");
+  const precedence = await read({ terminationReason: "operator_close", depth: 0, lastFailure: report("nested dispatch depth 2 exceeds max 1") });
+  assert.equal(precedence.failure.kind, "operator_close"); assert.equal(precedence.depth, 0);
+  let invalidCalls = 0;
+  for (const bad of ["ctx_123456abcdef&whoami", "ctx_123456abcdef\n", "ctx_123456abcdef\r\n", "ctx_123456abcdeF"])
+    await assert.rejects(readWorkerDiagnostic(bad, async () => { invalidCalls++; }));
+  assert.equal(invalidCalls, 0);
+  await assert.rejects(readWorkerDiagnostic(id, async () => ({ result: { dispatch: { id: "ctx_ffffffffffff" } } })));
+});
+
+test("diagnostic API only reads observed ids on demand, deduplicates and strips private fields", async () => {
+  const id = "ctx_123456abcdef", failedId = "ctx_000000000001";
+  let calls = 0, release, started;
+  const held = new Promise((resolve) => { release = resolve; });
+  const reading = new Promise((resolve) => { started = resolve; });
+  const data = { events: [], workers: [id, failedId].map((id) => ({ id, ts, repo, status: "failed" })),
+    conversations: [], sources: {}, collectedAt: ts };
+  const server = createMonitor({ now: () => Date.parse(ts), collect: async () => data, orca: async (args) => {
+    calls++; started(); assert.deepEqual(args.slice(0, 3), ["orchestration", "worker-show", "--dispatch"]);
+    if (args[3] === failedId) throw Error("PRIVATE_STACK");
+    await held;
+    return { result: { dispatch: { id, status: "failed", depth: 1, terminationReason: "operator_close",
+      prompt: "PRIVATE_PROMPT", lastFailure: { body: "PRIVATE_BODY", path: "PRIVATE_PATH" } },
+      projection: { outcome: "failed", liveness: { verdict: "exited", source: "PRIVATE_SECRET" } },
+      terminal: { argv: "PRIVATE_ARGV" } } };
+  } });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal((await fetch(`${base}/api/workers/${id}`)).status, 404);
+    const before = await (await fetch(`${base}/api/usage?days=30`)).json();
+    for (const invalid of ["ctx_ffffffffffff", "ctx_123456abcdef%26whoami", "bad"]) {
+      assert.ok([400, 404].includes((await fetch(`${base}/api/workers/${invalid}`)).status));
+    }
+    assert.equal(calls, 0);
+    const a = fetch(`${base}/api/workers/${id}`), b = fetch(`${base}/api/workers/${id}`);
+    await reading; assert.equal(calls, 1);
+    release();
+    for (const response of await Promise.all([a, b])) {
+      assert.equal(response.status, 200);
+      const detail = await response.json(); assert.equal(detail.failure.kind, "operator_close");
+      assert.doesNotMatch(JSON.stringify(detail), /PRIVATE_/);
+    }
+    await fetch(`${base}/api/workers/${id}`); assert.equal(calls, 1);
+    const unavailable = await fetch(`${base}/api/workers/${failedId}`);
+    assert.equal(unavailable.status, 503); assert.doesNotMatch(await unavailable.text(), /PRIVATE_/);
+    assert.equal((await fetch(`${base}/api/workers/${failedId}`)).status, 503);
+    assert.deepEqual(await (await fetch(`${base}/api/usage?days=30`)).json(), before);
+    assert.equal(calls, 2);
+  } finally { release(); server.close(); await once(server, "close"); }
+});
+
+test("diagnostic cache expires and evicts without exceeding its bounded entry set", async () => {
+  let clock = Date.parse(ts), calls = 0;
+  const ids = Array.from({ length: 34 }, (_, i) => `ctx_${i.toString(16).padStart(12, "0")}`);
+  const server = createMonitor({ now: () => clock, collect: async () => ({ events: [],
+    workers: ids.map((id) => ({ id, ts, repo, status: "failed" })), conversations: [], sources: {}, collectedAt: ts }),
+  orca: async (args) => { calls++; return { result: { dispatch: { id: args[3], status: "failed" } } }; } });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await fetch(`${base}/api/usage`);
+    for (const id of ids.slice(0, 33)) assert.equal((await fetch(`${base}/api/workers/${id}`)).status, 200);
+    assert.equal(calls, 33);
+    await fetch(`${base}/api/workers/${ids[1]}`); assert.equal(calls, 33);
+    await fetch(`${base}/api/workers/${ids[0]}`); assert.equal(calls, 34);
+    clock += 30000;
+    await fetch(`${base}/api/workers/${ids[0]}`); assert.equal(calls, 35);
+  } finally { server.close(); await once(server, "close"); }
+});
 test("Jev loading stays progressive, API projections respect every filter and source failures stay visible", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-jev-api-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -79,6 +178,25 @@ const control = { event: "task_control_result", ts: later, reviewed_at: later, r
   verdict: "accepted", run: launch.run, dispatchId: launch.dispatchId, policy: approval.policy,
   taskKey: key, assessment_basis_sha256: basis, evidence_sha256: "e".repeat(64) };
 const metrics = (events, options = {}) => summarize(events, [], [], options).metrics;
+
+test("diagnostic reads preserve populated Dely, worker, Codex and Jev denominators", async () => {
+  const id = "ctx_123456abcdef";
+  const data = { events: [reviewed, route, { ...launch, dispatchId: id }],
+    workers: ["failed", "running", "succeeded"].map((status, i) => ({ id: i ? `ctx_${String(i).padStart(12, "0")}` : id, status, repo, ts })),
+    conversations: [{ session: "one", ts, repo, model: "gpt-6.1-sol" }], jev: [], sources: {}, collectedAt: last };
+  const server = createMonitor({ collect: async () => data, now: () => Date.parse(last),
+    orca: async () => ({ result: { dispatch: { id, status: "failed", terminationReason: "operator_close" }, projection: { outcome: "failed" } } }) });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const before = await (await fetch(`${base}/api/usage`)).json();
+    assert.equal(before.jobs.count, 3); assert.equal(before.jobs.failed, 1);
+    assert.equal(before.jobs.active, 1); assert.equal(before.jobs.succeeded, 1);
+    assert.equal(before.metrics.agyStart.denominator, 1); assert.equal(before.conversations.sessions, 1);
+    assert.equal((await fetch(`${base}/api/workers/${id}`)).status, 200);
+    assert.deepEqual(await (await fetch(`${base}/api/usage`)).json(), before);
+  } finally { server.close(); await once(server, "close"); }
+});
 
 test("conversation projections reuse unchanged files and invalidate changed, replaced, truncated and deleted sources", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-conversation-cache-"));
