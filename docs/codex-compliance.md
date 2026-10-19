@@ -111,6 +111,32 @@ Neither field changes admission or routing. Missing or
 unwritable logging never changes routing or admission. Tests use a private
 journal so their results do not inflate ordinary usage.
 
+## Continue the same confirmed task
+
+An implementation review saves a private immutable `continuation.json` checkpoint.
+After a wake, native state remains `PENDING`; the checkpoint grants no permission.
+Stage the new current-turn input from the actual session roster, retaining the same
+specification, context, target and mandatory skills. Add `--continue` to the printed
+`prepare` command and supply the original `--run` for delegated work. Direct Hard
+work omits `--run`. Build the input normally; `native_continuation` is reserved
+adapter metadata and must not be supplied by the caller.
+
+Continuation reuses the original paths and raw assessment without another Jev
+request. It validates the owner session, native model, thread/terminal, instructions,
+selected policies, software, target and artifact fingerprints. A delegated task
+also needs its original matching dispatch. The preparation event uses operation
+`continue`, rather than suggesting a new assessment occurred.
+
+Explicit current-turn Control review remains required. Keep the original difficulty,
+Run, selected skill set and any correction proof. A fresh reviewed artifact is
+written for the current turn; the original assessment and review stay unchanged.
+Workers cannot consume a Control continuation through a staged receipt claim.
+
+For a changed task, instructions, model, roster, target, dependency or software,
+use normal preparation and the required new dispatch. Older states without a
+checkpoint also use normal preparation. Normal preparation remains the default;
+the adapter never guesses that a new user request continues an old approval.
+
 File input keeps a large session skill catalog out of the Windows process
 command line. Relative paths resolve from the current working directory;
 quote paths containing spaces. UTF-8 with or without a BOM is accepted.

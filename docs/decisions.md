@@ -9,6 +9,21 @@ Last updated 2026-10-18.
 
 ## Settled
 
+### 2026-10-19 — Explicit native continuation retains frozen admission evidence
+
+Native implementation reviews save a private immutable continuation checkpoint.
+An explicit current-turn continuation validates its owner, original fingerprints,
+instructions, roster, model, software and target, then reuses the original raw
+assessment and paths. Delegated continuations also require the bound Run and
+dispatch. This avoids changing the v4 assessment basis through repeated Jev calls
+or newly allocated input paths after a wake. Original artifacts are never rewritten.
+
+The next prompt remains pending and requires fresh input and Control review with
+the same route, selected skills and correction identity. Changed or missing proof
+requires a fresh flow. Advice-only reviews grant no execution continuation; worker
+claims, changed owners and checkpoint/metadata tampering remain denied. Portable
+dispatch, model, fallback and hook-trust rules are unchanged by this native slice.
+
 ### 2026-10-18 — Reconciled transport fallback and independent usage evidence
 
 Version `0.27.7` extends the existing v4 low-tier route with one reconciled
