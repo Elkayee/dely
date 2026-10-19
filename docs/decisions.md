@@ -15,6 +15,10 @@ changing its original-versus-Control distinction or denominators. The portable
 `jev-task-routing-v4` policy, approval basis, request timeout, dispatch, provider
 discovery and fallback behavior remain unchanged. Activation is performed by
 Control between settled plans; this slice does not change worker launches.
+The advisor and router retain independent self-contained request helpers with
+the same diagnostic contract. Importing the router into the advisor would break
+the native installer's frozen advisor copy, which has no sibling skills tree;
+private temporary-home installation tests cover the copied public advice API.
 
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.

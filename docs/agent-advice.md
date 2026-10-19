@@ -136,6 +136,9 @@ New requests record `request_diagnostics`: fixed `stage` / `code` pairs
 No exception text, provider body, URL, prompt or catalog is saved in telemetry.
 Existing generic failure reasons remain recognized; absent historical telemetry
 is never reconstructed. Credentials and size guards do not invent request data.
+The advisor and router keep self-contained request helpers with the same safe
+diagnostics; the frozen installed advisor needs no sibling routing module for
+context or skill advice.
 
 An interrupted skill run records `incomplete_batch_progress`, bound to
 `input_sha256`, with zero-based failed `batch_index`, planned `batch_count`,

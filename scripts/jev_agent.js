@@ -8,7 +8,6 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { parseArgs, parseEnv } = require("node:util");
-const { requestJev } = require("../skills/delivery/scripts/task-routing.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const INSTALL = path.join(os.homedir(), ".codex", "dely-orca-agy-global");
@@ -30,6 +29,34 @@ const RELATION = {
 };
 const nonempty = (s) => typeof s === "string" && s.trim().length > 0;
 const digest = (s) => crypto.createHash("sha256").update(s).digest("hex");
+
+// Self-contained because the native installer freezes this file without a sibling skills tree.
+// Keep the same fixed diagnostics as the router's independent request boundary.
+async function requestJev(body, key, validate, options = {}, redirect) {
+  const started = performance.now();
+  const diagnostics = { stage: "transport", code: "TRANSPORT_ERROR", duration_ms: null,
+    http_status: null, requested_model: MODEL, provider_model: null };
+  const finish = (stage, code, reply = null) => ({ reply,
+    diagnostics: { ...diagnostics, stage, code, duration_ms: performance.now() - started } });
+  let stage = "transport";
+  try {
+    const response = await (options.fetch || globalThis.fetch)("https://api.typesafe.ai/v1/systemone", {
+      method: "POST", headers: { Authorization: "Bearer " + key.trim(), "Content-Type": "application/json" },
+      body, signal: AbortSignal.timeout(10000), ...(redirect ? { redirect } : {}),
+    });
+    if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599) diagnostics.http_status = response.status;
+    if (!response.ok) return finish("http", "HTTP_ERROR");
+    stage = "json";
+    const reply = await response.json();
+    stage = "schema";
+    const checked = validate(reply) || reply;
+    diagnostics.provider_model = MODEL; // The complete reply validator proved this exact model.
+    return finish("complete", "OK", checked);
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.name === "TimeoutError") return finish("timeout", "REQUEST_TIMEOUT");
+    return finish(stage, { transport: "TRANSPORT_ERROR", json: "JSON_DECODE_ERROR", schema: "SCHEMA_INVALID" }[stage]);
+  }
+}
 
 // Read the string scalar forms used by SKILL.md metadata. Unsupported YAML fails closed.
 function metadataString(frontmatter, field) {
