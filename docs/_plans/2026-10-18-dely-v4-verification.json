@@ -1,0 +1,543 @@
+{
+  "as_of": "2026-10-18T04:47:39.401Z",
+  "candidate_tree": "51bbe5b24b4c385dbcd000e6e3b3a6e19252d75b",
+  "installed": [
+    {
+      "home": "C:/Users/Home33/.codex",
+      "native_plugin": {
+        "pluginId": "dely@dely-orca-agy-global",
+        "name": "dely",
+        "marketplaceName": "dely-orca-agy-global",
+        "version": "0.27.6",
+        "installed": true,
+        "enabled": true,
+        "source": {
+          "source": "local",
+          "path": "C:\\Users\\Home33\\.codex\\dely-releases\\0.27.6-51bbe5b24b4c"
+        },
+        "marketplaceSource": {
+          "sourceType": "local",
+          "source": "\\\\?\\C:\\Users\\Home33\\.codex\\dely-releases\\0.27.6-51bbe5b24b4c"
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL"
+      },
+      "settings_routing": "C:\\Users\\Home33\\.codex\\plugins\\cache\\dely-orca-agy-global\\dely\\0.27.6\\skills\\delivery\\scripts\\task-routing.js",
+      "policy": "jev-task-routing-v4",
+      "fingerprint": {
+        "version": "0.27.6",
+        "router": "9e199c6064f52a3469cccb3eec1b8e68f70c3717e31f6aef504ba1920e1dcb8f",
+        "dispatcher": "46bc3ed3f023973d2bca6ed316a9f02311a7244420d9679f1a592128bb4f980d",
+        "usage": "98ebb45d81c84c3f72e1e3c99f0a7c6266a01859533189f48182da606134db81"
+      },
+      "adapter_sha256": "4dc316b387922872a95946d6ace78a8602d0bee24d2b7bc9b639977ded7df5d4",
+      "advisor_sha256": "9477a5f75a126d4499911a0cd44da7eb2cc454f2ca1f3cf512b1a3ecdb00e0f7",
+      "credential_root": "D:\\orca",
+      "hooks_sha256": "c03a6959a44d3bafabd785dc8910575667d8e3cb084dcd7474dcfacb3a25f982",
+      "old_cache_retained": true,
+      "matrix": {
+        "easy": {
+          "workflow": "dely",
+          "primary": {
+            "harness": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "effort": "default"
+          },
+          "modelUnavailable": {
+            "harness": "codex",
+            "model": "gpt-6-luna",
+            "effort": "max"
+          },
+          "fallback": [
+            {
+              "harness": "codex",
+              "model": "gpt-6-luna",
+              "effort": "max"
+            }
+          ]
+        },
+        "medium_minus": {
+          "workflow": "dely",
+          "primary": {
+            "harness": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "effort": "default"
+          },
+          "modelUnavailable": {
+            "harness": "codex",
+            "model": "gpt-6-luna",
+            "effort": "max"
+          },
+          "fallback": [
+            {
+              "harness": "codex",
+              "model": "gpt-6-luna",
+              "effort": "max"
+            }
+          ]
+        },
+        "medium_plus": {
+          "workflow": "dely",
+          "primary": {
+            "harness": "codex",
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
+          },
+          "fallback": []
+        },
+        "hard": {
+          "workflow": "direct",
+          "primary": {
+            "harness": "codex",
+            "model": "gpt-6.1-sol",
+            "effort": "xhigh"
+          },
+          "fallback": []
+        }
+      }
+    },
+    {
+      "home": "C:/Users/Home33/AppData/Roaming/orca/codex-runtime-home/home",
+      "native_plugin": {
+        "pluginId": "dely@dely-orca-agy-global",
+        "name": "dely",
+        "marketplaceName": "dely-orca-agy-global",
+        "version": "0.27.6",
+        "installed": true,
+        "enabled": true,
+        "source": {
+          "source": "local",
+          "path": "C:\\Users\\Home33\\.codex\\dely-releases\\0.27.6-51bbe5b24b4c"
+        },
+        "marketplaceSource": {
+          "sourceType": "local",
+          "source": "\\\\?\\C:\\Users\\Home33\\.codex\\dely-releases\\0.27.6-51bbe5b24b4c"
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL"
+      },
+      "settings_routing": "C:\\Users\\Home33\\.codex\\plugins\\cache\\dely-orca-agy-global\\dely\\0.27.6\\skills\\delivery\\scripts\\task-routing.js",
+      "policy": "jev-task-routing-v4",
+      "fingerprint": {
+        "version": "0.27.6",
+        "router": "9e199c6064f52a3469cccb3eec1b8e68f70c3717e31f6aef504ba1920e1dcb8f",
+        "dispatcher": "46bc3ed3f023973d2bca6ed316a9f02311a7244420d9679f1a592128bb4f980d",
+        "usage": "98ebb45d81c84c3f72e1e3c99f0a7c6266a01859533189f48182da606134db81"
+      },
+      "adapter_sha256": "4dc316b387922872a95946d6ace78a8602d0bee24d2b7bc9b639977ded7df5d4",
+      "advisor_sha256": "9477a5f75a126d4499911a0cd44da7eb2cc454f2ca1f3cf512b1a3ecdb00e0f7",
+      "credential_root": "D:\\orca",
+      "hooks_sha256": "374cc2260a87843a8df7dfd9c38a8c079cdf3d3e46057ba1661dcee7dcd4f704",
+      "old_cache_retained": true,
+      "matrix": {
+        "easy": {
+          "workflow": "dely",
+          "primary": {
+            "harness": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "effort": "default"
+          },
+          "modelUnavailable": {
+            "harness": "codex",
+            "model": "gpt-6-luna",
+            "effort": "max"
+          },
+          "fallback": [
+            {
+              "harness": "codex",
+              "model": "gpt-6-luna",
+              "effort": "max"
+            }
+          ]
+        },
+        "medium_minus": {
+          "workflow": "dely",
+          "primary": {
+            "harness": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "effort": "default"
+          },
+          "modelUnavailable": {
+            "harness": "codex",
+            "model": "gpt-6-luna",
+            "effort": "max"
+          },
+          "fallback": [
+            {
+              "harness": "codex",
+              "model": "gpt-6-luna",
+              "effort": "max"
+            }
+          ]
+        },
+        "medium_plus": {
+          "workflow": "dely",
+          "primary": {
+            "harness": "codex",
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
+          },
+          "fallback": []
+        },
+        "hard": {
+          "workflow": "direct",
+          "primary": {
+            "harness": "codex",
+            "model": "gpt-6.1-sol",
+            "effort": "xhigh"
+          },
+          "fallback": []
+        }
+      }
+    }
+  ],
+  "cache_recovery": {
+    "at": "2026-10-18T04:22:15.416Z",
+    "source": "C:\\Users\\Home33\\.codex\\dely-orca-agy-global",
+    "restored": [
+      {
+        "home": "C:/Users/Home33/.codex",
+        "target": "C:\\Users\\Home33\\.codex\\plugins\\cache\\dely-orca-agy-global\\dely\\0.27.2",
+        "files": 41,
+        "active_policy": "jev-task-routing-v4"
+      },
+      {
+        "home": "C:/Users/Home33/AppData/Roaming/orca/codex-runtime-home/home",
+        "target": "C:\\Users\\Home33\\.codex\\plugins\\cache\\dely-orca-agy-global\\dely\\0.27.2",
+        "files": 41,
+        "active_policy": "jev-task-routing-v4"
+      }
+    ],
+    "authority": "Historical bytes only; current settings remain v4. No task/run artifacts or approval hashes changed."
+  },
+  "observed": {
+    "window": {
+      "start": "2026-10-18T04:23:13.996Z",
+      "end": "2026-10-18T04:47:39.401Z",
+      "as_of": "2026-10-18T04:47:39.401Z"
+    },
+    "metrics": {
+      "agyPrimary": {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": null
+      },
+      "agyStart": {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": null
+      },
+      "lunaFallback": {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": null
+      },
+      "agyAcceptedWithoutFallback": {
+        "numerator": null,
+        "denominator": null,
+        "rate": null,
+        "pending": null,
+        "status": "NOT_EVALUATED"
+      }
+    },
+    "coverage": {
+      "confirmed": 0,
+      "bound": 0,
+      "unbound": 0,
+      "conflicting": 0,
+      "unidentified": 0,
+      "unknownPhase": 0,
+      "history": "NOT_EVALUATED",
+      "runtimeUnknown": 0
+    },
+    "pending": 0,
+    "runtimeCohorts": [],
+    "tasks": {
+      "recorded": 3,
+      "events": 6,
+      "approved": 3,
+      "eligible": 0,
+      "dispatched": 0,
+      "rate": null,
+      "unknown": 0,
+      "grades": [
+        {
+          "grade": "easy",
+          "count": 0
+        },
+        {
+          "grade": "medium_minus",
+          "count": 0
+        },
+        {
+          "grade": "medium_plus",
+          "count": 0
+        },
+        {
+          "grade": "hard",
+          "count": 3
+        }
+      ]
+    },
+    "sources": {
+      "journal": "C:\\Users\\Home33\\.dely\\log.jsonl",
+      "retained_bytes": 18755,
+      "malformed": 0,
+      "history": "NOT_EVALUATED",
+      "runtimes": [
+        {
+          "home": "C:\\Users\\Home33\\.codex",
+          "verified": true,
+          "fingerprint": {
+            "version": "0.27.6",
+            "router": "9e199c6064f52a3469cccb3eec1b8e68f70c3717e31f6aef504ba1920e1dcb8f",
+            "dispatcher": "46bc3ed3f023973d2bca6ed316a9f02311a7244420d9679f1a592128bb4f980d",
+            "usage": "98ebb45d81c84c3f72e1e3c99f0a7c6266a01859533189f48182da606134db81"
+          }
+        },
+        {
+          "home": "C:\\Users\\Home33\\AppData\\Roaming\\orca\\codex-runtime-home\\home",
+          "verified": true,
+          "fingerprint": {
+            "version": "0.27.6",
+            "router": "9e199c6064f52a3469cccb3eec1b8e68f70c3717e31f6aef504ba1920e1dcb8f",
+            "dispatcher": "46bc3ed3f023973d2bca6ed316a9f02311a7244420d9679f1a592128bb4f980d",
+            "usage": "98ebb45d81c84c3f72e1e3c99f0a7c6266a01859533189f48182da606134db81"
+          }
+        }
+      ]
+    }
+  },
+  "synthetic_examples": [
+    {
+      "synthetic": true,
+      "low_tier": 30,
+      "medium_plus": 70,
+      "metrics": {
+        "agyPrimary": {
+          "numerator": 30,
+          "denominator": 100,
+          "rate": 0.3
+        },
+        "agyStart": {
+          "numerator": 30,
+          "denominator": 100,
+          "rate": 0.3
+        },
+        "lunaFallback": {
+          "numerator": 0,
+          "denominator": 30,
+          "rate": 0
+        },
+        "agyAcceptedWithoutFallback": {
+          "numerator": null,
+          "denominator": null,
+          "rate": null,
+          "pending": null,
+          "status": "NOT_EVALUATED"
+        }
+      }
+    },
+    {
+      "synthetic": true,
+      "low_tier": 80,
+      "medium_plus": 20,
+      "metrics": {
+        "agyPrimary": {
+          "numerator": 80,
+          "denominator": 100,
+          "rate": 0.8
+        },
+        "agyStart": {
+          "numerator": 80,
+          "denominator": 100,
+          "rate": 0.8
+        },
+        "lunaFallback": {
+          "numerator": 0,
+          "denominator": 80,
+          "rate": 0
+        },
+        "agyAcceptedWithoutFallback": {
+          "numerator": null,
+          "denominator": null,
+          "rate": null,
+          "pending": null,
+          "status": "NOT_EVALUATED"
+        }
+      }
+    }
+  ],
+  "live_probe": {
+    "run": "run_5c5e23f39322",
+    "result": "PASS",
+    "expected_model": "gemini-3.8-flash-medium",
+    "expected_effort": "default",
+    "prompt_submitted": true,
+    "worker_count": 1,
+    "fallback_used": false,
+    "cleanup": "CLEANED 0 terminals 0 artifacts; worker succeeded/completed, exact observation exited, residualResources empty",
+    "ordinary_adoption": false,
+    "first_assessment": "Unapproved insufficient-evidence record preserved separately",
+    "second_assessment": {
+      "raw": "medium_plus",
+      "final": "medium_minus",
+      "source": "control-override-justified",
+      "basis": "244c4e7cfeaa48d90262b680c8e3c48ac5b8c3ac7f591e07c946039d056a7559",
+      "correction_sha256": "16fa3d537f70339d8c79d762dc5bc09efc6b0e20a515a88687fd2bb623343201"
+    },
+    "failed_attempt": {
+      "result": "FAIL_MODEL_NOT_APPLIED",
+      "prompt_submitted": false,
+      "worker_count": 0,
+      "fallback_used": false
+    },
+    "elapsed_seconds": 18,
+    "dispatch": {
+      "id": "ctx_d439eef6775c",
+      "runId": "run_5c5e23f39322",
+      "taskId": "task_38bd69126610",
+      "task_id": "task_38bd69126610",
+      "contractVersion": 1,
+      "assigneeHandle": "term_111c8f85-4ac9-412a-819d-8d02500bd21c",
+      "assigneePaneKey": "f3ffdfd6-2cfc-4f69-ac8a-995c007c2c4f:d7b27941-ee12-4dc1-ad55-605f57759a8a",
+      "processIncarnation": "02271450-d7b4-449e-bf39-7dbf8e8df84b::D:/orca@@8b738a46:3dee3c90-fb4e-4872-9dcf-87a854315a58",
+      "capabilityRevokedAt": "2026-10-18T04:44:17.392Z",
+      "retryOfDispatchId": null,
+      "creatorDispatchId": null,
+      "hostScope": {
+        "kind": "local",
+        "hostId": "local"
+      },
+      "status": "completed",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-10-18 04:43:56",
+      "completedAt": "2026-10-18T04:44:17.392Z",
+      "createdAt": "2026-10-18 04:43:56",
+      "lastHeartbeatAt": "2026-10-18T04:44:07Z"
+    },
+    "worker": {
+      "state": "succeeded",
+      "stage": "settled",
+      "residualResources": [],
+      "provider_projection": null
+    },
+    "observation": {
+      "status": "exited",
+      "exactWorker": true
+    },
+    "durable_evidence": {
+      "durable": true,
+      "liveStatus": "unavailable",
+      "lastObservedAt": null
+    },
+    "model_evidence": {
+      "catalog": "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)",
+      "footer": "Gemini 3.8 Flash · medium",
+      "phase": "before prompt submission",
+      "source": "Unmodified installed 0.27.6 gate plus read-only child-process trace",
+      "provider_projection": "NOT_EVALUATED",
+      "trace": ".tmp-dely/footer-preflight-trace.jsonl"
+    },
+    "root_cause": "NOT_EVALUATED: earlier failure did not reproduce under instrumented observation; no speculative code patch",
+    "runtime_source_unchanged": true,
+    "verified_at": "2026-10-18T04:46:29.139Z",
+    "task_status": "completed",
+    "reclaimable_workers": 0,
+    "historical_external_resource": {
+      "state": "retained",
+      "releaseState": "not_requested",
+      "active_process": false
+    },
+    "diagnostic_terminals_closed": [
+      "term_f520171b-0480-4240-b35c-d75bcd0fb8fd",
+      "term_002d0ac0-0d11-459d-bbac-dc37bec58c2f"
+    ]
+  },
+  "validation": {
+    "node_tests_passed": 190,
+    "native_start_checks_passed": 36,
+    "quota_preflight_checks_passed": 51,
+    "lexical_gate": "PASS",
+    "other_structural_gates": "PASS",
+    "full_live_release_checklist": "NOT_TRIGGERED_BY_LOCAL_METADATA_DELTA; formal portable certification not claimed",
+    "p2_network_fallback": "OUT_OF_SCOPE",
+    "production_gate_changed_for_footer": false,
+    "formal_portable_release_claimed": false,
+    "independent_final_verification": "PASS: exact completed/succeeded durable worker, live footer, unchanged gate and no active/reclaimable worker",
+    "exact_commit_independent_review": {
+      "head": "8433ed90e45919ed001ae350e80ee377b48a3928",
+      "verdict": "ACCEPT"
+    }
+  },
+  "local_activation_status": "VERIFIED_WITH_POSITIVE_LIVE_PROBE",
+  "previous_lexical_baseline": "BASELINE_FAIL: 51 unchanged matches in task-routing-v4-dev-spec.md",
+  "publication": {
+    "isDraft": false,
+    "isPrerelease": false,
+    "publishedAt": "2026-10-18T05:24:57Z",
+    "tagName": "v0.27.6",
+    "targetCommitish": "8433ed90e45919ed001ae350e80ee377b48a3928",
+    "url": "https://github.com/Elkayee/dely/releases/tag/v0.27.6",
+    "commit": "8433ed90e45919ed001ae350e80ee377b48a3928",
+    "repository": "Elkayee/dely",
+    "remote_main_verified": true,
+    "tag_peeled_commit_verified": true,
+    "required_ci_checks": [],
+    "local_fetch_only_guards_preserved": true,
+    "privacy_scan": {
+      "head": "8433ed90e45919ed001ae350e80ee377b48a3928",
+      "base": "c1e733e0d4925affdfa76c977df0a04aa02670bf",
+      "blobs": 305,
+      "bytes": 11453763,
+      "known_credential_values_checked": 3,
+      "findings": []
+    },
+    "runtime_file_comparison": [
+      {
+        "file": "skills/delivery/SKILL.md",
+        "runtime_sha256": "1e1a6c8eec47bbf21be5600ca5714cad0cbcb06c8a6f4edfe99cf2ed1820d15c",
+        "release_sha256": "b32832a37c9382473a1189543611d484f1c284c4e1c1dec858552da9092548c0",
+        "byte_identical": false,
+        "lf_normalized_equal": true
+      },
+      {
+        "file": "skills/delivery/scripts/task-routing.js",
+        "runtime_sha256": "9e199c6064f52a3469cccb3eec1b8e68f70c3717e31f6aef504ba1920e1dcb8f",
+        "release_sha256": "7d8d48955a4ffc16297e3ee2c23150bc73cbebaf99a03f0533652a9973b47362",
+        "byte_identical": false,
+        "lf_normalized_equal": true
+      },
+      {
+        "file": "skills/delivery/scripts/dely.js",
+        "runtime_sha256": "46bc3ed3f023973d2bca6ed316a9f02311a7244420d9679f1a592128bb4f980d",
+        "release_sha256": "e5a188fb1763d17de7c44f37bb361a2780162529b2b2436944c6cf0cb1dd79fd",
+        "byte_identical": false,
+        "lf_normalized_equal": true
+      },
+      {
+        "file": "skills/delivery/scripts/usage.js",
+        "runtime_sha256": "98ebb45d81c84c3f72e1e3c99f0a7c6266a01859533189f48182da606134db81",
+        "release_sha256": "79f87facb5fc5ebac5df4f3a319a1cd2a128cb7070e8d263ee0f27fd1eda24f5",
+        "byte_identical": false,
+        "lf_normalized_equal": true
+      },
+      {
+        "file": "harnesses.json",
+        "runtime_sha256": "4068767a245a94f9f0fcf0c2d629bb953550a636cf6a4824dfef3310b2afeeee",
+        "release_sha256": "4a4a80d1c6df964f6ae562999961071d59a64f2b58ce02ebde05ef51cbbd4195",
+        "byte_identical": false,
+        "lf_normalized_equal": true
+      }
+    ],
+    "runtime_code_equivalent_after_eol_normalization": true,
+    "raw_runtime_hashes_preserved": true,
+    "source_archive": {
+      "file": "D:\\orca\\.tmp-dely\\release-v0.27.6-8433ed90e459.tar",
+      "sha256": "cb4475d3883f72c1ee9be0ba9236e6e0adb1829268d0363497cf19e43b1507c9"
+    }
+  }
+}
