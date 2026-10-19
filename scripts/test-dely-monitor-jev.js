@@ -10,6 +10,55 @@ const { createJevReader, summarizeJev } = require("./dely-monitor-jev.js");
 const legacy = (suggestion = { name: "writing-for-agents" }) => ({ mode: "skill", status: "REVIEW_REQUIRED",
   model: "jev-1.13.0", suggestion, confidence: 0.67,
   probabilities: suggestion ? { none: 0.09, s149: 0.91 } : { none: 0.91, s149: 0.09 } });
+test("safe telemetry and incomplete observations stay distinct from evaluated advice", async (t) => {
+  const { homes, put } = fixture(t);
+  const diagnostics = { stage: "schema", code: "SCHEMA_INVALID", duration_ms: 12.5,
+    http_status: 200, requested_model: "jev-1.13.0", provider_model: null, message: "PRIVATE_SENTINEL" };
+  const observation = { id: "s0", relevance: "direct", confidence: 1,
+    probabilities: { direct: 1, supporting: 0, unrelated: 0, unknown: 0 }, body: "PRIVATE_SENTINEL" };
+  put(homes[0], "progress", "skill-advice.json", { mode: "skill", status: "NOT_EVALUATED",
+    reason: "JEV_UNAVAILABLE_OR_INVALID", input_sha256: "a".repeat(64), suggestions: [], suggestion: null,
+    evaluations: [], request_diagnostics: diagnostics, incomplete_batch_progress: {
+      input_sha256: "a".repeat(64), batch_index: 1, batch_count: 2, completed_batches: 1,
+      completed_evaluations: 1, evaluations: [observation], requests: [
+        { ...diagnostics, stage: "complete", code: "OK", provider_model: "jev-1.13.0" }, diagnostics], catalog: "PRIVATE_SENTINEL" } });
+  const result = await createJevReader({ homes })(), row = result.rows[0];
+  assert.equal(row.category, "error"); assert.equal(row.output, null);
+  assert.deepEqual(row.suggestions, []);
+  assert.equal(row.request_diagnostics.code, "SCHEMA_INVALID");
+  assert.equal(row.incomplete_batch_progress.completed_batches, 1);
+  assert.equal(row.incomplete_batch_progress.evaluations[0].choice, "direct");
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL|"id":"s0"/);
+  const view = require("../ui/monitor/jev-view.js").jevPresentation(row);
+  assert.match(view.model, /Requested.*jev-1.13.0.*Provider.*not recorded/i);
+  assert.match(view.proposal, /No valid reply/);
+});
+test("legacy generic errors and unevaluated records retain their populations without inferred telemetry", async (t) => {
+  const { homes, put } = fixture(t);
+  for (let i = 0; i < 42; i++) put(homes[0], "old-task-" + i, "assessment.json", {
+    policy: "jev-task-routing-v4", status: "NOT_EVALUATED", jev: null,
+    reason: "Jev request timed out or returned an invalid response", task: { repo: "D:/private-" + i } });
+  for (let i = 0; i < 41; i++) put(homes[0], "old-skill-" + i, "skill-advice.json", {
+    mode: "skill", status: "NOT_EVALUATED", input_sha256: i.toString(16).padStart(64, "0"),
+    suggestions: [], suggestion: null, reason: i < 9 ? "JEV_UNAVAILABLE_OR_INVALID" : "TYPESAFE_API_KEY_MISSING" });
+  const result = await createJevReader({ homes })();
+  const summary = summarizeJev(result.rows);
+  assert.equal(summary.errors, 51); assert.equal(summary.notEvaluated, 32);
+  for (const row of result.rows) {
+    assert.equal(row.request_diagnostics, null); assert.equal(row.incomplete_batch_progress, null);
+  }
+});
+test("invalid telemetry and unbound progress are omitted without leaking arbitrary fields", async (t) => {
+  const { homes, put } = fixture(t);
+  put(homes[0], "invalid", "skill-advice.json", { mode: "skill", status: "NOT_EVALUATED",
+    reason: "JEV_UNAVAILABLE_OR_INVALID", input_sha256: "a".repeat(64), suggestions: [],
+    request_diagnostics: { stage: "PRIVATE_SENTINEL", message: "PRIVATE_SENTINEL" },
+    incomplete_batch_progress: { input_sha256: "b".repeat(64), evaluations: ["PRIVATE_SENTINEL"] } });
+  const result = await createJevReader({ homes })();
+  assert.equal(result.rows[0].request_diagnostics, null);
+  assert.equal(result.rows[0].incomplete_batch_progress, null);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+});
 
 test("legacy suggestion and explicit none are evaluated, with names and safe raw output retained", async (t) => {
   const { homes, put } = fixture(t);

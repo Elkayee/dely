@@ -8,6 +8,7 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { parseArgs, parseEnv } = require("node:util");
+const { requestJev } = require("../skills/delivery/scripts/task-routing.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const INSTALL = path.join(os.homedir(), ".codex", "dely-orca-agy-global");
@@ -279,36 +280,34 @@ async function adviseSkills(input, options, fallback) {
   try { key = options.apiKey === undefined ? credentials(options.repo || ROOT) : options.apiKey; }
   catch (_) { return failed("CREDENTIALS_UNAVAILABLE"); }
   if (!nonempty(key)) return failed("TYPESAFE_API_KEY_MISSING");
-  try {
-    const evaluations = [];
-    selection.rounds = 1;
-    for (const batch of batches) {
-      selection.requests++;
-      const response = await (options.fetch || globalThis.fetch)("https://api.typesafe.ai/v1/systemone", {
-        method: "POST", headers: { Authorization: "Bearer " + key.trim(), "Content-Type": "application/json" },
-        body: batch.body, signal: AbortSignal.timeout(10000), redirect: "error",
-      });
-      if (!response.ok) return failed("JEV_HTTP_" + response.status);
-      const reply = validateSkillReply(await response.json(), batch.questions);
-      for (const index of batch.indices) {
-        const id = "s" + index;
-        const answer = reply.answers[id];
-        evaluations.push({ id, relevance: answer.choice, probabilities: answer.probabilities, confidence: answer.confidence,
-          ...(answer.raw_probabilities ? { raw_probabilities: answer.raw_probabilities } : {}) });
-      }
-      selection.evaluated_count = evaluations.length;
+  const evaluations = [], requests = [];
+  selection.rounds = 1;
+  for (const [batch_index, batch] of batches.entries()) {
+    selection.requests++;
+    const request = await requestJev(batch.body, key, (reply) => validateSkillReply(reply, batch.questions), options, "error");
+    requests.push(request.diagnostics);
+    if (!request.reply) return { ...failed(request.diagnostics.stage === "http" && request.diagnostics.http_status !== null ?
+      "JEV_HTTP_" + request.diagnostics.http_status : "JEV_UNAVAILABLE_OR_INVALID"), request_diagnostics: request.diagnostics,
+      incomplete_batch_progress: { input_sha256: fallback.input_sha256, batch_index, batch_count: batches.length,
+        completed_batches: batch_index, completed_evaluations: evaluations.length, evaluations, requests } };
+    const reply = request.reply;
+    for (const index of batch.indices) {
+      const id = "s" + index;
+      const answer = reply.answers[id];
+      evaluations.push({ id, relevance: answer.choice, probabilities: answer.probabilities, confidence: answer.confidence,
+        ...(answer.raw_probabilities ? { raw_probabilities: answer.raw_probabilities } : {}) });
     }
-    const useful = evaluations.filter((e) => e.relevance === "direct" || e.relevance === "supporting")
-      .sort((a, b) => Number(a.relevance === "supporting") - Number(b.relevance === "supporting"));
-    const suggestions = useful.map((e) => {
-      const skill = input.skills[Number(e.id.slice(1))];
-      return skill.allow_implicit_invocation === false ? { ...skill, requires_explicit_invocation: true } : skill;
-    });
-    return { mode: "skill", status: "REVIEW_REQUIRED", model: MODEL, input_sha256: fallback.input_sha256,
-      suggestions, suggestion: suggestions[0] || null, evaluations: [...evaluations, ...disabled], selection };
-  } catch (_) {
-    return failed("JEV_UNAVAILABLE_OR_INVALID");
+    selection.evaluated_count = evaluations.length;
   }
+  const useful = evaluations.filter((e) => e.relevance === "direct" || e.relevance === "supporting")
+    .sort((a, b) => Number(a.relevance === "supporting") - Number(b.relevance === "supporting"));
+  const suggestions = useful.map((e) => {
+    const skill = input.skills[Number(e.id.slice(1))];
+    return skill.allow_implicit_invocation === false ? { ...skill, requires_explicit_invocation: true } : skill;
+  });
+  return { mode: "skill", status: "REVIEW_REQUIRED", model: MODEL, input_sha256: fallback.input_sha256,
+    suggestions, suggestion: suggestions[0] || null, evaluations: [...evaluations, ...disabled], selection,
+    request_diagnostics: requests[requests.length - 1] };
 }
 
 function validateReply(reply, questions) {
@@ -340,16 +339,11 @@ async function advise(input, mode, options = {}) {
   try { key = options.apiKey === undefined ? credentials(options.repo || ROOT) : options.apiKey; }
   catch (_) { return { ...fallback, reason: "CREDENTIALS_UNAVAILABLE" }; }
   if (!nonempty(key)) return { ...fallback, reason: "TYPESAFE_API_KEY_MISSING" };
-  try {
-    const response = await (options.fetch || globalThis.fetch)("https://api.typesafe.ai/v1/systemone", {
-      method: "POST", headers: { Authorization: "Bearer " + key.trim(), "Content-Type": "application/json" },
-      body, signal: AbortSignal.timeout(10000), redirect: "error",
-    });
-    if (!response.ok) return { ...fallback, reason: "JEV_HTTP_" + response.status };
-    const reply = await response.json();
-    validateReply(reply, questions);
+  const request = await requestJev(body, key, (reply) => validateReply(reply, questions), options, "error");
+  if (request.reply) {
+    const reply = request.reply;
     const result = { mode, status: "REVIEW_REQUIRED", model: reply.model,
-      input_sha256: fallback.input_sha256 };
+      input_sha256: fallback.input_sha256, request_diagnostics: request.diagnostics };
     const priority = { direct: 0, supporting: 1, unknown: 2, unrelated: 3 };
     const ranked = input.candidates.map((candidate, i) => ({ ...candidate,
       relevance: reply.answers["c" + i].choice, probabilities: reply.answers["c" + i].probabilities,
@@ -358,10 +352,10 @@ async function advise(input, mode, options = {}) {
     ranked.sort((a, b) => Number(b.required === true) - Number(a.required === true) ||
       priority[a.relevance] - priority[b.relevance]);
     return { ...result, ranked_context: ranked };
-  } catch (_) {
-    // Exceptions and response bodies can contain credentials or source text.
-    return { ...fallback, reason: "JEV_UNAVAILABLE_OR_INVALID" };
   }
+  return { ...fallback, request_diagnostics: request.diagnostics,
+    reason: request.diagnostics.stage === "http" && request.diagnostics.http_status !== null ?
+      "JEV_HTTP_" + request.diagnostics.http_status : "JEV_UNAVAILABLE_OR_INVALID" };
 }
 
 async function main(argv = process.argv.slice(2)) {

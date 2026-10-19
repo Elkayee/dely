@@ -140,6 +140,12 @@ function showJevRows() {
       details.dataset.loaded = "true";
       details.append(element("p", row.output ? "Original Jev structured output" : "Jev output unavailable in saved artifacts", "cell-secondary"));
       if (row.output) details.append(element("pre", JSON.stringify(row.output, null, 2), "jev-output"));
+      details.append(element("p", row.request_diagnostics ? "Recorded request telemetry" : "Request telemetry not recorded (legacy or not called)", "cell-secondary"));
+      if (row.request_diagnostics) details.append(element("pre", JSON.stringify(row.request_diagnostics, null, 2), "jev-output"));
+      if (row.incomplete_batch_progress) {
+        details.append(element("p", "Incomplete batch observations only; no final suggestions or authorization", "cell-secondary"));
+        details.append(element("pre", JSON.stringify(row.incomplete_batch_progress, null, 2), "jev-output"));
+      }
       if (row.mode === "skill") {
         details.append(element("p", "Recorded suggested skills and policy (names are not inferred from probability ids)", "cell-secondary"));
         details.append(element("pre", row.suggestions === null ? "Suggestions not recorded" : JSON.stringify(row.suggestions, null, 2), "jev-output"));

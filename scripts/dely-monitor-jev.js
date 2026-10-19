@@ -104,6 +104,37 @@ function legacySkill(value) {
   return { suggestion: selected, probabilities: Object.fromEntries(keys.map((key) => [key, p[key]])), confidence: value.confidence };
 }
 
+function requestDiagnostics(value) {
+  const codes = { transport: "TRANSPORT_ERROR", timeout: "REQUEST_TIMEOUT", http: "HTTP_ERROR",
+    json: "JSON_DECODE_ERROR", schema: "SCHEMA_INVALID", complete: "OK" };
+  if (!object(value) || !Object.hasOwn(codes, value.stage) || value.code !== codes[value.stage] ||
+      !Number.isFinite(value.duration_ms) || value.duration_ms < 0 || value.requested_model !== "jev-1.13.0" ||
+      (value.http_status !== null && (!Number.isInteger(value.http_status) || value.http_status < 100 || value.http_status > 599)) ||
+      value.provider_model !== (value.stage === "complete" ? "jev-1.13.0" : null)) return null;
+  return Object.fromEntries(["stage", "code", "duration_ms", "http_status", "requested_model", "provider_model"].map((key) => [key, value[key]]));
+}
+
+function incompleteProgress(value, inputHash) {
+  if (!object(value) || !digest(inputHash) || value.input_sha256 !== inputHash ||
+      ![value.batch_index, value.batch_count, value.completed_batches, value.completed_evaluations]
+        .every((v) => Number.isSafeInteger(v) && v >= 0 && v <= 1024) ||
+      value.batch_count < 1 || value.batch_index >= value.batch_count || value.completed_batches !== value.batch_index ||
+      !Array.isArray(value.evaluations) || value.evaluations.length !== value.completed_evaluations ||
+      !Array.isArray(value.requests) || value.requests.length !== value.batch_index + 1) return null;
+  const ids = new Set();
+  const evaluations = value.evaluations.map((v) => {
+    if (!object(v) || !/^s(?:0|[1-9][0-9]{0,5})$/.test(v.id) || ids.has(v.id)) return null;
+    ids.add(v.id);
+    const projected = answer(v, RELEVANCE, "relevance");
+    return projected && { index: Number(v.id.slice(1)), ...projected };
+  });
+  const requests = value.requests.map(requestDiagnostics);
+  if (evaluations.some((v) => !v) || requests.some((v, i) => !v || (v.stage === "complete") !== (i < value.batch_index)) ||
+      (value.completed_batches === 0 ? evaluations.length !== 0 : evaluations.length < value.completed_batches)) return null;
+  return { input_sha256: inputHash, batch_index: value.batch_index, batch_count: value.batch_count,
+    completed_batches: value.completed_batches, completed_evaluations: value.completed_evaluations, evaluations, requests };
+}
+
 function project(value, file) {
   if (!object(value)) return null;
   const taskMode = file === "assessment.json" || file === "reviewed.json";
@@ -119,6 +150,9 @@ function project(value, file) {
   const model = taskMode ? value.jev?.model : value.model;
   // A model label alone is not evidence of a completed evaluation.
   row.model = typeof model === "string" && /^jev-[0-9]+\.[0-9]+\.[0-9]+$/.test(model) ? model : null;
+  row.request_diagnostics = requestDiagnostics(value.request_diagnostics);
+  row.incomplete_batch_progress = mode === "skill" && status === "NOT_EVALUATED" ?
+    incompleteProgress(value.incomplete_batch_progress, value.input_sha256) : null;
   if (taskMode && object(value.jev) && object(value.jev.answers) &&
       Object.keys(value.jev.answers).length === DIMENSIONS.length) {
     const answers = Object.fromEntries(DIMENSIONS.map((key) => [key,
@@ -173,6 +207,10 @@ function project(value, file) {
     row.category = "unknown"; row.reason = "INVALID_RECORDED_OUTPUT";
   } else if (taskMode && value.jev === null && status === "DIRECT_CODEX") {
     row.category = "skipped"; row.reason = "HARD_DIRECT_SKIP";
+  }
+  if (row.incomplete_batch_progress) {
+    // Partial observations cannot become final output, suggestions or valid evaluations.
+    row.output = null; row.suggestions = []; row.category = "error";
   }
   // Exclude review fields, frozen content and copy locations from evaluation identity.
   const taskIdentity = taskMode && (digest(value.task.spec_sha256) && digest(value.task.context_sha256) ?

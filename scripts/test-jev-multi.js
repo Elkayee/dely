@@ -21,6 +21,29 @@ function provider(input, relations, calls) {
     return { ok: true, json: async () => ({ model: advisor.MODEL, answers }) };
   };
 }
+test("later batch failure retains only validated observations bound to frozen input", async () => {
+  const input = catalog(152), calls = [];
+  const valid = provider(input, { s0: "direct" }, calls);
+  let count = 0;
+  const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: async (...args) => {
+    if (count++ === 0) return valid(...args);
+    return { ok: true, status: 200, json: async () => ({ model: "PRIVATE_SENTINEL", answers: "PRIVATE_SENTINEL" }) };
+  } });
+  assert.equal(result.status, "NOT_EVALUATED");
+  assert.deepEqual(result.suggestions, []); assert.equal(result.suggestion, null);
+  assert.deepEqual(result.evaluations, []);
+  const progress = result.incomplete_batch_progress;
+  assert.equal(progress.input_sha256, result.input_sha256);
+  assert.equal(progress.batch_index, 1); assert.equal(progress.batch_count, 2);
+  assert.equal(progress.completed_batches, 1);
+  assert.equal(progress.completed_evaluations, Object.keys(calls[0].questions).length);
+  assert.equal(progress.evaluations.length, progress.completed_evaluations);
+  assert.equal(progress.evaluations[0].relevance, "direct");
+  assert.equal(progress.requests.length, 2);
+  assert.equal(progress.requests[0].stage, "complete");
+  assert.equal(result.request_diagnostics.stage, "schema");
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+});
 
 test("one task receives multiple complementary original skills and keeps uncertainty separate", async () => {
   const input = catalog(5);

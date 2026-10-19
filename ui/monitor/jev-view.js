@@ -14,7 +14,9 @@ function jevPresentation(row) {
       (row.reason === "LEGACY_NO_SUGGESTION" ? "No suggestion (legacy none)" : "No suggested skills");
     else proposal = row.mode === "context" ? "Recorded context ranking" : "Proposal not recorded";
   }
-  return { model: row.model || (hard ? "Not called (Hard/direct)" : "Model not recorded"), proposal,
+  const telemetry = row.request_diagnostics;
+  return { model: telemetry ? "Requested: " + telemetry.requested_model + "; Provider: " + (telemetry.provider_model || "not recorded") :
+    row.model ? "Recorded model (legacy): " + row.model : (hard ? "Not called (Hard/direct)" : "Model not recorded"), proposal,
     review: row.control.length ? JSON.stringify(row.control, null, 2) : "No saved Control review" };
 }
 

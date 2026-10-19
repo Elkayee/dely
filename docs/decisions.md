@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-10-19 — Safe Jev stages and incomplete batch observations (0.27.8)
+
+Record measured request metadata with fixed stage/code enums across task,
+context and skill advice. Retain legacy generic reasons and leave historical
+unknowns unclassified. Provider models are recorded only after full validation;
+unvalidated content and exception text never enter request diagnostics.
+
+Keep completed skill batches from an interrupted run in the separately named,
+input-hash-bound `incomplete_batch_progress` field. These are observations only:
+final suggestions stay empty, the leading suggestion stays null, and the final
+decision stays unevaluated. The monitor projects safe telemetry/progress without
+changing its original-versus-Control distinction or denominators. The portable
+`jev-task-routing-v4` policy, approval basis, request timeout, dispatch, provider
+discovery and fallback behavior remain unchanged. Activation is performed by
+Control between settled plans; this slice does not change worker launches.
+
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 

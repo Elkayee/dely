@@ -174,6 +174,38 @@ function validateAnswers(result) {
     if (!object(p) || Object.keys(p).length !== LABELS.length || LABELS.some((key) => !Number.isFinite(p[key]) || p[key] < 0 || p[key] > 1)) throw new Error("Invalid Jev probabilities: " + name);
     if (Math.abs(LABELS.reduce((sum, key) => sum + p[key], 0) - 1) > 0.000001 || p[a.choice] < Math.max(...Object.values(p)) - 0.000001) throw new Error("Inconsistent Jev probabilities: " + name);
   }
+  return { model: MODEL, answers: Object.fromEntries(DIMENSIONS.map((name) => {
+    const a = result.answers[name];
+    return [name, { type: a.type, choice: a.choice, confidence: a.confidence,
+      probabilities: Object.fromEntries(LABELS.map((label) => [label, a.probabilities[label]])) }];
+  })) };
+}
+
+// Only fixed enums and measured metadata cross this request boundary.
+async function requestJev(body, key, validate, options = {}, redirect) {
+  const started = performance.now();
+  const diagnostics = { stage: "transport", code: "TRANSPORT_ERROR", duration_ms: null,
+    http_status: null, requested_model: MODEL, provider_model: null };
+  const finish = (stage, code, reply = null) => ({ reply,
+    diagnostics: { ...diagnostics, stage, code, duration_ms: performance.now() - started } });
+  let stage = "transport";
+  try {
+    const response = await (options.fetch || globalThis.fetch)("https://api.typesafe.ai/v1/systemone", {
+      method: "POST", headers: { Authorization: "Bearer " + key.trim(), "Content-Type": "application/json" },
+      body, signal: AbortSignal.timeout(10000), ...(redirect ? { redirect } : {}),
+    });
+    if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599) diagnostics.http_status = response.status;
+    if (!response.ok) return finish("http", "HTTP_ERROR");
+    stage = "json";
+    const reply = await response.json();
+    stage = "schema";
+    const checked = validate(reply) || reply;
+    diagnostics.provider_model = MODEL; // The complete reply validator proved this exact model.
+    return finish("complete", "OK", checked);
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.name === "TimeoutError") return finish("timeout", "REQUEST_TIMEOUT");
+    return finish(stage, { transport: "TRANSPORT_ERROR", json: "JSON_DECODE_ERROR", schema: "SCHEMA_INVALID" }[stage]);
+  }
 }
 
 async function assess(task, options = {}) {
@@ -190,22 +222,17 @@ async function assess(task, options = {}) {
   catch (_) { return finish({ reason: "Could not read TypeSafe credentials; check .env access and format" }); }
   if (!text(key)) return finish({ reason: "TYPESAFE_API_KEY is not configured" });
   const q = questions();
-  try {
-    const response = await (options.fetch || globalThis.fetch)("https://api.typesafe.ai/v1/systemone", {
-      method: "POST", headers: { Authorization: "Bearer " + key.trim(), "Content-Type": "application/json" },
-      body: JSON.stringify({ model: MODEL, state: { spec: task.spec, context: task.context }, questions: q }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) return finish({ reason: "Jev HTTP " + response.status });
-    const jev = await response.json();
-    validateAnswers(jev, q);
+  const request = await requestJev(JSON.stringify({ model: MODEL, state: { spec: task.spec, context: task.context }, questions: q }),
+    key, validateAnswers, options);
+  const request_diagnostics = request.diagnostics;
+  if (request.reply) {
+    const jev = request.reply;
     const difficulty = rawDifficulty(jev.answers);
-    if (difficulty === null) return finish({ jev, reason: "Jev requires additional evidence" });
-    return finish({ status: "REVIEW_REQUIRED", difficulty, jev, route: route(difficulty) });
-  } catch (_) {
-    // API bodies and exception messages can contain user data or credentials.
-    return finish({ reason: "Jev request timed out or returned an invalid response" });
+    if (difficulty === null) return finish({ jev, request_diagnostics, reason: "Jev requires additional evidence" });
+    return finish({ status: "REVIEW_REQUIRED", difficulty, jev, request_diagnostics, route: route(difficulty) });
   }
+  return finish({ request_diagnostics, reason: request_diagnostics.stage === "http" && request_diagnostics.http_status !== null ?
+    "Jev HTTP " + request_diagnostics.http_status : "Jev request timed out or returned an invalid response" });
 }
 
 function currentTask(assessment) {
@@ -404,7 +431,7 @@ async function main() {
   if (result.status === "NOT_EVALUATED") process.exitCode = 3;
 }
 
-module.exports = { POLICY, MODEL, DIMENSIONS, RISK_KEYS, RISK_CRITERIA, canonicalJson, rawDifficulty, deriveAssessmentBasis,
+module.exports = { POLICY, MODEL, DIMENSIONS, RISK_KEYS, RISK_CRITERIA, requestJev, canonicalJson, rawDifficulty, deriveAssessmentBasis,
   findCorrectionCandidate, validateCorrectionProof, validateOriginalAssessment, validateReviewDecision, validateApprovedAssessment,
   parseReviewEvidence, loadTask, missingEvidence, knownHard, route, questions, validateAnswers, assess, review, requireApprovedRoute,
   selectedPin, selectedPhase, verifyPin, verifyUnavailablePin };

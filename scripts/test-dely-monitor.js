@@ -19,7 +19,9 @@ test("Jev loading stays progressive, API projections respect every filter and so
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const taskDir = path.join(dir, "dely-compliance/tasks/one"); fs.mkdirSync(taskDir, { recursive: true });
   const artifact = { policy: "jev-task-routing-v4", assessed_at: ts, status: "NOT_EVALUATED", jev: null,
-    reason: "Jev HTTP 503", task: { repo, spec: "PRIVATE_SPEC", context: { secret: "PRIVATE_CONTEXT" } } };
+    reason: "Jev HTTP 503", task: { repo, spec: "PRIVATE_SPEC", context: { secret: "PRIVATE_CONTEXT" } },
+    request_diagnostics: { stage: "http", code: "HTTP_ERROR", duration_ms: 14.25, http_status: 503,
+      requested_model: "jev-1.13.0", provider_model: null, body: "PRIVATE_PROVIDER_BODY", message: "PRIVATE_ERROR" } };
   fs.writeFileSync(path.join(taskDir, "assessment.json"), JSON.stringify(artifact));
   const probeDir = path.join(dir, "dely-compliance/tasks/probe"); fs.mkdirSync(probeDir);
   fs.writeFileSync(path.join(probeDir, "assessment.json"), JSON.stringify({ ...artifact, task: { ...artifact.task, repo: "D:/.tmp-dely/probe" } }));
@@ -41,6 +43,8 @@ test("Jev loading stays progressive, API projections respect every filter and so
     assert.equal(data.sources.jev.state, "ready"); assert.equal(data.sources.jev.coverage[0].modes.task, 2);
     assert.ok(data.repos.includes(repo)); assert.doesNotMatch(JSON.stringify(data.jev), /PRIVATE_/);
     assert.equal(data.jev.rows[0].task, undefined); assert.equal(data.jev.rows[0].context, undefined);
+    assert.equal(data.jev.rows[0].request_diagnostics.stage, "http");
+    assert.equal(data.jev.rows[0].request_diagnostics.http_status, 503);
     assert.equal((await (await fetch(url + "&probes=true")).json()).jev.recorded, 2);
     assert.equal((await (await fetch(url + "&repo=D:/other")).json()).jev.recorded, 0);
     assert.equal((await (await fetch(url + "&since=2026-10-10T00:00:00Z")).json()).jev.recorded, 0);

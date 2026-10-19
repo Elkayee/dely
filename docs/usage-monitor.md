@@ -156,6 +156,18 @@ Control reviews say no saved review. A task answer containing
 column preserves recorded status. Historical missing-key, size-limit and request
 failures are observations, never retried or rewritten by the monitor.
 
+New request details show only whitelisted `request_diagnostics`: measured
+duration, actual HTTP status, fixed stage/code, requested model and validated
+provider model. Missing telemetry is labeled as unrecorded; older model labels
+are labeled legacy. `incomplete_batch_progress` is shown separately as validated
+observations bound to the input hash, with batch/completion counts and request
+telemetry. It never becomes final output, suggested skills or authorization and
+does not add an evaluation per completed batch. Original/Control choices and
+population denominators retain their existing definitions. The historical 42
+generic task errors and 9 generic skill errors cannot be retroclassified; the
+32 genuinely unevaluated historical records remain unchanged. No provider logs
+or additional source paths are read to infer missing stages.
+
 The local Advisor mode selector filters Jev counts, reason groups, rows and
 pagination together; other dashboard populations retain their own denominators.
 Reasons by mode explains valid, error, skipped, not-applicable, not-evaluated and

@@ -128,6 +128,23 @@ are assumed. Context requests retain the 64 KB and 32-candidate guards. Skill
 packets use 60,000-byte total and 30,000-byte shared-State-plus-question guards;
 these measure UTF-8 transport bytes, not tokens. There is no skill-count cutoff.
 
+New requests record `request_diagnostics`: fixed `stage` / `code` pairs
+(`transport` / `TRANSPORT_ERROR`, `timeout` / `REQUEST_TIMEOUT`, `http` /
+`HTTP_ERROR`, `json` / `JSON_DECODE_ERROR`, `schema` / `SCHEMA_INVALID`, and
+`complete` / `OK`), measured `duration_ms`, actual `http_status` or null,
+`requested_model`, and `provider_model` only after the entire reply validates.
+No exception text, provider body, URL, prompt or catalog is saved in telemetry.
+Existing generic failure reasons remain recognized; absent historical telemetry
+is never reconstructed. Credentials and size guards do not invent request data.
+
+An interrupted skill run records `incomplete_batch_progress`, bound to
+`input_sha256`, with zero-based failed `batch_index`, planned `batch_count`,
+`completed_batches`, `completed_evaluations`, validated `evaluations` and ordered
+per-request `requests` telemetry. The first failed batch has no completed answers.
+These observations do not populate final `evaluations` (except disabled records),
+`suggestions` or `suggestion`; status stays `NOT_EVALUATED`. Invocation policy,
+Control adoption, routing policy and approval basis are unchanged.
+
 ```powershell
 rtk proxy node --test scripts/test-jev-agent.js scripts/test-task-routing.js
 ```

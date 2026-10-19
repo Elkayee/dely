@@ -39,6 +39,39 @@ function result(changes = {}) {
     usage: { input_tokens: 500, output_tokens: 0 } };
 }
 const mock = (body) => ({ apiKey: "test-key", fetch: async () => ({ ok: true, json: async () => body }) });
+test("request diagnostics distinguish safe failure stages without retaining provider secrets", async () => {
+  const secret = "PRIVATE_SENTINEL_BODY_TOKEN";
+  const cases = [
+    ["transport", "TRANSPORT_ERROR", async () => { throw Error(secret); }],
+    ["timeout", "REQUEST_TIMEOUT", async () => { throw Object.assign(Error(secret), { name: "TimeoutError" }); }],
+    ["http", "HTTP_ERROR", async () => ({ ok: false, status: 503, body: secret })],
+    ["json", "JSON_DECODE_ERROR", async () => ({ ok: true, status: 200, json: async () => { throw Error(secret); } })],
+    ["schema", "SCHEMA_INVALID", async () => ({ ok: true, status: 200, json: async () => ({ model: secret }) })],
+  ];
+  for (const [stage, code, fetch] of cases) {
+    const record = await routing.assess(task(), { apiKey: "test-key", fetch });
+    assert.equal(record.status, "NOT_EVALUATED");
+    assert.equal(record.request_diagnostics.stage, stage);
+    assert.equal(record.request_diagnostics.code, code);
+    assert.equal(record.request_diagnostics.requested_model, routing.MODEL);
+    assert.equal(record.request_diagnostics.provider_model, null);
+    assert.ok(record.request_diagnostics.duration_ms >= 0);
+    assert.equal(record.request_diagnostics.http_status, ["http", "json", "schema"].includes(stage) ? (stage === "http" ? 503 : 200) : null);
+    assert.doesNotMatch(JSON.stringify(record), /PRIVATE_SENTINEL/);
+  }
+});
+test("success telemetry validates the provider model and does not change routing basis", async () => {
+  const reply = result();
+  reply.body = "PRIVATE_SENTINEL"; reply.usage = { secret: "PRIVATE_SENTINEL" };
+  reply.answers.scope.message = "PRIVATE_SENTINEL";
+  const record = await routing.assess(task(), mock(reply));
+  assert.equal(record.request_diagnostics.stage, "complete");
+  assert.equal(record.request_diagnostics.provider_model, routing.MODEL);
+  assert.equal(record.request_diagnostics.http_status, null, "mock did not measure a status");
+  const basis = routing.deriveAssessmentBasis(record);
+  assert.deepEqual(routing.deriveAssessmentBasis({ ...record, request_diagnostics: null }), basis);
+  assert.doesNotMatch(JSON.stringify(record), /PRIVATE_SENTINEL/);
+});
 function approvedFile(record) {
   const file = path.join(record.task.repo, "assessment.json");
   fs.writeFileSync(file, JSON.stringify(record));
