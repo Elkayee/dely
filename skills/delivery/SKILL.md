@@ -7,6 +7,14 @@ description: Deliver a change through an approved design contract, sequential im
 
 ## Local task assessment before delivery
 
+Before per-task assessment, Codex drafts independent outcomes from the original
+request. Use the repository's [task-plan advice workflow](../../docs/agent-advice.md#task-plans-before-difficulty-assessment)
+for Jev's typed split/duplicate/acceptance advice; Control explicitly settles
+the plan. Advice grants no execution authority. Assess/review every settled
+task afresh; scope edits invalidate its prior assessment. Do not split by file
+type or dilute consequential risk. Shared implementation precedes consumers
+whose acceptance requires it; keep parent acceptance open through integration.
+
 This deployment classifies implementation work before starting a Dely Run.
 Run `node scripts/task-routing.js assess --repo <workspace> --spec-file <spec>
 --context-file <context> --out <assessment>` relative to this skill. The context

@@ -1,6 +1,6 @@
 # Jev advice for coding agents
 
-This repository provides `scripts/jev_agent.js` for three narrow decisions:
+This repository provides `scripts/jev_agent.js` for task-plan advice,
 task difficulty, context relevance and skill suggestions. It uses Node 24 and
 standard HTTP; no service, package or worker launcher is added.
 
@@ -8,6 +8,88 @@ The companion workspace installation remains independent and unchanged.
 The Orca CLI accepts `--repo` to select a target workspace. It defaults to the
 current working directory. Relative input and output paths belong to that
 workspace, not to the directory containing this script.
+
+## Task plans before difficulty assessment
+
+Codex translates the original free-form request into candidate tasks with
+stable IDs. Codex authors all task prose; Jev answers typed atomic questions
+about independent scope/need to split, duplicate outcomes and verifiable
+acceptance. Jev generates neither tasks nor task IDs.
+
+```json
+{
+  "request": "Remove PowerPoint export and add a DOO table.",
+  "revision": 0,
+  "tasks": [
+    {
+      "id": "remove-slides",
+      "objective": "Remove PowerPoint export",
+      "scope": "Remove export entry and implementation",
+      "acceptance": "PowerPoint export is absent and other exports work",
+      "depends_on": []
+    },
+    {
+      "id": "doo-table",
+      "objective": "Add DOO table",
+      "scope": "Render DOO rows from existing data",
+      "acceptance": "Known DOO fixture renders the expected rows",
+      "depends_on": []
+    }
+  ]
+}
+```
+
+```powershell
+rtk proxy node scripts/jev_agent.js plan --repo D:/project --input plan.json --out plan_advice.json
+```
+
+All five task fields are required: `id`, `objective`, `scope` and `acceptance`
+are nonempty strings, and `depends_on` is an array of distinct existing IDs.
+The graph must contain 1–12 tasks with unique IDs, no unknown/self dependencies
+and no cycles. Unknown fields are rejected. Graph validation precedes credential
+lookup and transport. One invocation sends one request, bounded to 64,000 UTF-8
+bytes including generated questions. `revision` is optional (initial round 0),
+and when present must be 0, 1 or 2. Control may author at most two revisions,
+retaining earlier results; the CLI has no autonomous decomposition/retry loop
+or cross-invocation round tracker. Stop after that bound and settle unresolved
+questions explicitly with the user rather than resubmitting indefinitely.
+
+Results retain the exact parsed input in `submitted_plan`, including the
+original request, IDs, dependencies and optional revision. `input_sha256` hashes
+its `JSON.stringify` representation (not raw file whitespace). `provenance`
+identifies the `jev-task-plan-v1` schema, Codex authorship contract and Jev
+reviewer; it does not authenticate the caller. Every result, including invalid
+graphs and unavailable advice, carries this identity and snapshot.
+
+The provider sees `scope_<index>` and `acceptance_<index>` questions for each
+submitted task and one `duplicate_<left-index>_<right-index>` per unordered
+pair. Scope choices are `independent`, `split_required`, `unknown`; acceptance
+choices are `verifiable`, `unverifiable`, `unknown`; pair choices are `distinct`,
+`duplicate`, `unknown`. These internal indices map back to the submitted IDs in
+`task_advice` and `duplicate_advice`. Complete typed replies include model,
+choice, confidence and the exact probability keys. Partial replies, extra
+instruction/prose fields, invalid probabilities, a choice contradicting the
+probability maximum, unknown choices or a different model yield
+`NOT_EVALUATED`. Missing credentials, transport/provider failures and oversized
+payloads also remain `NOT_EVALUATED`. There is no confidence cutoff. A usable
+reply is always `REVIEW_REQUIRED`, even if all outcomes appear independent,
+distinct and verifiable; negative advice also requires Control review.
+
+Control explicitly settles the candidate plan using the original request,
+source evidence and any available advice, recording decisions and unresolved
+facts. Advice cannot rewrite plans, complete tasks, assign models, lower risk,
+grant admission or dispatch. Each settled task then receives a fresh existing
+`assess` and explicit `review`, followed by unchanged Dely routing. Any scope
+edit invalidates that task's prior assessment: regenerate its spec/context and
+assessment before dispatch; never reuse an assessment for changed boundaries.
+
+Draft independent outcomes, not slices by file type. Preserve consequential
+risks in every affected task; splitting must not dilute them. A shared
+implementation task must precede functional tasks whose acceptance requires
+that implementation, never depend on those tasks and create a semantic cycle.
+Keep parent acceptance open until all required outcomes and integration finish.
+Plan advice does not assess semantic dependency correctness automatically;
+Control checks it alongside the structural graph validation.
 
 ## Difficulty and review
 

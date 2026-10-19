@@ -26,9 +26,10 @@ Repository artifacts are written in English.
 
 ## Jev agent advice
 
-Use `scripts/jev_agent.js` with `--repo <target-workspace>` for the three
-advisory steps in [agent-advice.md](docs/agent-advice.md): difficulty before
-implementation, context ranking after Context Engine returns multiple
+Use `scripts/jev_agent.js` with `--repo <target-workspace>` for the four
+advisory steps in [agent-advice.md](docs/agent-advice.md): Codex-authored plan
+review before per-task difficulty assessment, difficulty before implementation,
+context ranking after Context Engine returns multiple
 candidates, and skill suggestion when the session's skill catalog has
 competing candidates. It reuses this checkout's task-routing policy.
 
@@ -104,9 +105,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.8
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.8
-test "$(jq -r .version package.json)" = 0.27.8
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.9
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.9
+test "$(jq -r .version package.json)" = 0.27.9
 ```
 
 ```bash
