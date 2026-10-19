@@ -37,6 +37,7 @@ function failure(reason) {
     TYPESAFE_API_KEY_MISSING: "TYPESAFE_API_KEY_MISSING", CREDENTIALS_UNAVAILABLE: "CREDENTIALS_UNAVAILABLE",
     SNAPSHOT_TOO_LARGE: "SNAPSHOT_TOO_LARGE", SKILL_REQUEST_TOO_LARGE: "SKILL_REQUEST_TOO_LARGE",
     NO_ELIGIBLE_SKILLS: "NO_ELIGIBLE_SKILLS",
+    NO_SKILLS: "NO_SKILLS", SKILL_SHORTLIST_TOO_LARGE: "SKILL_SHORTLIST_TOO_LARGE",
   };
   if (typeof reason === "string" && /^(?:Jev HTTP |JEV_HTTP_)[1-5][0-9]{2}$/.test(reason)) {
     return { reason: "JEV_HTTP_" + reason.slice(-3), category: "error" };
@@ -52,8 +53,17 @@ function answer(value, labels, choiceKey = "choice") {
   if (Object.keys(probabilities).length !== labels.length || labels.some((k) => !unit(probabilities[k])) ||
       Math.abs(labels.reduce((sum, k) => sum + probabilities[k], 0) - 1) > 0.000001 ||
       probabilities[value[choiceKey]] < Math.max(...labels.map((k) => probabilities[k])) - 0.000001) return null;
-  return { choice: value[choiceKey], confidence: value.confidence,
+  const result = { choice: value[choiceKey], confidence: value.confidence,
     probabilities: Object.fromEntries(labels.map((k) => [k, probabilities[k]])) };
+  if (object(value.raw_probabilities)) {
+    const raw = value.raw_probabilities, sum = labels.reduce((total, key) => total + raw[key], 0);
+    if (Object.keys(raw).length === labels.length && labels.every((key) => unit(raw[key])) && sum > 0 &&
+        Math.abs(sum - 1) <= labels.length * 0.005 + 0.000001 &&
+        labels.every((key) => Math.abs(raw[key] / sum - probabilities[key]) <= 0.000001)) {
+      result.raw_probabilities = Object.fromEntries(labels.map((key) => [key, raw[key]]));
+    }
+  }
+  return result;
 }
 
 function control(value) {
@@ -62,8 +72,36 @@ function control(value) {
     status: ["APPROVED", "NOT_EVALUATED"].includes(value.status) ? value.status : "unknown",
     difficulty: GRADES.includes(value.difficulty) ? value.difficulty : null,
     workflow: ["dely", "direct"].includes(value.route?.workflow) ? value.route.workflow : null,
-    source: ["jev-and-control", "jev-reviewed", "codex-control", "control-only", "control-correction"].includes(value.review.source) ? value.review.source : null,
+    source: ["jev-and-control", "jev-reviewed", "codex-control", "control-only", "control-correction",
+      "control-evidence", "control-override-justified"].includes(value.review.source) ? value.review.source : null,
     model: token(value.route?.primary?.model), effort: token(value.route?.primary?.effort) }];
+}
+
+// Names and recorded policy only: never publish paths, descriptions or catalog bodies.
+function suggestion(value) {
+  if (!object(value) || typeof value.name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(value.name)) return null;
+  const safe = { name: value.name };
+  for (const key of ["enabled", "allow_implicit_invocation", "requires_explicit_invocation"]) {
+    if (Object.hasOwn(value, key)) {
+      if (typeof value[key] !== "boolean") return null;
+      safe[key] = value[key];
+    }
+  }
+  return safe;
+}
+
+function legacySkill(value) {
+  if (!Object.hasOwn(value, "suggestion") || !unit(value.confidence) || !object(value.probabilities)) return null;
+  const p = value.probabilities, keys = Object.keys(p);
+  if (!Object.hasOwn(p, "none") || keys.length < 2 || keys.length > 1025 ||
+      keys.some((key) => key !== "none" && !/^s(?:0|[1-9][0-9]{0,5})$/.test(key)) ||
+      keys.some((key) => !unit(p[key])) || Math.abs(keys.reduce((sum, key) => sum + p[key], 0) - 1) > 0.000001) return null;
+  const selected = value.suggestion === null ? null : suggestion(value.suggestion);
+  if (value.suggestion !== null && !selected) return null;
+  const best = Math.max(...keys.filter((key) => key !== "none").map((key) => p[key]));
+  if (selected ? best < p.none - 0.000001 : p.none < best - 0.000001) return null;
+  // The old producer discarded choice id. Do not reconstruct its candidate mapping.
+  return { suggestion: selected, probabilities: Object.fromEntries(keys.map((key) => [key, p[key]])), confidence: value.confidence };
 }
 
 function project(value, file) {
@@ -77,11 +115,11 @@ function project(value, file) {
     policy: taskMode && /^jev-task-routing-v[1-4]$/.test(value.policy) ? value.policy : null,
     timeSource: taskMode ? "assessment" : "advisor",
     status: file === "reviewed.json" ? "ORIGINAL_UNAVAILABLE" : status,
-    model: null, proposal: null, output: null, ...failure(value.reason), control: taskMode ? control(value) : [] };
+    model: null, proposal: null, output: null, suggestions: null, ...failure(value.reason), control: taskMode ? control(value) : [] };
   const model = taskMode ? value.jev?.model : value.model;
   // A model label alone is not evidence of a completed evaluation.
   row.model = typeof model === "string" && /^jev-[0-9]+\.[0-9]+\.[0-9]+$/.test(model) ? model : null;
-  if (taskMode && object(value.jev) && row.model && object(value.jev.answers) &&
+  if (taskMode && object(value.jev) && object(value.jev.answers) &&
       Object.keys(value.jev.answers).length === DIMENSIONS.length) {
     const answers = Object.fromEntries(DIMENSIONS.map((key) => [key,
       value.jev.answers[key]?.type === "choice" ? answer(value.jev.answers[key], LABELS) : null]));
@@ -90,7 +128,7 @@ function project(value, file) {
       row.proposal = Object.values(answers).some((a) => a.choice === "insufficient_evidence") ? "NOT_EVALUATED" :
         GRADES[Math.max(...Object.values(answers).map((a) => GRADES.indexOf(a.choice)))];
     }
-  } else if (!taskMode && row.model) {
+  } else if (!taskMode) {
     const values = mode === "skill" ? value.evaluations : value.ranked_context;
     if (Array.isArray(values) && values.length > 0 && values.length <= 1024) {
       const output = values.map((v, i) => {
@@ -100,8 +138,32 @@ function project(value, file) {
         const projected = answer(v, RELEVANCE, "relevance");
         return projected && { index: i, ...projected };
       });
-      if (output.every(Boolean) && output.some((a) => a.choice !== "NOT_EVALUATED")) {
-        row.output = output; row.category = "valid";
+      if (output.every(Boolean)) {
+        row.output = output;
+        if (output.some((a) => a.choice !== "NOT_EVALUATED")) row.category = "valid";
+      }
+    }
+    if (mode === "skill") {
+      if (Array.isArray(value.suggestions) && value.suggestions.length <= 1024) {
+        const suggestions = value.suggestions.map(suggestion);
+        if (suggestions.every(Boolean)) row.suggestions = suggestions;
+        else { row.output = null; row.reason = "INVALID_RECORDED_OUTPUT"; row.category = "unknown"; }
+      } else if (Object.hasOwn(value, "suggestions")) {
+        row.output = null; row.reason = "INVALID_RECORDED_OUTPUT"; row.category = "unknown";
+      }
+      if (!Object.hasOwn(value, "evaluations") && !Object.hasOwn(value, "suggestions") && status === "REVIEW_REQUIRED") {
+        const legacy = legacySkill(value);
+        if (legacy) {
+          row.output = legacy; row.suggestions = legacy.suggestion ? [legacy.suggestion] : [];
+          row.category = "valid"; row.reason = legacy.suggestion ? "LEGACY_SUGGESTION" : "LEGACY_NO_SUGGESTION";
+        }
+      }
+      if (status === "NOT_APPLICABLE" && ["NO_SKILLS", "NO_ELIGIBLE_SKILLS"].includes(row.reason)) row.category = "not_applicable";
+      const selection = value.selection;
+      if (object(selection)) {
+        row.selection = Object.fromEntries(["catalog_count", "eligible_count", "explicit_count", "disabled_count", "evaluated_count", "requests", "rounds"]
+          .filter((key) => Number.isSafeInteger(selection[key]) && selection[key] >= 0 && selection[key] <= 1000000)
+          .map((key) => [key, selection[key]]));
       }
     }
   }
@@ -117,7 +179,7 @@ function project(value, file) {
     [value.task.spec_sha256, value.task.context_sha256] : hash(value.task));
   row.id = hash(taskMode ? [mode, value.policy, row.repo, row.ts,
     taskIdentity, row.model, row.output] :
-    [mode, digest(value.input_sha256), row.ts, row.model, row.output, row.reason]);
+    [mode, digest(value.input_sha256), row.ts, row.model, row.output, row.suggestions, row.reason]);
   return row;
 }
 
@@ -207,12 +269,19 @@ function createJevReader(options = {}) {
 function summarizeJev(rows = [], options = {}) {
   const repo = repoPath(options.repo), since = options.since || 0, end = options.asOf ?? Date.now();
   const visible = rows.filter((r) => (!repo || r.repo === repo) && (options.probes || !probe(r.repo)) &&
+    (!options.mode || r.mode === options.mode) &&
     (!r.ts || Date.parse(r.ts) >= since && Date.parse(r.ts) <= end));
   const count = (category) => visible.filter((r) => r.category === category).length;
   return { recorded: visible.length, evaluations: count("valid") + count("error"), valid: count("valid"),
-    errors: count("error"), notEvaluated: count("not_evaluated"), skipped: count("skipped"), unknown: count("unknown"),
+    errors: count("error"), notEvaluated: count("not_evaluated"), skipped: count("skipped"), notApplicable: count("not_applicable"), unknown: count("unknown"),
     unknownTime: visible.filter((r) => !r.ts).length, unknownWorkspace: visible.filter((r) => !r.repo).length,
     modes: Object.fromEntries(["task", "skill", "context"].map((mode) => [mode, visible.filter((r) => r.mode === mode).length])),
+    reasons: [...visible.reduce((groups, row) => {
+      const reason = row.reason === "NOT_RECORDED" && row.category === "valid" ? "VALID_RECORDED_OUTPUT" : row.reason;
+      const key = JSON.stringify([row.mode, row.category, reason]);
+      const group = groups.get(key) || { mode: row.mode, category: row.category, reason, count: 0 };
+      group.count++; groups.set(key, group); return groups;
+    }, new Map()).values()].sort((a, b) => b.count - a.count || a.mode.localeCompare(b.mode)),
     rows: visible.slice().sort((a, b) => (Date.parse(b.ts) || 0) - (Date.parse(a.ts) || 0)) };
 }
 

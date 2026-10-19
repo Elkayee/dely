@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Dely Monitor</title>
   <link rel="stylesheet" href="/monitor.css">
+  <script src="/jev-view.js" defer></script>
   <script src="/monitor.js" defer></script>
 </head>
 <body>
@@ -151,9 +152,11 @@
     <section id="jev" class="panel activity-panel" aria-labelledby="jev-title">
       <div class="panel-heading"><div><p class="eyebrow">SAVED ADVISOR EVIDENCE</p><h2 id="jev-title">Jev statistics</h2></div><span id="jev-count" class="pill">Loading</span></div>
       <p id="jev-summary" class="footnote" aria-live="polite">Reading saved evaluations in the background…</p>
+      <div class="filter jev-filter"><label for="jev-mode">Advisor mode</label><select id="jev-mode"><option value="">All modes</option><option value="task">Task assessment</option><option value="skill">Skill suggestions</option><option value="context">Context ranking</option></select></div>
+      <details class="jev-coverage"><summary>Reasons by mode</summary><div id="jev-reasons"></div></details>
       <details class="jev-coverage"><summary>Source and mode coverage</summary><div id="jev-coverage"></div></details>
       <p class="footnote">Recorded evaluations include valid outputs and recorded request errors; they are not API-call counts. Reviews and identical copies count once. Unknown time remains visible under date/reset filters. Latency and unsaved output are unavailable.</p>
-      <div class="table-scroll"><table class="jev-table"><thead><tr><th>Time / workspace</th><th>Mode / status</th><th>Jev model</th><th>Original proposal</th><th>Recorded result / output</th></tr></thead><tbody id="jev-rows"></tbody></table></div>
+      <div class="table-scroll"><table class="jev-table"><thead><tr><th>Time / workspace</th><th>Mode / source status</th><th>Jev model</th><th>Proposal / suggested skills</th><th>Recorded result / output</th></tr></thead><tbody id="jev-rows"></tbody></table></div>
       <button id="jev-more" class="text-button" hidden>Show more Jev records</button>
     </section>
     <section id="activity" class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">EXECUTION HISTORY</p><h2>Recent launches & workers</h2></div><span id="activity-count" class="pill">—</span></div><div class="table-scroll"><table><thead><tr><th>Workspace / launch</th><th>Grade</th><th>Model</th><th>Status</th><th>Evidence</th><th>Time</th></tr></thead><tbody id="activity-rows"></tbody></table></div><button id="more" class="text-button" hidden>Show more records</button></section>

@@ -45,6 +45,14 @@ test("Jev loading stays progressive, API projections respect every filter and so
     assert.equal((await (await fetch(url + "&repo=D:/other")).json()).jev.recorded, 0);
     assert.equal((await (await fetch(url + "&since=2026-10-10T00:00:00Z")).json()).jev.recorded, 0);
     assert.equal((await (await fetch(url.replace("days=30", "days=1"))).json()).jev.recorded, 0);
+    const tasks = await (await fetch(url + "&jevMode=task")).json();
+    assert.equal(tasks.jev.recorded, 1); assert.equal(tasks.jev.reasons[0].reason, "JEV_HTTP_503");
+    assert.equal(tasks.jev.reasons[0].count, 1);
+    const skills = await (await fetch(url + "&jevMode=skill")).json();
+    assert.equal(skills.jev.recorded, 0); assert.deepEqual(skills.jev.reasons, []);
+    assert.deepEqual(skills.metrics, tasks.metrics, "advisor mode does not filter other dashboard populations");
+    assert.equal((await fetch(url + "&jevMode=invalid")).status, 400);
+    assert.equal((await fetch(url.replace(/\/api\/usage.*/, "/jev-view.js"))).status, 200);
   } finally { finish({ rows: [], coverage: [], cache: {} }); await new Promise((resolve) => server.close(resolve)); }
   const failed = await collect({ journal: path.join(dir, "absent.jsonl"), readJev: async () => { throw Error("PRIVATE_ERROR"); },
     readWorkers: async () => ({ rows: [] }), readConversations: async () => ({ rows: [] }) });

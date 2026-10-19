@@ -20,7 +20,7 @@ function sinceTimestamp(value) {
 function createMonitor(options = {}) {
   const assets = path.resolve(__dirname, "../ui/monitor");
   const files = { "/": ["index.html", "text/html"], "/monitor.css": ["monitor.css", "text/css"],
-    "/monitor.js": ["monitor.js", "text/javascript"] };
+    "/monitor.js": ["monitor.js", "text/javascript"], "/jev-view.js": ["jev-view.js", "text/javascript"] };
   const now = options.now || Date.now;
   let cache = null, preview = null, pending = null, first = null, lastError = null, attempted = 0;
   const load = async (fresh = false, progressive = false) => {
@@ -64,6 +64,8 @@ function createMonitor(options = {}) {
       const days = Number(url.searchParams.get("days") || 7);
       const since = sinceTimestamp(url.searchParams.get("since"));
       const progressive = url.searchParams.get("progressive") === "true";
+      const mode = url.searchParams.get("jevMode") || "";
+      if (!["", "task", "skill", "context"].includes(mode)) { res.writeHead(400).end(); return; }
       if (![1, 7, 30].includes(days) || Number.isNaN(since)) { res.writeHead(400).end(); return; }
       try {
         let data = await load(false, progressive);
@@ -76,7 +78,7 @@ function createMonitor(options = {}) {
           probes: url.searchParams.get("probes") === "true",
           asOf, end: Math.max(start, asOf), runtimes: data.sources?.runtimes || [],
         });
-        result.jev = summarizeJev(data.jev, { since: start, asOf,
+        result.jev = summarizeJev(data.jev, { since: start, asOf, mode,
           repo: url.searchParams.get("repo") || "", probes: url.searchParams.get("probes") === "true" });
         result.repos = [...new Set([...result.repos, ...(data.jev || []).map((r) => r.repo).filter(Boolean)])].sort();
         res.setHeader("Content-Type", "application/json; charset=utf-8");

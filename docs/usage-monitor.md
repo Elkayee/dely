@@ -139,6 +139,30 @@ without its original is labeled `ORIGINAL_UNAVAILABLE`; its frozen answers can
 still be inspected. Only result fields are projected; frozen specifications,
 context, candidate bodies, skill catalogs and arbitrary error text are excluded.
 
+Skill rows show only recorded suggestion names and boolean invocation policy,
+in recorded order. Modern independent evaluations and legacy single-choice
+replies are supported. Legacy `suggestion: null` with valid normalized `none` /
+`sN` probabilities is an evaluated no-suggestion result. Probability ids never
+identify skills in the UI. Disabled/empty advice, missing saved suggestions and
+valid zero suggestions stay distinct. Expand a row for safe structured output,
+recorded selection counts, suggestion policy and source locations; descriptions,
+paths from catalogs and frozen request content are never projected.
+
+Hard/direct skips say that Jev was not called and a proposal is not applicable.
+Request errors say no valid reply; missing models say model not recorded; absent
+Control reviews say no saved review. A task answer containing
+`insufficient_evidence` displays Needs evidence while retaining the original
+`NOT_EVALUATED` proposal and answer in the API/evidence. The mode/source-status
+column preserves recorded status. Historical missing-key, size-limit and request
+failures are observations, never retried or rewritten by the monitor.
+
+The local Advisor mode selector filters Jev counts, reason groups, rows and
+pagination together; other dashboard populations retain their own denominators.
+Reasons by mode explains valid, error, skipped, not-applicable, not-evaluated and
+unknown populations under the same filters. Source coverage still describes the
+bounded read. Missing denominators in other dashboard measures retain their
+existing unknown or NOT_EVALUATED states and explain the evidence gap.
+
 The existing time, workspace, probe and browser observation-start filters apply
 to Jev rows. Advisor artifacts without their own time/workspace use their
 co-located original assessment; that attribution is labeled and is not request

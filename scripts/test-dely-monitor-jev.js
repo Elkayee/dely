@@ -7,6 +7,106 @@ const os = require("node:os");
 const path = require("node:path");
 const { createJevReader, summarizeJev } = require("./dely-monitor-jev.js");
 
+const legacy = (suggestion = { name: "writing-for-agents" }) => ({ mode: "skill", status: "REVIEW_REQUIRED",
+  model: "jev-1.13.0", suggestion, confidence: 0.67,
+  probabilities: suggestion ? { none: 0.09, s149: 0.91 } : { none: 0.91, s149: 0.09 } });
+
+test("legacy suggestion and explicit none are evaluated, with names and safe raw output retained", async (t) => {
+  const { homes, put } = fixture(t);
+  put(homes[0], "suggested", "skill-advice.json", legacy());
+  put(homes[0], "none", "skill-advice.json", legacy(null));
+  const result = await createJevReader({ homes })();
+  assert.equal(result.rows.length, 2);
+  for (const row of result.rows) assert.equal(row.category, "valid");
+  const suggested = result.rows.find((r) => r.sources[0].task === "suggested");
+  assert.deepEqual(suggested.suggestions, [{ name: "writing-for-agents" }]);
+  assert.deepEqual(suggested.output.probabilities, legacy().probabilities);
+  assert.deepEqual(result.rows.find((r) => r.sources[0].task === "none").suggestions, []);
+});
+
+test("modern suggestion names and recorded explicit-only policy survive projection in order", async (t) => {
+  const { homes, put } = fixture(t);
+  put(homes[0], "modern", "skill-advice.json", { mode: "skill", status: "REVIEW_REQUIRED", model: "jev-1.13.0",
+    suggestions: [{ name: "research", description: "PRIVATE_DESCRIPTION", path: "PRIVATE_PATH" },
+      { name: "implement", allow_implicit_invocation: false, requires_explicit_invocation: true }],
+    evaluations: [{ relevance: "direct", confidence: 1, probabilities: { direct: 1, supporting: 0, unrelated: 0, unknown: 0 } }] });
+  const result = await createJevReader({ homes })();
+  assert.deepEqual(result.rows[0].suggestions, [{ name: "research" },
+    { name: "implement", allow_implicit_invocation: false, requires_explicit_invocation: true }]);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_/);
+});
+
+test("legacy explicit none is a valid evaluated result even without selection counts", async (t) => {
+  const { homes, put } = fixture(t);
+  put(homes[0], "none", "skill-advice.json", legacy(null));
+  const row = (await createJevReader({ homes })()).rows[0];
+  assert.equal(row.category, "valid"); assert.equal(row.reason, "LEGACY_NO_SUGGESTION");
+  assert.equal(require("../ui/monitor/jev-view.js").jevPresentation(row).proposal, "No suggestion (legacy none)");
+});
+
+test("legacy validation rejects unsafe keys, malformed distributions, bad names and contradictory none", async (t) => {
+  const { homes, put } = fixture(t);
+  const variants = [
+    { probabilities: { none: 0.1, s0: 0.1 } }, { probabilities: { none: 0.1, PRIVATE_KEY: 0.9 } },
+    { probabilities: { none: 0.1, s01: 0.9 } }, { probabilities: { none: -0.1, s0: 1.1 } },
+    { probabilities: { none: 0.1, s0: null } }, { confidence: null }, { confidence: 2 },
+    { suggestion: { name: "<PRIVATE_SCRIPT>" } }, { suggestion: { name: "research", enabled: "PRIVATE_FLAG" } },
+    { suggestion: null }, { suggestion: undefined }, { probabilities: JSON.parse('{"none":0.1,"__proto__":0.9}') },
+    { suggestions: "PRIVATE_CATALOG" },
+  ];
+  variants.forEach((extra, i) => put(homes[0], String(i), "skill-advice.json", { ...legacy(), input_sha256: i.toString(16).padStart(64, "0"), ...extra }));
+  const rows = (await createJevReader({ homes })()).rows;
+  assert.equal(rows.length, variants.length);
+  for (const row of rows) { assert.equal(row.category, "unknown"); assert.equal(row.output, null); }
+  assert.doesNotMatch(JSON.stringify(rows), /PRIVATE_|__proto__/);
+});
+
+test("disabled, zero suggestions, missing names and no output remain distinct without invented metadata", async (t) => {
+  const { homes, put } = fixture(t);
+  const disabled = { mode: "skill", status: "NOT_APPLICABLE", reason: "NO_ELIGIBLE_SKILLS", suggestions: [],
+    evaluations: [{ relevance: "NOT_EVALUATED", reason: "DISABLED" }], selection: { disabled_count: 1, evaluated_count: 0, secret: "PRIVATE_COUNT" } };
+  const modern = { mode: "skill", status: "REVIEW_REQUIRED", evaluations: [
+    { relevance: "unrelated", confidence: 1, probabilities: { direct: 0, supporting: 0, unknown: 0, unrelated: 1 } }] };
+  put(homes[0], "disabled", "skill-advice.json", disabled);
+  put(homes[0], "zero", "skill-advice.json", { ...modern, suggestions: [] });
+  put(homes[0], "missing", "skill-advice.json", modern);
+  put(homes[0], "failed", "skill-advice.json", { mode: "skill", status: "NOT_EVALUATED", reason: "JEV_HTTP_502", suggestions: [] });
+  const result = await createJevReader({ homes })();
+  const row = (id) => result.rows.find((r) => r.sources[0].task === id);
+  assert.equal(row("disabled").category, "not_applicable");
+  assert.deepEqual(row("disabled").output, [{ index: 0, choice: "NOT_EVALUATED", reason: "DISABLED" }]);
+  assert.equal(row("zero").category, "valid"); assert.deepEqual(row("zero").suggestions, []);
+  assert.equal(row("zero").model, null); assert.equal(row("missing").suggestions, null);
+  assert.equal(row("failed").category, "error"); assert.equal(row("failed").output, null);
+  assert.equal(summarizeJev(result.rows).notApplicable, 1);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_/);
+});
+
+test("safe raw probabilities, selection counts and known Control review sources survive without private fields", async (t) => {
+  const { homes, put } = fixture(t);
+  const raw = { direct: 0.74, supporting: 0.13, unknown: 0.06, unrelated: 0.06 }, sum = 0.99;
+  put(homes[0], "raw", "skill-advice.json", { mode: "skill", status: "REVIEW_REQUIRED", suggestions: [],
+    evaluations: [{ relevance: "direct", confidence: 0.8, raw_probabilities: raw,
+      probabilities: Object.fromEntries(Object.entries(raw).map(([key, p]) => [key, p / sum])) }] });
+  for (const source of ["control-evidence", "control-override-justified"]) put(homes[0], source, "reviewed.json", assessment({
+    review: { by: "codex-control", source, reason: "PRIVATE_REVIEW" } }));
+  const result = await createJevReader({ homes })();
+  assert.deepEqual(result.rows.find((r) => r.mode === "skill").output[0].raw_probabilities, raw);
+  assert.deepEqual(result.rows.find((r) => r.mode === "task").control.map((r) => r.source).sort(), ["control-evidence", "control-override-justified"]);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_/);
+});
+
+test("rendered labels distinguish hard skip, missing metadata, failed reply, needs evidence and unsaved review", () => {
+  const { jevPresentation } = require("../ui/monitor/jev-view.js");
+  const base = { mode: "task", category: "skipped", reason: "HARD_DIRECT_SKIP", control: [] };
+  assert.equal(jevPresentation(base).model, "Not called (Hard/direct)");
+  assert.equal(jevPresentation(base).proposal, "Not applicable (Hard/direct)");
+  assert.equal(jevPresentation(base).review, "No saved Control review");
+  assert.equal(jevPresentation({ ...base, category: "error" }).proposal, "No valid reply");
+  assert.equal(jevPresentation({ ...base, category: "valid", proposal: "NOT_EVALUATED" }).proposal, "Needs evidence");
+  assert.equal(jevPresentation({ ...base, category: "unknown" }).model, "Model not recorded");
+});
+
 const ts = "2026-10-18T10:00:00Z";
 const labels = ["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"];
 const answer = (choice = "medium_plus") => ({ type: "choice", choice, confidence: 0.8,
@@ -55,6 +155,7 @@ test("HTTP and validation failures differ from credentials, missing evidence, ha
     ["http", "Jev HTTP 503", "error"],
     ["invalid", "Jev request timed out or returned an invalid response", "error"],
     ["credentials", "TYPESAFE_API_KEY is not configured", "not_evaluated"],
+    ["oversized", "SNAPSHOT_TOO_LARGE", "not_evaluated"],
     ["evidence", "Missing task evidence", "not_evaluated"],
     ["skip", null, "skipped"], ["unknown", "Bearer PRIVATE_TOKEN", "unknown"],
   ];
@@ -65,7 +166,7 @@ test("HTTP and validation failures differ from credentials, missing evidence, ha
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_TOKEN/);
   const summary = summarizeJev(result.rows);
   assert.equal(summary.evaluations, 2); assert.equal(summary.errors, 2);
-  assert.equal(summary.notEvaluated, 2); assert.equal(summary.skipped, 1); assert.equal(summary.unknown, 1);
+  assert.equal(summary.notEvaluated, 3); assert.equal(summary.skipped, 1); assert.equal(summary.unknown, 1);
 });
 
 test("a reviewed hard skip or missing-credential assessment never becomes another evaluation", async (t) => {
@@ -107,7 +208,7 @@ test("malformed files, bounded paths, advisor modes, cache hits, invalidation an
   put(homes[0], "shape", "assessment.json", []);
   put(homes[0], "large", "assessment.json", "x".repeat(300000));
   put(homes[0], "one", "skill-advice.json", { mode: "skill", status: "REVIEW_REQUIRED", model: "jev-1.13.0", input_sha256: "c".repeat(64),
-    suggestions: [{ path: "PRIVATE_CATALOG", description: "PRIVATE_SKILL" }],
+    suggestions: [{ name: "research", path: "PRIVATE_CATALOG", description: "PRIVATE_SKILL" }],
     evaluations: [{ id: "s0", relevance: "direct", confidence: 0.9, probabilities: { direct: 1, supporting: 0, unknown: 0, unrelated: 0 } }] });
   put(homes[0], "one", "context-advice.json", { mode: "context", status: "NOT_EVALUATED", reason: "TYPESAFE_API_KEY_MISSING" });
   put(homes[0], "one", "arbitrary.json", { private: "PRIVATE_ARBITRARY" });
@@ -150,4 +251,9 @@ test("time, workspace, probe and observation-reset filters preserve unknown time
   assert.equal(summarizeJev(rows, { repo: "D:/example", asOf: end }).recorded, 2);
   assert.equal(summarizeJev(rows, { probes: true, asOf: end }).recorded, 3);
   assert.equal(summarizeJev(rows, { asOf: end }).unknownTime, 1);
+  const selected = summarizeJev(rows, { mode: "context", repo: "D:/example", since: end, asOf: end });
+  assert.equal(selected.recorded, 1); assert.equal(selected.unknown, 1); assert.equal(selected.modes.task, 0);
+  assert.equal(selected.reasons.reduce((sum, r) => sum + r.count, 0), selected.recorded);
+  assert.equal(summarizeJev(rows, { mode: "skill", asOf: end }).recorded, 0);
+  assert.equal(summarizeJev(rows, { mode: "skill", probes: true, asOf: end }).errors, 1);
 });

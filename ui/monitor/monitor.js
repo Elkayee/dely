@@ -123,6 +123,7 @@ function showRows() {
 function showJevRows() {
   const tbody = $("jev-rows"); tbody.replaceChildren();
   for (const row of jevRows.slice(0, jevShown)) {
+    const view = jevPresentation(row);
     const tr = element("tr"), workspace = element("td");
     workspace.append(element("div", row.ts ? new Date(row.ts).toLocaleString() : "Unknown time"),
       element("div", row.repo || "Unknown workspace", "cell-secondary mono"));
@@ -139,13 +140,17 @@ function showJevRows() {
       details.dataset.loaded = "true";
       details.append(element("p", row.output ? "Original Jev structured output" : "Jev output unavailable in saved artifacts", "cell-secondary"));
       if (row.output) details.append(element("pre", JSON.stringify(row.output, null, 2), "jev-output"));
+      if (row.mode === "skill") {
+        details.append(element("p", "Recorded suggested skills and policy (names are not inferred from probability ids)", "cell-secondary"));
+        details.append(element("pre", row.suggestions === null ? "Suggestions not recorded" : JSON.stringify(row.suggestions, null, 2), "jev-output"));
+        if (row.selection) details.append(element("pre", JSON.stringify(row.selection, null, 2), "jev-output"));
+      }
       details.append(element("p", "Control reviewed routing decision (separate from Jev)", "cell-secondary"));
-      details.append(element("pre", row.control.length ? JSON.stringify(row.control, null, 2) : "NOT_EVALUATED / no saved review", "jev-output"));
+      details.append(element("pre", view.review, "jev-output"));
       for (const source of row.sources) details.append(element("div", `${source.home}/dely-compliance/tasks/${source.task}/${source.file}`, "mono cell-secondary"));
     });
     result.append(details);
-    tr.append(workspace, mode, element("td", row.model || "NOT_EVALUATED", "mono"),
-      element("td", row.proposal || (row.mode === "task" ? "NOT_EVALUATED" : "See structured output")), result);
+    tr.append(workspace, mode, element("td", view.model, "mono"), element("td", view.proposal), result);
     tbody.append(tr);
   }
   if (!jevRows.length) {
@@ -160,14 +165,17 @@ function renderJev(data) {
   const pending = !source || ["loading", "refreshing"].includes(source.state);
   $("jev-count").textContent = pending ? "Reading saved evidence…" : `${stats.recorded} unique records`;
   $("jev-summary").textContent = pending && !source?.available ? "Reading saved evaluations in the background…" :
-    `${stats.evaluations} recorded evaluations · ${stats.valid} valid outputs · ${stats.errors} recorded errors · ${stats.notEvaluated} NOT_EVALUATED · ${stats.skipped} hard skips · ${stats.unknown} unknown. ${stats.unknownTime} unknown time · ${stats.unknownWorkspace} unknown workspace.${pending ? " Refreshing; last available values shown." : ""}`;
+    `${stats.evaluations} recorded evaluations · ${stats.valid} valid outputs · ${stats.errors} recorded errors · ${stats.notEvaluated} advice not evaluated · ${stats.skipped} Hard/direct skips · ${stats.notApplicable} not applicable · ${stats.unknown} unknown. ${stats.unknownTime} unknown time · ${stats.unknownWorkspace} unknown workspace.${pending ? " Refreshing; last available values shown." : ""}`;
+  const reasons = $("jev-reasons"); reasons.replaceChildren();
+  for (const group of stats.reasons) reasons.append(element("p", `${group.mode} · ${group.category.replace(/_/g, " ")} · ${group.reason}: ${group.count}`, "footnote mono"));
+  if (!stats.reasons.length) reasons.append(element("p", "No saved reasons match these filters.", "footnote"));
   const coverage = $("jev-coverage"); coverage.replaceChildren();
   coverage.append(element("p", `Source state: ${source?.state || "NOT_EVALUATED"}. Filtered modes: task ${stats.modes.task}, skill ${stats.modes.skill}, context ${stats.modes.context}. Absent advisor modes have unknown coverage, not zero API use.`, "footnote"));
   for (const s of source?.coverage || []) {
     coverage.append(element("p", `${s.home}: ${s.state} · ${s.directories} task folders · ${s.loaded} readable artifacts (includes review/copy files) · ${s.missing} missing assessments · ${s.malformed} malformed · ${s.unreadable} unreadable · ${s.oversized} oversized · ${s.excluded} excluded links · ${s.truncated ? "directory cap reached" : "within directory cap"}. Saved modes: task ${s.modes.task}, skill ${s.modes.skill}, context ${s.modes.context}.`, "footnote mono"));
   }
   coverage.append(element("p", "Only immediate assessment.json, reviewed.json, skill-advice.json and context-advice.json in the two compliance task homes are read (256 KiB/file, 4096 folders/home). Other saved locations and unsaved calls are NOT_EVALUATED. Advisor workspace/time comes from its co-located assessment when absent; it is not measured request timing.", "footnote"));
-  const scope = JSON.stringify([$("days").value, $("repo").value, $("probes").checked, observationStart]);
+  const scope = JSON.stringify([$("days").value, $("repo").value, $("probes").checked, $("jev-mode").value, observationStart]);
   if (scope !== jevScope) { jevShown = 25; jevScope = scope; }
   jevRows = stats.rows; showJevRows();
 }
@@ -536,7 +544,7 @@ async function refresh() {
   const requestId = ++refreshId;
   $("refresh").disabled = true; $("updated").textContent = "Reading local sources…";
   try {
-    const query = new URLSearchParams({ days: $("days").value, repo: $("repo").value, probes: String($("probes").checked), progressive: "true" });
+    const query = new URLSearchParams({ days: $("days").value, repo: $("repo").value, probes: String($("probes").checked), jevMode: $("jev-mode").value, progressive: "true" });
     if (observationStart) query.set("since", observationStart);
     const response = await fetch(`/api/usage?${query}`); if (!response.ok) throw new Error("Local monitor source is temporarily unavailable");
     const data = await response.json();
@@ -551,7 +559,7 @@ $("reset-statistics").addEventListener("click", () => setObservation(new Date().
 $("resume-window").addEventListener("click", () => setObservation(null));
 $("refresh").addEventListener("click", refresh);
 $("all-projects").addEventListener("click", () => { $("repo").value = ""; refresh(); });
-for (const id of ["days", "repo", "probes"]) $(id).addEventListener("change", refresh);
+for (const id of ["days", "repo", "probes", "jev-mode"]) $(id).addEventListener("change", refresh);
 $("more").addEventListener("click", () => { visibleRows += 50; showRows(); });
 $("jev-more").addEventListener("click", () => { jevShown += 25; showJevRows(); });
 window.addEventListener("pagehide", () => clearTimeout(loadingTimer));

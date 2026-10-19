@@ -51,4 +51,6 @@ html, body { overflow-x: hidden; }
 .jev-coverage p, .jev-table td { overflow-wrap: anywhere; }
 .jev-table { min-width: 760px; }
 .jev-table td { vertical-align: top; max-width: 300px; }
+.jev-filter { margin: 12px 0; }
+#jev-more[hidden] { display: none; }
 .jev-output { max-height: 320px; max-width: 480px; overflow: auto; white-space: pre-wrap; font-size: 11px; background: #f8faff; border: 1px solid #dce2ec; padding: 8px; }
