@@ -198,6 +198,7 @@ function credentials(repo) {
 }
 
 function validateInput(input, mode) {
+  if (mode === "plan") return planQuestions(input);
   if (!input || !nonempty(input.request)) throw Error("A nonempty request is required");
   if (Object.keys(input).some((key) => !["request", mode === "context" ? "candidates" : "skills"].includes(key))) throw Error("Unexpected input fields");
   const records = input[mode === "context" ? "candidates" : "skills"];
@@ -427,9 +428,9 @@ async function advisePlan(input, options) {
 async function advise(input, mode, options = {}) {
   if (mode === "plan") return advisePlan(input, options);
   validateInput(input, mode);
-  if (mode === "skill" && !input.skills.length) return { mode, status: "NOT_APPLICABLE", suggestions: [], suggestion: null, reason: "NO_SKILLS" };
   const fallback = { mode, status: "NOT_EVALUATED", input_sha256: digest(JSON.stringify(input)),
     ...(mode === "context" ? { ranked_context: input.candidates.map((c) => ({ ...c })) } : { suggestions: [], suggestion: null }) };
+  if (mode === "skill" && !input.skills.length) return { ...fallback, status: "NOT_APPLICABLE", reason: "NO_SKILLS" };
   if (mode === "skill") return adviseSkills(input, options, fallback);
   const questions = questionsFor(input, mode);
   const body = JSON.stringify({ model: MODEL, state: input, questions });

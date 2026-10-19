@@ -42,6 +42,19 @@ const psQuote = (value) => "'" + value.replace(/'/g, "''") + "'";
 const nodeCommand = (script) => process.platform === "win32" ?
   "& " + psQuote(process.execPath) + " " + psQuote(script) : 'node "' + script + '"';
 
+function validTaskInput(task) {
+  if (!["implement", "advice"].includes(task?.mode) || typeof task.request !== "string" || !task.request.trim() ||
+      !Array.isArray(task.skills) || !Array.isArray(task.required_skills) ||
+      task.skills.some((skill) => !skill || typeof skill.name !== "string" || !skill.name.trim() ||
+        typeof skill.description !== "string" || !skill.description.trim() || !path.isAbsolute(skill.path)) ||
+      task.required_skills.some((id) => !task.skills.some((skill) => skill.name === id || skill.path === id))) return false;
+  return task.mode === "advice" || (typeof task.spec === "string" && task.spec.trim() &&
+    task.context?.requirements_confirmed === true && ["scope", "coupling", "acceptance", "evidence"]
+      .every((key) => typeof task.context[key] === "string" && task.context[key].trim()) &&
+    ["security", "data", "public_contract", "architecture", "production", "routing"]
+      .every((key) => typeof task.context.risks?.[key] === "boolean"));
+}
+
 function taskInputWrite(event, state, home) {
   if (event.tool_name !== "apply_patch" || !event.turn_id || state.session !== event.session_id ||
       state.turn !== event.turn_id || (!/^[a-f0-9]{24}$/.test(state.input_nonce || "") &&
@@ -67,16 +80,7 @@ function taskInputWrite(event, state, home) {
       if (entry === path.dirname(entry)) return false;
     }
     const task = JSON.parse(lines.slice(2, -1).map((line) => line.slice(1)).join("\n"));
-    if (!["implement", "advice"].includes(task.mode) || typeof task.request !== "string" || !task.request.trim() ||
-        !Array.isArray(task.skills) || !Array.isArray(task.required_skills) ||
-        task.skills.some((skill) => !skill || typeof skill.name !== "string" || !skill.name.trim() ||
-          typeof skill.description !== "string" || !skill.description.trim() || !path.isAbsolute(skill.path)) ||
-        task.required_skills.some((id) => !task.skills.some((skill) => skill.name === id || skill.path === id))) return false;
-    return task.mode === "advice" || (typeof task.spec === "string" && task.spec.trim() &&
-      task.context?.requirements_confirmed === true && ["scope", "coupling", "acceptance", "evidence"]
-        .every((key) => typeof task.context[key] === "string" && task.context[key].trim()) &&
-      ["security", "data", "public_contract", "architecture", "production", "routing"]
-        .every((key) => typeof task.context.risks?.[key] === "boolean"));
+    return validTaskInput(task);
   } catch (_) { return false; }
 }
 
@@ -188,6 +192,7 @@ function context(event, home, state = {}) {
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
     " --task-file \"" + inputFile(home, event.session_id, event.turn_id, state.input_nonce).replace(/\\/g, "/") + "\". " +
     "Use apply_patch to add only that current-turn JSON input file before review; it grants no implementation authority. " +
+    (!workerContext ? "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " : "") +
     "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
@@ -222,7 +227,7 @@ function denialReason(error, event, home, state) {
   return hint + error.message + " Before implementation, follow this turn's prepare/review instructions. " + guide;
 }
 
-function needsReview(event, script) {
+function needsReview(event, script, home) {
   const name = event.tool_name || "";
   if (/^(?:apply_patch|Edit|Write)$/.test(name)) return true;
   if (name !== "Bash") {
@@ -241,6 +246,14 @@ function needsReview(event, script) {
   if (executable === "node" && words[1] && !chained) {
     try {
       if (samePath(words[1], script) && ["prepare", "review", "status"].includes(words[2])) return false;
+      if (home && samePath(words[0], process.execPath) && samePath(words[1], script) && words[2] === "advise") {
+        const { values } = parseArgs({ args: words.slice(3), options: Object.fromEntries(
+          ["session", "turn", "repo", "home", "task-file"].map((key) => [key, { type: "string" }])) });
+        if (values.session !== event.session_id || values.turn !== event.turn_id || !samePath(values.home, home) ||
+            !samePath(values.repo, event.cwd)) return true;
+        const request = advisoryRequest(values, home);
+        return request.binding.native_model !== event.model;
+      }
     } catch (_) { /* a missing script never grants an exemption */ }
   }
   if (chained) return true;
@@ -437,7 +450,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
     return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, state) } };
   }
   if (type !== "PreToolUse" && type !== "Stop") return {};
-  if (type === "PreToolUse" && !needsReview(event, script)) return {};
+  if (type === "PreToolUse" && !needsReview(event, script, home)) return {};
   const state = fs.existsSync(file) ? read(file) : {};
   // Legacy attempted evidence is ambiguous; retain its Stop check until the next prompt.
   const admitted = state.mutation_admitted ?? !!state.attempted;
@@ -481,6 +494,88 @@ function hook(event, home, workerCheck = verifiedWorker) {
     write(file, { ...state, mutation_admitted: admitted });
     return { hookSpecificOutput: { hookEventName: type, permissionDecision: "deny", permissionDecisionReason: reason } };
   }
+}
+
+function advisoryPath(file, home) {
+  const base = path.resolve(root(home)), target = path.resolve(file), relative = path.relative(base, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw Error("Advisory path escaped its home.");
+  for (let entry = target; ; entry = path.dirname(entry)) {
+    if (fs.lstatSync(entry, { throwIfNoEntry: false })?.isSymbolicLink()) throw Error("Advisory paths cannot contain a link.");
+    if (entry === base) break;
+  }
+  return target;
+}
+
+function advisoryRequest(options, home) {
+  if (Object.keys(options).some((key) => !["home", "session", "turn", "repo", "task-file"].includes(key)) ||
+      !options.session || !options.turn || !options.repo || !options["task-file"] ||
+      (process.env.CODEX_THREAD_ID && process.env.CODEX_THREAD_ID !== options.session)) throw Error("Advisory requires the current native owner.");
+  const state = read(advisoryPath(stateFile(home, options.session), home));
+  if (state.session !== options.session || state.turn !== options.turn || !samePath(state.repo, options.repo) ||
+      !["PENDING", "PREPARED", "REVIEWED"].includes(state.status) || !state.native_model ||
+      !/^[a-f0-9]{24}$/.test(state.input_nonce || "") ||
+      state.worker_claim?.spec_sha256 || state.worker_claim?.receipts?.length) throw Error("Advisory requires the current interactive prompt.");
+  advisoryPath(promptFile(home, state.session), home);
+  if (!fs.existsSync(promptFile(home, state.session))) throw Error("Advisory requires prompt evidence.");
+  checkPrompt(state, home);
+  const expected = advisoryPath(inputFile(home, state.session, state.turn, state.input_nonce), home);
+  const normalize = (file) => process.platform === "win32" ? path.resolve(file).toLowerCase() : path.resolve(file);
+  if (normalize(options["task-file"]) !== normalize(expected)) throw Error("Advisory requires this prompt's exact task input.");
+  const stat = fs.statSync(expected);
+  if (!stat.isFile() || stat.size > 256 * 1024) throw Error("Advisory requires a bounded regular task file.");
+  const bytes = fs.readFileSync(expected), task = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  if (!validTaskInput(task) || Object.hasOwn(task, "native_continuation")) throw Error("Invalid advisory task input.");
+  const envelope = task.advisory;
+  if (!envelope || Object.keys(envelope).some((key) => !["mode", "input"].includes(key)) ||
+      !["plan", "skill", "context"].includes(envelope.mode) || envelope.input?.request !== task.request ||
+      (envelope.mode === "skill" && JSON.stringify(envelope.input.skills) !== JSON.stringify(task.skills))) throw Error("Invalid task-bound advisory envelope.");
+  advisoryPath(settingsFile(home), home);
+  const settings = checkedSettings(home);
+  advisoryPath(settings.advisor, home);
+  const advisor = require(settings.advisor);
+  advisor.validateInput(envelope.input, envelope.mode);
+  const binding = { schema: "native-advisory-v1", session: state.session, turn: state.turn, repo: canonical(state.repo),
+    native_model: state.native_model, input_nonce: state.input_nonce, task_sha256: digest(bytes),
+    mode: envelope.mode, input_sha256: digest(JSON.stringify(envelope.input)), advisor_sha256: hashFile(settings.advisor),
+    adapter_sha256: hashFile(__filename), settings_sha256: hashFile(settingsFile(home)),
+    instructions_sha256: digest(JSON.stringify(instructions(state.repo, home))) };
+  const directory = advisoryPath(path.join(root(home), "tasks", "advisory-" + digest(state.session + "\0" + state.turn + "\0" + state.input_nonce).slice(0, 24)), home);
+  return { binding, input: envelope.input, advisor, directory };
+}
+
+async function advisory(options, home) {
+  const request = advisoryRequest(options, home);
+  const { binding, input, advisor, directory } = request;
+  fs.mkdirSync(directory, { recursive: true });
+  const requestFile = advisoryPath(path.join(directory, "request.json"), home);
+  const output = advisoryPath(path.join(directory, "result.json"), home);
+  const frozen = { binding, input };
+  const summary = (proof, reused) => ({ status: proof.result.status, reason: proof.result.reason,
+    mode: binding.mode, output_file: output, reused });
+  if (fs.existsSync(requestFile)) {
+    if (JSON.stringify(read(requestFile)) !== JSON.stringify(frozen)) throw Error("Advisory request binding changed.");
+    if (!fs.existsSync(output)) throw Error("Advisory attempt incomplete or in progress; do not retry automatically.");
+    const proof = read(output);
+    if (JSON.stringify(proof.binding) !== JSON.stringify(binding) || proof.result_sha256 !== digest(JSON.stringify(proof.result)) ||
+        proof.result?.input_sha256 !== binding.input_sha256 || proof.result?.mode !== binding.mode ||
+        !["REVIEW_REQUIRED", "NOT_EVALUATED", "NOT_APPLICABLE"].includes(proof.result?.status)) throw Error("Advisory result binding changed.");
+    return summary(proof, true);
+  }
+  // Exclusive reservation survives a lost response. It is never silently cleared or retried.
+  fs.writeFileSync(requestFile, JSON.stringify(frozen, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  let result;
+  const unavailable = (reason) => ({ mode: binding.mode, status: "NOT_EVALUATED", input_sha256: binding.input_sha256, reason });
+  try {
+    result = await advisor.advise(input, binding.mode, { repo: binding.repo });
+    if (!["REVIEW_REQUIRED", "NOT_EVALUATED", "NOT_APPLICABLE"].includes(result?.status) ||
+        result.input_sha256 !== binding.input_sha256 || result.mode !== binding.mode) result = unavailable("ADVISOR_RESULT_INVALID");
+  } catch (_) { result = unavailable("ADVISOR_UNAVAILABLE"); }
+  if (JSON.stringify(advisoryRequest(options, home).binding) !== JSON.stringify(binding)) throw Error("Advisory binding changed during request.");
+  advisoryPath(requestFile, home); advisoryPath(output, home);
+  if (JSON.stringify(read(requestFile)) !== JSON.stringify(frozen)) throw Error("Advisory reservation changed during request.");
+  const proof = { binding, result, result_sha256: digest(JSON.stringify(result)) };
+  fs.writeFileSync(output, JSON.stringify(proof, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  return summary(proof, false);
 }
 
 async function prepare(options, home) {
@@ -758,11 +853,11 @@ async function main(argv = process.argv.slice(2)) {
   let result;
   if (command === "hook") result = hook(JSON.parse(fs.readFileSync(0, "utf8")), home);
   else if (command === "install") result = install(values, home);
-  else if (command === "prepare" || command === "review") {
+  else if (command === "prepare" || command === "review" || command === "advise") {
     if (!values.session || !values.turn) throw Error("Session and turn are required.");
-    result = command === "prepare" ? await prepare(values, home) : review(values, home);
+    result = command === "advise" ? await advisory(values, home) : command === "prepare" ? await prepare(values, home) : review(values, home);
   } else if (command === "status") result = checkedSettings(home);
-  else throw Error("Use install, prepare, review, status or hook; see docs/codex-compliance.md.");
+  else throw Error("Use install, advise, prepare, review, status or hook; see docs/codex-compliance.md.");
   if (command === "prepare") {
     result = { status: result.status, task_directory: result.task_directory, continuation: result.continuation, skill_selection: result.skill_selection,
       ...(result.assessment ? { assessment: result.assessment } : {}) };
@@ -771,7 +866,7 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = { digest, fingerprints, stateFile, settingsFile, inputFile, taskInputWrite, instructions, needsReview, logRecords,
-  dispatchEvidence, verifiedWorker, validate, hook, prepare, review, install };
+  dispatchEvidence, verifiedWorker, validate, hook, advisory, prepare, review, install };
 if (require.main === module) main().catch(() => {
   console.error("Compliance check failed. Inspect the task inputs and installed hook guide; no source write was authorized.");
   process.exitCode = 2;
