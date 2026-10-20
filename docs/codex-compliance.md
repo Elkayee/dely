@@ -65,6 +65,19 @@ Assess slices independently. Optional domain/leaf labels select no grade or
 worker. For each correction candidate, consider all five saved answers and
 record the Control decision. Normal review can retain Medium+ with no proof;
 missing correction proof is distinct from missing task evidence.
+Before prepare/dispatch, assessment inputs require concrete verification
+evidence in the existing `context.acceptance` and `context.evidence` string
+fields. Require a concrete available method/command and fixture, procedure,
+expected_result, would_fail_if, and inspected source/caller/detector provenance.
+Explicitly distinguish a planned detector before dispatch from executed
+acceptance after implementation: pre-dispatch evidence defines the verification
+instrument and criteria that will prove the work, whereas executed results
+belong to verification logs and records after implementation. If Jev returns a
+valid `insufficient_evidence` response, inspect the gap, gather real new
+evidence and use a fresh task snapshot/assessment without overwriting raw Jev
+answers, old tasks or reviews. Unknowns remain NOT_EVALUATED. This guidance
+requires no forced low grade, schema field, evaluator, routing/admission/fallback
+or ownership change.
 
 1. Build a task JSON from the actual request and current session skill catalog.
    Supply complete descriptions and absolute SKILL.md paths. Include every
@@ -209,8 +222,8 @@ The task JSON shape is:
       "context": {
         "scope": "The confirmed scope",
         "coupling": "Known dependencies",
-        "acceptance": "Observable acceptance checks",
-        "evidence": "Current source evidence",
+        "acceptance": "Method/command: node --test scripts/test-codex-compliance.js. Fixture: test fixture exercising SessionStart and UserPromptSubmit hook output. Procedure: invoke hook handlers with Control and worker events. Expected result: additionalContext includes the static verification evidence reminder and passes validation. Would fail if: reminder text is generic or lacks expected_result/would_fail_if/provenance requirements.",
+        "evidence": "Inspected source and caller provenance: scripts/codex-compliance.js context() generates additionalContext for SessionStart and UserPromptSubmit; scripts/test-codex-compliance.js verifies hook output. Planned detector distinguishes pre-dispatch verification requirements from executed post-implementation results.",
         "requirements_confirmed": true,
         "risks": {
           "security": false, "data": false, "public_contract": false,

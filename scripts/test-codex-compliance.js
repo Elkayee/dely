@@ -1644,3 +1644,59 @@ test("invalid native input fails with a blocking exit and never prints supplied 
   assert.equal(result.status, 2);
   assert.ok(!result.stdout.includes("SECRET_SENTINEL") && !result.stderr.includes("SECRET_SENTINEL"));
 });
+
+
+function assertConcreteEvidenceReminder(text) {
+  assert.ok(typeof text === "string" && text.length > 0, "guidance text must be non-empty");
+  if (!/expected_result/i.test(text) || !/would_fail_if/i.test(text) || !/provenance/i.test(text)) {
+    throw Error("Reminder is generic or missing required provenance, expected_result, or would_fail_if requirement");
+  }
+  assert.match(text, /(?:method|command).*fixture/i, "must require available method/command and fixture");
+  assert.match(text, /procedure/i, "must require procedure");
+  assert.match(text, /expected_result/i, "must require expected_result");
+  assert.match(text, /would_fail_if/i, "must require would_fail_if");
+  assert.match(text, /(?:source|caller|detector).*provenance|provenance/i, "must require inspected provenance");
+  assert.match(text, /distinguish.*planned.*detector.*executed.*acceptance/i, "must distinguish planned detector from executed acceptance");
+  assert.match(text, /insufficient_evidence/i, "must address insufficient_evidence handling");
+}
+
+test("SessionStart and UserPromptSubmit Control hooks include concrete verification evidence reminder", async (t) => {
+  const f = fixture(t);
+  assert.throws(() => assertConcreteEvidenceReminder("Before implementation, supply the actual session skill roster and task evidence"),
+    /generic|missing/i, "must reject generic reminder");
+  assert.throws(() => assertConcreteEvidenceReminder("Require procedure and expected_result but omit others"),
+    /generic|missing/i, "must reject reminder missing provenance or would_fail_if");
+  assert.throws(() => assertConcreteEvidenceReminder("Require method, fixture, procedure, provenance, would_fail_if"),
+    /generic|missing/i, "must reject reminder missing expected_result");
+
+  const sessionEvent = { ...f.event, hook_event_name: "SessionStart" };
+  const sessionOutput = guard.hook(sessionEvent, f.home);
+  assertConcreteEvidenceReminder(sessionOutput.hookSpecificOutput.additionalContext);
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"));
+  const sessionCommand = manifest.hooks.SessionStart.find((entry) =>
+    entry.hooks && entry.hooks[0] && entry.hooks[0].command && entry.hooks[0].command.includes("codex-compliance.js"))?.hooks[0].command;
+  if (sessionCommand) {
+    const spawned = process.platform === "win32" ?
+      spawnSync("powershell.exe", ["-NoProfile", "-Command", sessionCommand], { input: JSON.stringify(sessionEvent), encoding: "utf8" }) :
+      spawnSync(process.execPath, [path.join(f.home, "dely-compliance", "codex-compliance.js"), "hook", "--home", f.home], { input: JSON.stringify(sessionEvent), encoding: "utf8" });
+    assert.equal(spawned.status, 0, spawned.stderr);
+    const parsed = JSON.parse(spawned.stdout);
+    assertConcreteEvidenceReminder(parsed.hookSpecificOutput.additionalContext);
+  }
+
+  const promptEvent = { ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Standard Control task prompt" };
+  const promptOutput = guard.hook(promptEvent, f.home);
+  assertConcreteEvidenceReminder(promptOutput.hookSpecificOutput.additionalContext);
+
+  const specHash = guard.digest(f.task.spec);
+  const workerPrompt = guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit",
+    prompt: "Task spec staged at spec.md (100 bytes, SHA-256: " + specHash + ") rcpt_0123456789abcdef" }, f.home);
+  assert.match(workerPrompt.hookSpecificOutput.additionalContext, /workers inherit.*Control/i);
+  assert.match(workerPrompt.hookSpecificOutput.additionalContext, /Do not prepare or review/);
+  assertConcreteEvidenceReminder(workerPrompt.hookSpecificOutput.additionalContext);
+
+  await f.prepare();
+  f.review();
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});

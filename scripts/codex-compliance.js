@@ -195,6 +195,9 @@ function context(event, home, state = {}) {
     (!workerContext ? "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " : "") +
     "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
+    "Before prepare/dispatch, require concrete verification evidence in existing context.acceptance and context.evidence fields: available method/command and fixture, procedure, expected_result, would_fail_if, and inspected source/caller/detector provenance. " +
+    "Explicitly distinguish a planned detector before dispatch from executed acceptance after implementation. " +
+    "For a valid insufficient_evidence response, inspect the gap, gather real new evidence and use a fresh task snapshot/assessment without overwriting raw Jev answers, old tasks or reviews. Unknowns remain NOT_EVALUATED. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
     "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
     "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
