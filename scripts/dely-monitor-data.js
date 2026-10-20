@@ -17,6 +17,7 @@ const sourceLabel = (repo) => String(repo || "").replace(/\\/g, "/");
 const snapshotKey = (policy, key) => JSON.stringify([policy || null, key]);
 const isProbe = (repo) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-)/i.test(sourceLabel(repo));
 function instant(value) {
+  if (typeof value === "number") return Number.isFinite(value) && Number.isFinite(new Date(value).getTime()) ? value : null;
   if (typeof value !== "string") return null;
   const normalized = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(value) ? value.replace(" ", "T") + "Z" : value;
   const time = Date.parse(normalized);
@@ -239,12 +240,14 @@ function snapshotCohort(events, options, visible) {
 function summarize(events, workers, conversations, options = {}) {
   const since = options.since || 0;
   const repo = sourceLabel(options.repo);
-  const visible = (r) => (!repo || sourceLabel(r.repo) === repo) &&
-    (options.probes || !isProbe(r.repo)) && (instant(r.ts) == null ||
-      (instant(r.ts) >= since && instant(r.ts) <= (options.asOf ?? Date.now())));
+  const scope = (r) => (!repo || sourceLabel(r.repo) === repo) && (options.probes || !isProbe(r.repo));
+  const inWindow = (r) => instant(r.ts) == null ? !options.explicitReset :
+    instant(r.ts) >= since && instant(r.ts) <= (options.asOf ?? Date.now());
+  const visible = (r) => scope(r) && inWindow(r);
   const filtered = events.filter((e) => visible(e) && (instant(e.ts) == null || instant(e.ts) <= (options.asOf ?? Date.now())));
   const tasks = new Map();
-  const snapshots = snapshotCohort(events, options, visible);
+  // Canonical cohorts apply their own effective-time windows after full-history binding.
+  const snapshots = snapshotCohort(events, options, scope);
   const launches = new Map([...snapshots.launches].filter(([, l]) => visible(l)));
   for (const e of filtered) {
     if (e.event === "task_assessment" && e.taskKey) {
@@ -348,10 +351,11 @@ function summarize(events, workers, conversations, options = {}) {
       dispatched: launchedTasks.has(snapshotKey(t.policy, t.taskKey)) })),
     repos: [...new Set([...events, ...workers, ...conversations].map((r) => sourceLabel(r.repo)).filter(Boolean))].sort(),
   };
+  result.coverage.excludedUnknownTime = Object.fromEntries(Object.entries({ events, workers, conversations })
+    .map(([name, rows]) => [name, options.explicitReset ? rows.filter((r) => scope(r) && instant(r.ts) == null).length : 0]));
   if (!options.projectSummary) {
     const allOptions = { ...options, repo: "", projectSummary: true };
-    const allVisible = (r) => (options.probes || !isProbe(r.repo)) && (instant(r.ts) == null ||
-      (instant(r.ts) >= since && instant(r.ts) <= (options.asOf ?? Date.now())));
+    const allVisible = (r) => (options.probes || !isProbe(r.repo)) && inWindow(r);
     const rows = [...events, ...workers, ...conversations].filter(allVisible);
     const paths = [...new Set(rows.map((r) => sourceLabel(r.repo)).filter(Boolean))].sort();
     const project = (path, summary) => ({ repo: path, name: path.split("/").filter(Boolean).pop(),
@@ -448,7 +452,7 @@ async function readWorkers() {
     total = result.page?.total ?? total; scope = result.scope?.source || scope;
     for (const w of result.workers || []) rows.push({
       id: w.dispatchId, run: w.runId, repo: w.resource?.worktreeId?.split("::").slice(1).join("::") || null,
-      ts: w.projection?.evidence?.lastObservedAt || null, status: w.workerState || "Unknown",
+      ts: w.projection?.evidence?.lastObservedAt ?? null, status: w.workerState || "Unknown",
       model: typeof w.projection?.provider?.model === "string" ? w.projection.provider.model : null,
     });
     cursor = result.page?.hasMore ? result.page.nextCursor : null; pages++;

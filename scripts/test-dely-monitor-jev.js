@@ -305,4 +305,8 @@ test("time, workspace, probe and observation-reset filters preserve unknown time
   assert.equal(selected.reasons.reduce((sum, r) => sum + r.count, 0), selected.recorded);
   assert.equal(summarizeJev(rows, { mode: "skill", asOf: end }).recorded, 0);
   assert.equal(summarizeJev(rows, { mode: "skill", probes: true, asOf: end }).errors, 1);
+  const reset = summarizeJev([...rows, { ts: "invalid", repo: "D:/example", category: "unknown", mode: "context" }],
+    { since: end, asOf: end, explicitReset: true, mode: "context", repo: "D:/example" });
+  assert.equal(reset.recorded, 0); assert.equal(reset.unknownTime, 0);
+  assert.equal(reset.excludedUnknownTime, 2);
 });

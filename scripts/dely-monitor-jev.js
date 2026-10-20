@@ -306,13 +306,18 @@ function createJevReader(options = {}) {
 
 function summarizeJev(rows = [], options = {}) {
   const repo = repoPath(options.repo), since = options.since || 0, end = options.asOf ?? Date.now();
-  const visible = rows.filter((r) => (!repo || r.repo === repo) && (options.probes || !probe(r.repo)) &&
-    (!options.mode || r.mode === options.mode) &&
-    (!r.ts || Date.parse(r.ts) >= since && Date.parse(r.ts) <= end));
+  const time = (r) => {
+    const value = typeof r.ts === "number" ? r.ts : typeof r.ts === "string" ? Date.parse(r.ts) : NaN;
+    return Number.isFinite(value) && Number.isFinite(new Date(value).getTime()) ? value : null;
+  };
+  const scoped = rows.filter((r) => (!repo || r.repo === repo) && (options.probes || !probe(r.repo)) &&
+    (!options.mode || r.mode === options.mode));
+  const visible = scoped.filter((r) => time(r) == null ? !options.explicitReset : time(r) >= since && time(r) <= end);
   const count = (category) => visible.filter((r) => r.category === category).length;
   return { recorded: visible.length, evaluations: count("valid") + count("error"), valid: count("valid"),
     errors: count("error"), notEvaluated: count("not_evaluated"), skipped: count("skipped"), notApplicable: count("not_applicable"), unknown: count("unknown"),
-    unknownTime: visible.filter((r) => !r.ts).length, unknownWorkspace: visible.filter((r) => !r.repo).length,
+    excludedUnknownTime: options.explicitReset ? scoped.filter((r) => time(r) == null).length : 0,
+    unknownTime: visible.filter((r) => time(r) == null).length, unknownWorkspace: visible.filter((r) => !r.repo).length,
     modes: Object.fromEntries(["task", "skill", "context"].map((mode) => [mode, visible.filter((r) => r.mode === mode).length])),
     reasons: [...visible.reduce((groups, row) => {
       const reason = row.reason === "NOT_RECORDED" && row.category === "valid" ? "VALID_RECORDED_OUTPUT" : row.reason;
@@ -320,7 +325,7 @@ function summarizeJev(rows = [], options = {}) {
       const group = groups.get(key) || { mode: row.mode, category: row.category, reason, count: 0 };
       group.count++; groups.set(key, group); return groups;
     }, new Map()).values()].sort((a, b) => b.count - a.count || a.mode.localeCompare(b.mode)),
-    rows: visible.slice().sort((a, b) => (Date.parse(b.ts) || 0) - (Date.parse(a.ts) || 0)) };
+    rows: visible.slice().sort((a, b) => (time(b) || 0) - (time(a) || 0)) };
 }
 
 module.exports = { createJevReader, summarizeJev };

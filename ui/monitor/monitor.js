@@ -15,8 +15,8 @@ try {
 function observationStatus(data) {
   const active = data ? ` Active start: ${data.window.start}.` : "";
   $("observation-start").textContent = (observationStart
-    ? `Statistics reset at ${observationStart}.${active} Limited by the selected rolling window.`
-    : `Using selected rolling window.${active}`) + (storageWarning ? ` ${storageWarning}` : "");
+    ? `Statistics reset at ${observationStart}.${active} Unknown times excluded; retained source coverage is unchanged.`
+    : `Using selected rolling window.${active} Undated source records remain visible.`) + (storageWarning ? ` ${storageWarning}` : "");
   $("resume-window").hidden = !observationStart;
 }
 
@@ -222,7 +222,7 @@ function renderJev(data) {
   const pending = !source || ["loading", "refreshing"].includes(source.state);
   $("jev-count").textContent = pending ? "Reading saved evidence…" : `${stats.recorded} unique records`;
   $("jev-summary").textContent = pending && !source?.available ? "Reading saved evaluations in the background…" :
-    `${stats.evaluations} recorded evaluations · ${stats.valid} valid outputs · ${stats.errors} recorded errors · ${stats.notEvaluated} advice not evaluated · ${stats.skipped} Hard/direct skips · ${stats.notApplicable} not applicable · ${stats.unknown} unknown. ${stats.unknownTime} unknown time · ${stats.unknownWorkspace} unknown workspace.${pending ? " Refreshing; last available values shown." : ""}`;
+    `${stats.evaluations} recorded evaluations · ${stats.valid} valid outputs · ${stats.errors} recorded errors · ${stats.notEvaluated} advice not evaluated · ${stats.skipped} Hard/direct skips · ${stats.notApplicable} not applicable · ${stats.unknown} unknown. ${stats.unknownTime} unknown time · ${stats.unknownWorkspace} unknown workspace.${stats.excludedUnknownTime ? ` ${stats.excludedUnknownTime} unknown-time records excluded by reset.` : ""}${pending ? " Refreshing; last available values shown." : ""}`;
   const reasons = $("jev-reasons"); reasons.replaceChildren();
   for (const group of stats.reasons) reasons.append(element("p", `${group.mode} · ${group.category.replace(/_/g, " ")} · ${group.reason}: ${group.count}`, "footnote mono"));
   if (!stats.reasons.length) reasons.append(element("p", "No saved reasons match these filters.", "footnote"));
@@ -283,6 +283,8 @@ function render(data) {
     sourceRow("Orca workers", sourceProgress(orca) ? "Reading worker inventory; last available values stay visible" : orca.available ? `${orca.loaded} / ${orca.total ?? "unknown"} records · ${orca.scope || "unknown scope"}` : "Local Orca connection unavailable", sourceProgress(orca) || (orca.available ? orca.complete ? "Complete page set" : "Partial" : "Unavailable"), orca.available && orca.complete && !sourceProgress(orca)),
     sourceRow("Codex conversations", sourceProgress(codex) ? "Reading conversation metadata; last available values stay visible" : codex.available ? `${codex.files} local rollout files · ${codex.malformed} unreadable lines` : "Local conversation metadata unavailable", sourceProgress(codex) || (codex.available ? "Available" : "Unavailable"), codex.available && !sourceProgress(codex)));
   const gaps = [];
+  const excluded = data.coverage.excludedUnknownTime;
+  if (excluded && Object.values(excluded).some(Boolean)) gaps.push(`Reset excludes unknown-time evidence: ${excluded.events} journal records, ${excluded.workers} workers, ${excluded.conversations} conversation turns. Source inventories are retained.`);
   if (data.refreshError) gaps.push(`${data.refreshError}.`);
   if (data.refreshing) gaps.push(`Updating sources in the background. ${data.stale ? "Last available values are shown until refreshed." : "Dely records are ready; other source records will appear as they load."}`);
   if (!log.present) gaps.push("Snapshot shares become available after bound assessments and confirmed launches are logged.");

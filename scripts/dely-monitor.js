@@ -100,11 +100,11 @@ function createMonitor(options = {}) {
         const asOf = Date.parse(data.collectedAt) || Date.now();
         const start = Math.max(asOf - days * 86400000, since ?? -Infinity);
         const result = summarize(data.events, data.workers, data.conversations, {
-          since: start, repo: url.searchParams.get("repo") || "",
+          since: start, explicitReset: since !== null, repo: url.searchParams.get("repo") || "",
           probes: url.searchParams.get("probes") === "true",
           asOf, end: Math.max(start, asOf), runtimes: data.sources?.runtimes || [],
         });
-        result.jev = summarizeJev(data.jev, { since: start, asOf, mode,
+        result.jev = summarizeJev(data.jev, { since: start, asOf, mode, explicitReset: since !== null,
           repo: url.searchParams.get("repo") || "", probes: url.searchParams.get("probes") === "true" });
         result.repos = [...new Set([...result.repos, ...(data.jev || []).map((r) => r.repo).filter(Boolean)])].sort();
         res.setHeader("Content-Type", "application/json; charset=utf-8");

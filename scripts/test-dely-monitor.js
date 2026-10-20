@@ -7,11 +7,65 @@ const { once } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { summarize, jsonLines, collect, readRuntimes, createConversationReader, readWorkerDiagnostic } = require("./dely-monitor-data.js");
+const { instant, summarize, jsonLines, collect, readRuntimes, createConversationReader, readWorkerDiagnostic } = require("./dely-monitor-data.js");
 const { createMonitor } = require("./dely-monitor.js");
 const { createJevReader } = require("./dely-monitor-jev.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
+test("observation times accept milliseconds and legacy SQL without guessing seconds or missing time", () => {
+  assert.equal(instant(Date.parse(ts)), Date.parse(ts));
+  assert.equal(instant("2026-10-09 01:00:00"), Date.parse(ts));
+  assert.equal(instant(1234), 1234); assert.equal(instant(0), 0);
+  for (const value of [null, undefined, "invalid", Infinity, NaN, 9e20, {}, false]) assert.equal(instant(value), null);
+});
+test("explicit reset bounds every population while rolling retains undated coverage", async () => {
+  const old = "2026-10-19T23:00:00Z", mark = "2026-10-19T23:56:56.122Z", fresh = "2026-10-20T00:00:00Z";
+  const workers = [
+    { id: "old-iso", repo: "D:/old-only", ts: old },
+    { id: "old-ms", repo: "D:/old-only", ts: Date.parse(old) },
+    { id: "fresh", repo, ts: Date.parse(fresh) },
+    { id: "null", repo: "D:/undated", ts: null },
+    { id: "invalid", repo: null, ts: "invalid" },
+    { id: "probe", repo: "D:/.tmp-dely/probe", ts: fresh },
+  ];
+  const events = workers.map((w) => ({ ...w, event: "task_assessment", taskKey: w.id }));
+  const conversations = workers.map((w) => ({ ...w, session: w.id }));
+  const jev = workers.map((w) => ({ ...w, mode: "context", category: "unknown" }));
+  const options = { since: Date.parse(mark), asOf: Date.parse(fresh), explicitReset: true };
+  const checkReset = (result) => {
+    assert.equal(result.jobs.count, 1); assert.equal(result.tasks.recorded, 1);
+    assert.equal(result.conversations.turns, 1); assert.deepEqual(result.activity.map((r) => r.id), ["fresh"]);
+    assert.deepEqual(result.projects.map((p) => p.repo), [repo]); assert.equal(result.unassigned.records, 0);
+    assert.deepEqual(result.coverage.excludedUnknownTime, { events: 2, workers: 2, conversations: 2 });
+    assert.equal(result.metrics.agyStart.rate, null);
+    assert.ok(result.repos.includes("D:/old-only"));
+  };
+  checkReset(summarize(events, workers, conversations, options));
+  assert.equal(summarize(events, workers, conversations, { ...options, explicitReset: false }).jobs.count, 3);
+  assert.equal(summarize(events, workers, conversations, { ...options, probes: true }).jobs.count, 2);
+  assert.equal(summarize(events, workers, conversations, { ...options, repo: "D:/old-only" }).jobs.count, 0);
+  assert.equal(summarize(events, workers, conversations, { asOf: Date.parse(fresh) }).jobs.count, 5);
+  let clock = Date.parse(old), calls = 0;
+  const sources = { orca: { available: true, loaded: workers.length, complete: true }, jev: { available: true, loaded: jev.length } };
+  const server = createMonitor({ now: () => clock, collect: async () => {
+    calls++; return { events, workers, conversations, jev, sources, collectedAt: new Date(clock).toISOString() };
+  } });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}/api/usage?days=7`;
+  try {
+    await fetch(url); clock = Date.parse(fresh);
+    const reset = await (await fetch(url + "&since=" + mark)).json();
+    checkReset(reset); assert.equal(calls, 2); assert.equal(reset.jev.recorded, 1);
+    assert.equal(reset.jev.excludedUnknownTime, 2); assert.equal(reset.sources.orca.loaded, 6);
+    const selected = await (await fetch(url + "&since=" + mark + "&repo=" + encodeURIComponent(repo) + "&jevMode=skill")).json();
+    assert.equal(selected.jobs.count, 1); assert.equal(selected.jev.recorded, 0);
+    const probes = await (await fetch(url + "&since=" + mark + "&probes=true")).json();
+    assert.equal(probes.jobs.count, 2); assert.equal(probes.jev.recorded, 2);
+    const resumed = await (await fetch(url)).json();
+    assert.equal(resumed.jobs.count, 5); assert.equal(resumed.jev.recorded, 5); assert.equal(calls, 2);
+    assert.equal((await fetch(url.replace("/api/usage?days=7", "/monitor.js"))).status, 200);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
 const specHash = "a".repeat(64), contextHash = "b".repeat(64), basis = "c".repeat(64);
 const key = taskKey(repo, specHash, contextHash);
 test("worker diagnostics preserve raw outcomes, structured cause and missing evidence", async () => {
@@ -427,7 +481,7 @@ test("project details freeze the original snapshot across current reviews, retri
   assert.equal(task.task_title, "Frozen task"); assert.equal(task.grade, "medium_minus");
   assert.equal(task.latestApproval.grade, "medium_plus"); assert.equal(task.attempts.length, 2);
   assert.equal(task.attempts[1].effort, "max");
-  const reset = summarize(events, [], [], { since: Date.parse(later), asOf: Date.parse(last) });
+  const reset = summarize(events, [], [], { since: Date.parse(later), asOf: Date.parse(last), explicitReset: true });
   assert.equal(reset.projects[0].snapshots, 0); assert.equal(reset.projects[0].launches, 1);
   assert.equal(reset.taskDetails[0].task_title, "Frozen task");
   assert.equal(reset.taskDetails[0].inSnapshotWindow, false);
