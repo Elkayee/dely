@@ -5,7 +5,8 @@ if ([string]::IsNullOrWhiteSpace($env:ORCA_TERMINAL_HANDLE)) {
 }
 
 $repo = Split-Path -Parent $PSScriptRoot
-$dely = Join-Path $HOME ".codex\dely-orca-agy-global\skills\delivery\scripts\dely.js"
+$settingsPath = Join-Path $HOME ".codex\dely-compliance\settings.json"
+$dely = (Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json).dely
 
 if (-not (Test-Path $dely)) {
     throw "Global Dely adapter is missing."

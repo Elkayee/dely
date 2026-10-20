@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-10-20 — One authoring source and coherent native Dely bindings
+
+Use this repository as the authoring source and `dely@dely` as the single
+active local plugin. Its generated cache is the canonical execution source for
+the native skill, routing module, dispatcher and advisor in each existing
+Codex home. The known native and Orca homes may share the same plugin cache.
+
+Run `scripts/sync-dely.js` after checks and Control review, between settled
+plans. Plan is read-only; update is bound to its reviewed runtime hash. Refuse
+different runtime bytes under an existing version. Preserve native hook bytes,
+trust and credential discovery; back up and restore profile files on failure.
+Disable only the named legacy Dely plugin entries. Keep frozen releases, old
+caches and historical evidence. A fresh native session must load the selected
+catalog rather than rewriting a running session's supplied roster.
+
+The previous global bootstrap now delegates to this updater instead of cloning
+an old pinned upstream. The update contract is in [dely-updates.md](dely-updates.md).
+
 ## 2026-10-19 — Safe Jev stages and incomplete batch observations (0.27.8)
 
 Record measured request metadata with fixed stage/code enums across task,
@@ -23,7 +41,7 @@ private temporary-home installation tests cover the copied public advice API.
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
-Last updated 2026-10-18.
+Last updated 2026-10-20.
 
 ---
 

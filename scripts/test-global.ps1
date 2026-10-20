@@ -6,7 +6,8 @@ if ([string]::IsNullOrWhiteSpace($env:ORCA_TERMINAL_HANDLE)) {
 
 $repo = Split-Path -Parent $PSScriptRoot
 $workspace = Join-Path $repo ".tmp-dely\global-smoke"
-$dely = Join-Path $HOME ".codex\dely-orca-agy-global\skills\delivery\scripts\dely.js"
+$settingsPath = Join-Path $HOME ".codex\dely-compliance\settings.json"
+$dely = (Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json).dely
 
 if (Test-Path $workspace) {
     git -C $repo worktree remove --force $workspace 2>$null

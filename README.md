@@ -522,10 +522,10 @@ The setup script rebuilds only `.dely-poc`; it does not modify AGY credentials o
 
 ### Global mode for all workspaces
 
-Global mode is installed at:
+The authoritative local authoring source is:
 
 ```text
-C:\Users\Home33\.codex\dely-orca-agy-global
+D:\orca
 ```
 
 The default Dely routing is stored in the existing user-level:
@@ -547,17 +547,17 @@ The patched Dely resolver checks the current workspace `AGENTS.md` first, then t
 
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
-Install or rebuild global mode from `D:\orca`:
+Update existing global installations from the checked and reviewed source.
+Use the bundle hash printed by the read-only plan:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-global.ps1
+node.exe scripts/sync-dely.js plan
+node.exe scripts/sync-dely.js update --expected-sha <bundle_sha256-from-plan>
+node.exe scripts/sync-dely.js check
 ```
 
-Expected final line:
-
-```text
-GLOBAL DELY OK
-```
+Successful postflight reports `COHERENT`. See the [update contract](docs/dely-updates.md)
+for backups, protected snapshots, source drift and the required fresh session.
 
 AGY workspace trust is intentionally not auto-confirmed. On a folder that Antigravity has never trusted, the first delivery stops with a message containing:
 
