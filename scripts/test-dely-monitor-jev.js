@@ -6,6 +6,131 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { createJevReader, summarizeJev } = require("./dely-monitor-jev.js");
+const riskKeys = ["security", "data", "public_contract", "architecture", "production", "routing"];
+const riskValues = (value) => Object.fromEntries(riskKeys.map((key) => [key, value]));
+
+test("risk projection keeps only six actual booleans and never infers flags from Hard", async (t) => {
+  const { homes, put } = fixture(t);
+  const cases = [riskValues(true), riskValues(false), { security: true, data: true, routing: false },
+    undefined, null, [], "PRIVATE_SENTINEL", { security: "true", data: "false", public_contract: 1,
+      architecture: 0, production: null, routing: {}, extra: "PRIVATE_SENTINEL" }];
+  for (const [i, risks] of cases.entries()) put(homes[0], "risk-" + i, "assessment.json", assessment({
+    assessed_at: new Date(Date.parse(ts) + i).toISOString(), status: "DIRECT_CODEX", jev: null,
+    task: { repo: "D:/example", context: { risks, scope: "PRIVATE_SENTINEL", evidence: "PRIVATE_SENTINEL" },
+      spec: "PRIVATE_SENTINEL" } }));
+  const result = await createJevReader({ homes })();
+  for (const [i, risks] of cases.entries()) {
+    const row = result.rows.find((r) => r.sources[0].task === "risk-" + i);
+    const expected = Object.fromEntries(riskKeys.map((key) => [key,
+      risks && !Array.isArray(risks) && typeof risks[key] === "boolean" ? risks[key] : null]));
+    assert.deepEqual(row.risks, expected);
+    assert.equal(row.riskSource, "assessment");
+  }
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL|scope|evidence/);
+});
+
+test("risk provenance follows original assessment across reviewed-only and duplicate records", async (t) => {
+  const { homes, put } = fixture(t);
+  const original = assessment();
+  original.task.context.risks = riskValues(false);
+  const reviewed = { ...original, status: "APPROVED", task: { ...original.task,
+    context: { risks: riskValues(true) } }, review: { by: "codex-control", reviewed_at: ts } };
+  put(homes[0], "copy", "reviewed.json", reviewed);
+  const read = createJevReader({ homes });
+  let result = await read();
+  assert.equal(result.rows[0].riskSource, "reviewed");
+  assert.equal(result.rows[0].status, "ORIGINAL_UNAVAILABLE");
+  assert.deepEqual(result.rows[0].risks, riskValues(true));
+  put(homes[1], "original", "assessment.json", original);
+  result = await read();
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].riskSource, "assessment");
+  assert.deepEqual(result.rows[0].risks, riskValues(false));
+  assert.equal(result.rows[0].control.length, 1);
+  assert.equal(summarizeJev(result.rows).evaluations, 1);
+  for (const mode of ["skill", "context"]) put(homes[0], mode, mode + "-advice.json", {
+    mode, status: "NOT_EVALUATED", task: { context: { risks: riskValues(true) } } });
+  result = await read();
+  for (const row of result.rows.filter((r) => r.mode !== "task")) {
+    assert.equal(row.risks, null); assert.equal(row.riskSource, null);
+  }
+});
+
+test("risk contract kills present-but-wrong coercion and Hard-status inference counterexamples", async (t) => {
+  const { homes, put } = fixture(t);
+  put(homes[0], "missing", "assessment.json", assessment({ status: "DIRECT_CODEX", jev: null }));
+  put(homes[0], "strings", "assessment.json", assessment({ assessed_at: "2026-10-18T11:00:00Z",
+    task: { repo: "D:/example", context: { risks: Object.fromEntries(riskKeys.map((key) => [key, "false"])) } } }));
+  const filename = path.join(__dirname, "dely-monitor-jev.js");
+  const source = fs.readFileSync(filename, "utf8");
+  const correct = 'typeof risks[key] === "boolean" ? risks[key] : null';
+  const contract = async (reader) => {
+    const result = await reader({ homes })();
+    for (const row of result.rows) assert.deepEqual(row.risks, riskValues(null));
+  };
+  await contract(createJevReader);
+  for (const wrong of ["Boolean(risks[key])", "risks[key] || false",
+    'key === "data" && status === "DIRECT_CODEX" ? true : (' + correct + ")"]) {
+    const mutated = source.replace(correct, wrong);
+    assert.notEqual(mutated, source, "counterexample instrument must replace the real projection");
+    const Module = require("node:module"), candidate = new Module(filename, module);
+    candidate.filename = filename; candidate.paths = module.paths; candidate._compile(mutated, filename);
+    await assert.rejects(contract(candidate.exports.createJevReader), { code: "ERR_ASSERTION" });
+  }
+});
+
+// Execute the real table renderer and element helper, with a DOM that rejects HTML writes.
+function visibleJevRows(rows) {
+  const vm = require("node:vm");
+  class Element {
+    constructor(tag) { this.tagName = tag; this.children = []; this.dataset = {}; this.className = ""; this.value = ""; }
+    set textContent(value) { this.value = String(value); this.children = []; }
+    get textContent() { return this.value + this.children.map((c) => c.textContent).join(" "); }
+    set innerHTML(_) { throw Error("HTML writes are forbidden"); }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = children; }
+    addEventListener() {}
+  }
+  const nodes = { "jev-rows": new Element("tbody"), "jev-more": new Element("button") };
+  const source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8");
+  const helper = source.slice(source.indexOf("const element ="), source.indexOf("\n", source.indexOf("const element =")));
+  const renderer = source.slice(source.indexOf("function showJevRows()"), source.indexOf("function renderJev("));
+  vm.runInNewContext(helper + "\n" + renderer + "\nshowJevRows();", {
+    document: { createElement: (tag) => new Element(tag) }, $: (id) => nodes[id], jevRows: rows, jevShown: 25,
+    jevPresentation: require("../ui/monitor/jev-view.js").jevPresentation
+  });
+  return nodes["jev-rows"].children;
+}
+
+test("visible risk DOM shows all states, true triggers and provenance without expanding details", () => {
+  const base = { mode: "task", status: "DIRECT_CODEX", category: "skipped", reason: "HARD_DIRECT_SKIP",
+    riskSource: "assessment", control: [], sources: [] };
+  const rows = [
+    { ...base, risks: { ...riskValues(false), data: true, routing: true } },
+    { ...base, risks: riskValues(null) }, { ...base, risks: riskValues(false), riskSource: "reviewed" },
+    { ...base, category: "valid", reason: "NOT_RECORDED", proposal: "hard", risks: riskValues(false) },
+    ...["skill", "context"].map((mode) => ({ ...base, mode, risks: riskValues(true) })),
+    { ...base, risks: { security: "true", data: "false" } }
+  ];
+  const dom = visibleJevRows(rows);
+  for (const [i, row] of rows.entries()) {
+    const text = dom[i].textContent;
+    if (row.mode !== "task") { assert.match(text, /Risk flags: not applicable/); assert.doesNotMatch(text, /security=/); continue; }
+    for (const key of riskKeys) assert.ok(text.includes(key + "=" +
+      (typeof row.risks[key] === "boolean" ? row.risks[key] : "unknown/not recorded")), text);
+    if (row.reason === "HARD_DIRECT_SKIP") assert.match(text, /Consequential-risk gates select Hard before Jev/);
+    else assert.doesNotMatch(text, /Consequential-risk gates/);
+  }
+  assert.match(dom[0].textContent, /Recorded true triggers: data=true, routing=true/);
+  assert.match(dom[1].textContent, /Recorded true triggers: not recorded/);
+  assert.match(dom[2].textContent, /reviewed snapshot \(original unavailable\)/);
+  assert.match(dom[0].textContent, /original assessment/);
+  const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+  assert.equal(descendants(dom[0]).filter((n) => n.className === "note-tag" && /^(data|routing)=true$/.test(n.textContent)).length, 2);
+  const css = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.css"), "utf8");
+  assert.match(css, /\.jev-risks\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(css, /\.jev-risk-note\s*\{[^}]*white-space:\s*normal/);
+});
 
 const legacy = (suggestion = { name: "writing-for-agents" }) => ({ mode: "skill", status: "REVIEW_REQUIRED",
   model: "jev-1.13.0", suggestion, confidence: 0.67,

@@ -9,6 +9,7 @@ const HOMES = [path.join(os.homedir(), ".codex"),
   path.join(process.env.APPDATA || "", "orca", "codex-runtime-home", "home")];
 const FILES = ["assessment.json", "reviewed.json", "skill-advice.json", "context-advice.json"];
 const DIMENSIONS = ["scope", "uncertainty", "risk", "verification", "coordination"];
+const RISKS = ["security", "data", "public_contract", "architecture", "production", "routing"];
 const GRADES = ["easy", "medium_minus", "medium_plus", "hard"];
 const LABELS = [...GRADES, "insufficient_evidence"];
 const RELEVANCE = ["direct", "supporting", "unknown", "unrelated"];
@@ -147,6 +148,9 @@ function project(value, file) {
     timeSource: taskMode ? "assessment" : "advisor",
     status: file === "reviewed.json" ? "ORIGINAL_UNAVAILABLE" : status,
     model: null, proposal: null, output: null, suggestions: null, ...failure(value.reason), control: taskMode ? control(value) : [] };
+  const risks = taskMode && object(value.task.context) && object(value.task.context.risks) ? value.task.context.risks : {};
+  row.risks = taskMode ? Object.fromEntries(RISKS.map((key) => [key, typeof risks[key] === "boolean" ? risks[key] : null])) : null;
+  row.riskSource = taskMode ? (file === "assessment.json" ? "assessment" : "reviewed") : null;
   const model = taskMode ? value.jev?.model : value.model;
   // A model label alone is not evidence of a completed evaluation.
   row.model = typeof model === "string" && /^jev-[0-9]+\.[0-9]+\.[0-9]+$/.test(model) ? model : null;
@@ -293,6 +297,7 @@ function createJevReader(options = {}) {
             prior.control = [...new Map([...prior.control, ...row.control].map((d) => [JSON.stringify(d), d])).values()];
             if (prior.status === "ORIGINAL_UNAVAILABLE" && row.status !== "ORIGINAL_UNAVAILABLE") {
               prior.status = row.status; prior.category = row.category; prior.reason = row.reason;
+              prior.risks = row.risks; prior.riskSource = row.riskSource;
             }
           }
         }

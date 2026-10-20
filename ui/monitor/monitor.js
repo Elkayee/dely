@@ -184,6 +184,13 @@ function showJevRows() {
     const result = element("td"), details = element("details", null, "evidence-details");
     result.append(element("div", row.category === "valid" ? "Valid recorded output" : row.category.replace(/_/g, " ")));
     if (row.reason !== "NOT_RECORDED") result.append(element("div", row.reason, "cell-secondary"));
+    result.append(element("div", view.riskSource, "jev-risk-note cell-secondary"));
+    if (view.flags.length) {
+      const flags = element("div", null, "jev-risks");
+      for (const flag of view.flags) flags.append(element("span", flag.text, flag.active ? "note-tag" : "cell-secondary"));
+      result.append(flags);
+    }
+    if (view.riskExplanation) result.append(element("div", view.riskExplanation, "jev-risk-note cell-secondary"));
     details.append(element("summary", "Output, Control decision & provenance", "evidence-summary"));
     // Build large structured output only when expanded; use textContent throughout.
     details.addEventListener("toggle", () => {

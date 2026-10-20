@@ -174,6 +174,16 @@ recorded selection counts, suggestion policy and source locations; descriptions,
 paths from catalogs and frozen request content are never projected.
 
 Hard/direct skips say that Jev was not called and a proposal is not applicable.
+The result cell also shows all six recorded task risk flags (`security`, `data`,
+`public_contract`, `architecture`, `production`, `routing`) without expanding
+details. Only saved booleans display as true/false; absent or malformed values
+say unknown/not recorded. True flags have text and a highlighted tag. Hard/direct
+skips name recorded true triggers and explain that consequential-risk gates
+select Hard before Jev; missing triggers are never inferred from a Hard grade.
+Risk provenance identifies the original assessment or a reviewed snapshot whose
+original is unavailable, independently of Control decisions. Skill/context rows
+say not applicable. The API projects only these six boolean-or-null risk values,
+never arbitrary risk keys or the surrounding task context.
 Request errors say no valid reply; missing models say model not recorded; absent
 Control reviews say no saved review. A task answer containing
 `insufficient_evidence` displays Needs evidence while retaining the original
