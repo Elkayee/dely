@@ -9,6 +9,36 @@ const { createJevReader, summarizeJev } = require("./dely-monitor-jev.js");
 const riskKeys = ["security", "data", "public_contract", "architecture", "production", "routing"];
 const riskValues = (value) => Object.fromEntries(riskKeys.map((key) => [key, value]));
 
+test("production context is distinct from recorded and historical Hard exclusions", async (t) => {
+  const { homes, put } = fixture(t);
+  const cases = [
+    ["mixed", { ...riskValues(false), data: true, production: true }, ["data"], ["data"]],
+    ["historical", { ...riskValues(false), production: true }, ["production"], ["production"]],
+    ["legacy", { ...riskValues(false), production: true }, undefined, null],
+    ["unsafe", riskValues(false), ["PRIVATE_SENTINEL", { secret: "PRIVATE_SENTINEL" }, "data", "data"], ["data"]],
+    ["malformed", riskValues(false), "PRIVATE_SENTINEL", null],
+  ];
+  for (const [i, [name, risks, hard_exclusions]] of cases.entries()) put(homes[0], name, "assessment.json", assessment({
+    assessed_at: new Date(Date.parse(ts) + i).toISOString(), status: "DIRECT_CODEX", jev: null, hard_exclusions,
+    task: { repo: "D:/example", context: { risks } } }));
+  const rows = (await createJevReader({ homes })()).rows;
+  const view = require("../ui/monitor/jev-view.js").jevPresentation;
+  for (const [name, , , expected] of cases) assert.deepEqual(rows.find((r) => r.sources[0].task === name).hardExclusions, expected);
+  const mixed = rows.find((r) => r.sources[0].task === "mixed");
+  assert.match(view(mixed).riskExplanation, /Recorded Hard exclusions: data=true/);
+  assert.doesNotMatch(view(mixed).riskExplanation, /production/);
+  assert.match(view(mixed).riskContext, /not an automatic Hard exclusion/);
+  const historical = rows.find((r) => r.sources[0].task === "historical");
+  assert.match(view(historical).riskExplanation, /production=true.*historical/);
+  const legacy = rows.find((r) => r.sources[0].task === "legacy");
+  assert.match(view(legacy).riskExplanation, /not recorded/);
+  assert.doesNotMatch(view(legacy).riskExplanation, /production=true/);
+  const dom = visibleJevRows([mixed, historical, legacy]);
+  assert.match(dom[0].textContent, /production=true records context/);
+  assert.match(dom[1].textContent, /historical/);
+  assert.doesNotMatch(JSON.stringify(rows), /PRIVATE_SENTINEL/);
+});
+
 test("risk projection keeps only six actual booleans and never infers flags from Hard", async (t) => {
   const { homes, put } = fixture(t);
   const cases = [riskValues(true), riskValues(false), { security: true, data: true, routing: false },
@@ -33,19 +63,22 @@ test("risk provenance follows original assessment across reviewed-only and dupli
   const { homes, put } = fixture(t);
   const original = assessment();
   original.task.context.risks = riskValues(false);
+  original.hard_exclusions = [];
   const reviewed = { ...original, status: "APPROVED", task: { ...original.task,
-    context: { risks: riskValues(true) } }, review: { by: "codex-control", reviewed_at: ts } };
+    context: { risks: riskValues(true) } }, hard_exclusions: ["production"], review: { by: "codex-control", reviewed_at: ts } };
   put(homes[0], "copy", "reviewed.json", reviewed);
   const read = createJevReader({ homes });
   let result = await read();
   assert.equal(result.rows[0].riskSource, "reviewed");
   assert.equal(result.rows[0].status, "ORIGINAL_UNAVAILABLE");
   assert.deepEqual(result.rows[0].risks, riskValues(true));
+  assert.deepEqual(result.rows[0].hardExclusions, ["production"]);
   put(homes[1], "original", "assessment.json", original);
   result = await read();
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0].riskSource, "assessment");
   assert.deepEqual(result.rows[0].risks, riskValues(false));
+  assert.deepEqual(result.rows[0].hardExclusions, []);
   assert.equal(result.rows[0].control.length, 1);
   assert.equal(summarizeJev(result.rows).evaluations, 1);
   for (const mode of ["skill", "context"]) put(homes[0], mode, mode + "-advice.json", {
@@ -106,7 +139,7 @@ test("visible risk DOM shows all states, true triggers and provenance without ex
   const base = { mode: "task", status: "DIRECT_CODEX", category: "skipped", reason: "HARD_DIRECT_SKIP",
     riskSource: "assessment", control: [], sources: [] };
   const rows = [
-    { ...base, risks: { ...riskValues(false), data: true, routing: true } },
+    { ...base, risks: { ...riskValues(false), data: true, routing: true }, hardExclusions: ["data", "routing"] },
     { ...base, risks: riskValues(null) }, { ...base, risks: riskValues(false), riskSource: "reviewed" },
     { ...base, category: "valid", reason: "NOT_RECORDED", proposal: "hard", risks: riskValues(false) },
     ...["skill", "context"].map((mode) => ({ ...base, mode, risks: riskValues(true) })),
@@ -121,8 +154,8 @@ test("visible risk DOM shows all states, true triggers and provenance without ex
     if (row.reason === "HARD_DIRECT_SKIP") assert.match(text, /Consequential-risk gates select Hard before Jev/);
     else assert.doesNotMatch(text, /Consequential-risk gates/);
   }
-  assert.match(dom[0].textContent, /Recorded true triggers: data=true, routing=true/);
-  assert.match(dom[1].textContent, /Recorded true triggers: not recorded/);
+  assert.match(dom[0].textContent, /Recorded Hard exclusions: data=true, routing=true/);
+  assert.match(dom[1].textContent, /Recorded Hard exclusions: not recorded/);
   assert.match(dom[2].textContent, /reviewed snapshot \(original unavailable\)/);
   assert.match(dom[0].textContent, /original assessment/);
   const descendants = (node) => [node, ...node.children.flatMap(descendants)];

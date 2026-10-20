@@ -11,12 +11,13 @@ const POLICY = "jev-task-routing-v4";
 const MODEL = "jev-1.13.0";
 const DIMENSIONS = ["scope", "uncertainty", "risk", "verification", "coordination"];
 const RISK_KEYS = ["security", "data", "public_contract", "architecture", "production", "routing"];
+const HARD_RISK_KEYS = RISK_KEYS.filter((key) => key !== "production");
 const RISK_CRITERIA = {
   security: "Changes authentication, authorization, trust boundaries, secret access, or permission enforcement",
   data: "Changes authoritative data, sensitive-data exposure, persisted schema or manifest compatibility, or business meaning",
   public_contract: "Changes a public interface or its compatibility guarantees",
   architecture: "Changes system boundaries or requires consequential unresolved architecture decisions",
-  production: "Performs a live production cutover, migration, or consequential rollout",
+  production: "Describes production context; assess its concrete effects rather than selecting Hard from this flag alone",
   routing: "Changes delegation policy, admission gates, model fallback authority, or worker ownership",
 };
 const LABELS = ["hard", "insufficient_evidence", "medium_plus", "medium_minus", "easy"];
@@ -107,7 +108,7 @@ function missingEvidence(task) {
 }
 
 function knownHard(task) {
-  return RISK_KEYS.filter((key) => (task.context.risks || {})[key] === true);
+  return HARD_RISK_KEYS.filter((key) => (task.context.risks || {})[key] === true);
 }
 
 function route(difficulty) {
@@ -144,14 +145,14 @@ function questions() {
   const dimensions = {
     scope: ["Assess changed behavior and dependency coupling. Count components whose behavior changes, not topics, fixtures, or dependencies merely inspected or tested.", "One known internal area with understood callers", "A bounded internal adjustment with known owners and low coupling", "Coordinated changes across known internal components", "Open-ended broad refactor or cross-system integration with unresolved boundaries or ownership"],
     uncertainty: ["Assess unresolved implementation decisions.", "Requirements and existing implementation conventions are explicit", "A small internal choice follows established conventions", "Coordinated internal design choices are bounded by an agreed contract", "Open-ended diagnosis or consequential architecture/domain decisions"],
-    risk: ["Assess actual consequential effects, including effects stated in the spec that are absent from context.risks. A topic or repository name is not an effect.", "Reversible local change with no consequential effect", "Reversible bounded internal behavior with known limited impact and focused acceptance", "Coordinated known internal behavior with bounded reversible effects and integrated acceptance", Object.values(RISK_CRITERIA).join("; ")],
+    risk: ["Assess actual consequential effects, including effects stated in the spec that are absent from context.risks. A topic or repository name is not an effect.", "Reversible local change with no consequential effect", "Reversible bounded internal behavior with known limited impact and focused acceptance", "Coordinated known internal behavior with bounded reversible effects and integrated acceptance", HARD_RISK_KEYS.map((key) => RISK_CRITERIA[key]).join("; ")],
     verification: ["Assess the provided acceptance instrument.", "A focused check rejects a specified plausible wrong implementation", "Known focused checks cover the bounded internal adjustment", "Agreed integrated checks reject plausible coordinated implementation errors", "Correctness needs substantial new verification design"],
     coordination: ["Assess implementation horizon and coordination across changed components or owners. Routine planning, Dely dispatch, Control review, test execution and reporting are common delivery steps, not additional implementation coordination.", "One focused implementation and verification pass", "A short bounded sequence within known internal ownership", "A bounded coordinated implementation across multiple known components or owners", "Long open-ended sequence or cross-system coordination"],
   };
   const examples = {
     scope: "One boundary may span several files. Reading callers, adding fixtures, tests or docs does not itself add a changed boundary.",
     uncertainty: "Reading known callers to confirm an established contract is not an unresolved architecture decision.",
-    risk: "In the same data repository, rendering existing values may preserve meaning; converting authoritative missing values to zero or changing units does not. Read-only access can still expose sensitive data.",
+    risk: "In the same data repository, rendering existing values may preserve meaning; converting authoritative missing values to zero or changing units does not. Read-only access can still expose sensitive data. Production context alone does not select Hard; assess its concrete effects using the same five dimensions and remaining risk exclusions.",
     verification: "A panel fixture with long labels at 360px and 1280px, explicit overflow/clipping expectations and a detector for missing wrap can be focused verification, including manual inspection. An async interaction across multiple states may require integrated checks; an unresolved oracle can be Hard. A missing test runner alone does not determine difficulty.",
     coordination: "Count changed dependencies, components and owners. Routine delivery steps alone do not require multiple-owner implementation coordination.",
   };
@@ -325,6 +326,9 @@ function validateReviewDecision(assessment, difficulty, reason, options = {}) {
   if (!Object.hasOwn(RANK, difficulty) || !text(reason)) throw new Error("Control review requires a difficulty and evidence-based reason");
   const task = validateAssessment(assessment);
   if (!object(options) || Object.keys(options).some((key) => key !== "correction")) throw new Error("Invalid review options");
+  if (difficulty !== "hard" && Array.isArray(assessment.hard_exclusions) && assessment.hard_exclusions.includes("production")) {
+    throw new Error("A historical production exclusion requires a fresh assessment before a lower route");
+  }
   if (difficulty !== "hard" && missingEvidence(task).length) throw new Error("Resolve missing evidence before approving AGY");
   if (difficulty !== "hard" && knownHard(task).length) throw new Error("A known Hard exclusion cannot be downgraded");
   if (Object.hasOwn(options, "correction")) {
@@ -431,7 +435,7 @@ async function main() {
   if (result.status === "NOT_EVALUATED") process.exitCode = 3;
 }
 
-module.exports = { POLICY, MODEL, DIMENSIONS, RISK_KEYS, RISK_CRITERIA, requestJev, canonicalJson, rawDifficulty, deriveAssessmentBasis,
+module.exports = { POLICY, MODEL, DIMENSIONS, RISK_KEYS, HARD_RISK_KEYS, RISK_CRITERIA, requestJev, canonicalJson, rawDifficulty, deriveAssessmentBasis,
   findCorrectionCandidate, validateCorrectionProof, validateOriginalAssessment, validateReviewDecision, validateApprovedAssessment,
   parseReviewEvidence, loadTask, missingEvidence, knownHard, route, questions, validateAnswers, assess, review, requireApprovedRoute,
   selectedPin, selectedPhase, verifyPin, verifyUnavailablePin };

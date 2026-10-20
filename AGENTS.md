@@ -105,9 +105,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.9
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.9
-test "$(jq -r .version package.json)" = 0.27.9
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.10
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.10
+test "$(jq -r .version package.json)" = 0.27.10
 ```
 
 ```bash
@@ -203,7 +203,11 @@ The context contains `scope`, `coupling`, `acceptance`, and source `evidence`,
 `requirements_confirmed: true`, and explicit boolean `risks` for `security`,
 `data`, `public_contract`, `architecture`, `production`, and `routing`.
 Missing facts stay `NOT_EVALUATED`; a known Hard risk cannot be downgraded.
-The booleans describe actual consequential effects in the scoped change,
+Only `security`, `data`, `public_contract`, `architecture` and `routing` are
+automatic Hard exclusions. `production` remains required context; by itself it
+reaches Jev and Control review. Raw Jev Hard and unknown-evidence vetoes remain.
+Preserve historical decisions; assess a fresh snapshot for this rule.
+The five exclusions describe actual consequential effects in the scoped change,
 not task topics. Prefer Dely for reversible bounded internal work. Apply
 [docs/task-risk-policy.md](docs/task-risk-policy.md) and record the concrete
 effect behind every true flag. Ordinary dispatch is not a routing-policy

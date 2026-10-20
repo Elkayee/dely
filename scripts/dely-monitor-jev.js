@@ -151,6 +151,8 @@ function project(value, file) {
   const risks = taskMode && object(value.task.context) && object(value.task.context.risks) ? value.task.context.risks : {};
   row.risks = taskMode ? Object.fromEntries(RISKS.map((key) => [key, typeof risks[key] === "boolean" ? risks[key] : null])) : null;
   row.riskSource = taskMode ? (file === "assessment.json" ? "assessment" : "reviewed") : null;
+  row.hardExclusions = taskMode && Array.isArray(value.hard_exclusions) ?
+    [...new Set(value.hard_exclusions.filter((key) => RISKS.includes(key)))] : null;
   const model = taskMode ? value.jev?.model : value.model;
   // A model label alone is not evidence of a completed evaluation.
   row.model = typeof model === "string" && /^jev-[0-9]+\.[0-9]+\.[0-9]+$/.test(model) ? model : null;
@@ -298,6 +300,7 @@ function createJevReader(options = {}) {
             if (prior.status === "ORIGINAL_UNAVAILABLE" && row.status !== "ORIGINAL_UNAVAILABLE") {
               prior.status = row.status; prior.category = row.category; prior.reason = row.reason;
               prior.risks = row.risks; prior.riskSource = row.riskSource;
+              prior.hardExclusions = row.hardExclusions;
             }
           }
         }

@@ -399,7 +399,10 @@ Write the spec and a context JSON inside the workspace. The context has
 `scope`, `coupling`, `acceptance`, and `evidence` strings, confirmed
 `requirements_confirmed`, and explicit boolean `risks` for `security`, `data`,
 `public_contract`, `architecture`, `production`, and `routing`. Missing facts
-stay unknown. Set a risk to `true` when the task changes that surface.
+stay unknown. Set an exclusion to `true` when the task changes that surface.
+`production` is required context, not an automatic Hard exclusion. Production-only
+tasks reach Jev and Control review; the other five exclusions and raw Jev Hard
+keep their vetoes. Existing saved decisions are preserved.
 
 From the package root:
 
@@ -610,7 +613,8 @@ POC PASS: Dely -> Orca -> Antigravity CLI produced AGY_WORKER_OK
 
 Final Easy and Medium- use `gemini-3.8-flash-medium` with default effort and retain one `gpt-6-luna/max` exception for explicit quota, reconciled adapter transport failure or verified absent AGY model. Final Medium+ uses only `gpt-6.1-sol/medium`; Hard uses only direct `gpt-6.1-sol/xhigh`. Neither has a fallback. Authentication, unclassified timeout, unknown outcome, unusable catalog, or an unapplied requested model/level footer stops dispatch.
 
-Prefer Dely for reversible bounded internal work. The six risk flags describe
-actual consequential changes, rather than a topic or repository name. Apply
+Prefer Dely for reversible bounded internal work. Five risk flags describe
+automatic consequential exclusions; the required `production` flag records
+context and does not automatically select Hard. Apply
 [the task risk policy](docs/task-risk-policy.md) before setting them; ordinary
 Dely dispatch is not a routing-policy change. Unknown effects remain unevaluated.

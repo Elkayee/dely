@@ -209,6 +209,7 @@ function showJevRows() {
       for (const flag of view.flags) flags.append(element("span", flag.text, flag.active ? "note-tag" : "cell-secondary"));
       result.append(flags);
     }
+    if (view.riskContext) result.append(element("div", view.riskContext, "jev-risk-note cell-secondary"));
     if (view.riskExplanation) result.append(element("div", view.riskExplanation, "jev-risk-note cell-secondary"));
     details.append(element("summary", "Output, Control decision & provenance", "evidence-summary"));
     // Build large structured output only when expanded; use textContent throughout.

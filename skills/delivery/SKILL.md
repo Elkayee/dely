@@ -48,7 +48,10 @@ Medium- is bounded internal work with known ownership, low coupling and
 focused acceptance. Medium+ coordinates known internal components and
 integrated acceptance. Consequential risk still promotes either grade to Hard.
 Risk flags describe changed authority, data meaning, compatibility, system
-boundaries, live cutover or delegation policy. Do not set them merely because
+boundaries or delegation policy. All six boolean values remain required;
+`production` records context and does not automatically select Hard. Assess
+production work through Jev and the other five consequential-risk exclusions.
+Keep raw Jev Hard and unknown-evidence vetoes. Do not set risk flags merely because
 a task mentions security, data, an API, production or a Dely dispatch. Prefer
 Dely for reversible bounded internal work with known ownership and acceptance;
 retain unknown effects as unevaluated. See [task risk policy](../../docs/task-risk-policy.md).

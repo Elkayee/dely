@@ -93,6 +93,41 @@ async function correctionFixture(t) {
   return { ...f, prepared, proof, routing };
 }
 
+test("production-only routing still requires native review and bound Dely dispatch", async (t) => {
+  const f = fixture(t), routing = require(routingPath), assess = routing.assess;
+  let requests = 0;
+  f.task.context.risks.routing = false;
+  f.task.context.risks.production = true;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task) => assess(task, { apiKey: "fixture", fetch: async () => {
+    requests++;
+    return { ok: true, json: async () => ({ model: routing.MODEL,
+      answers: Object.fromEntries(routing.DIMENSIONS.map((name) => [name, {
+        type: "choice", choice: "medium_plus", confidence: 1,
+        probabilities: Object.fromEntries(["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"]
+          .map((label) => [label, Number(label === "medium_plus")])) }])) }) };
+  } });
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Production context with no Hard effect" }, f.home);
+  const prepared = await f.prepare();
+  assert.equal(requests, 1);
+  assert.equal(prepared.assessment.difficulty, "medium_plus");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.throws(() => f.review({ difficulty: "medium_plus", skills: '["required","dely:delivery"]' }), /Run/);
+  f.review({ difficulty: "medium_plus", run: "production_context_run", skills: '["required","dely:delivery"]' });
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const route = { event: "task_route", run: state.run, repo: f.repo, policy: state.assessment.policy,
+    specSha256: state.assessment.task.spec_sha256, contextSha256: state.assessment.task.context_sha256,
+    assessmentBasisSha256: state.assessment.assessment_basis_sha256, difficulty: "medium_plus",
+    correctionSha256: null, reviewSource: state.assessment.review.source };
+  const dispatch = { event: "dispatch", run: state.run, repo: f.repo, phase: "implement",
+    promptSha256: route.specSha256, contextSha256: route.contextSha256,
+    assessmentBasisSha256: route.assessmentBasisSha256, correctionSha256: null,
+    launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "production_context_dispatch" };
+  fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
 test("confirmed continuation preserves the dispatch basis and requires fresh Control review", async (t) => {
   const f = fixture(t), routing = require(routingPath), assess = routing.assess;
   let requests = 0;

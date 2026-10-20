@@ -5639,3 +5639,20 @@ their multi-harness baseline and destructive/trust/quiet-worker scenarios are
 outside this focused verification. OMP/Pi are not installed. No full checklist
 PASS is claimed. A separate probe session inspects the committed archive;
 the focused instruments and the archive identity remain the local evidence.
+
+## 2026-10-20 — Production context does not automatically select Hard
+
+The user removed `production=true` from the automatic Hard/direct gate because
+production work can be straightforward. Version 0.27.10 keeps all six required
+boolean values, while only security, data, public-contract, architecture and
+routing effects automatically skip Jev. The v4 schema and approval binding stay
+unchanged. Production-only work reaches Jev and Control review; raw Jev Hard,
+missing evidence and the five remaining exclusions retain their vetoes.
+
+This supersedes the production exclusion in earlier routing decisions without
+rewriting their saved assessments or approvals. New decisions use a fresh
+snapshot. The monitor displays recorded exclusion names and marks a saved
+production exclusion as historical instead of inferring it from a true context
+flag. Focused routing tests cover every Jev grade, mixed exclusions, missing
+context and provider failures; native admission still requires reviewed Dely
+dispatch evidence for an eligible production-only task.

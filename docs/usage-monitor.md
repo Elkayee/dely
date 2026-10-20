@@ -185,12 +185,14 @@ The result cell also shows all six recorded task risk flags (`security`, `data`,
 `public_contract`, `architecture`, `production`, `routing`) without expanding
 details. Only saved booleans display as true/false; absent or malformed values
 say unknown/not recorded. True flags have text and a highlighted tag. Hard/direct
-skips name recorded true triggers and explain that consequential-risk gates
-select Hard before Jev; missing triggers are never inferred from a Hard grade.
+skips name allowlisted recorded `hard_exclusions`, independently of true context
+flags. `production=true` is labelled context and is not inferred as an automatic
+Hard trigger. Old records explicitly listing production as an exclusion retain
+that historical explanation; missing exclusions say not recorded.
 Risk provenance identifies the original assessment or a reviewed snapshot whose
 original is unavailable, independently of Control decisions. Skill/context rows
-say not applicable. The API projects only these six boolean-or-null risk values,
-never arbitrary risk keys or the surrounding task context.
+say not applicable. The API projects only these six boolean-or-null values and
+allowlisted recorded exclusion names, never arbitrary keys or task context.
 Request errors say no valid reply; missing models say model not recorded; absent
 Control reviews say no saved review. A task answer containing
 `insufficient_evidence` displays Needs evidence while retaining the original
