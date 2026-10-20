@@ -51,6 +51,25 @@ function sourceRow(label, detail, status, ok) {
   text.append(element("small", detail)); row.append(text, element("span", status, "status " + (ok ? "success" : ""))); return row;
 }
 
+function renderSources(data) {
+  const log = data.sources.log || {}, orca = data.sources.orca || {}, codex = data.sources.codex || {};
+  const count = (value) => Number.isFinite(value) ? number(value) : "N/A";
+  const retained = (source) => source.state === "refreshing" || data.stale || data.refreshError ? " · retained/stale values" : "";
+  const status = (source, ready) => sourceProgress(source) || (source.state === "error" ? "Error" : source.available ? ready : "Unavailable");
+  const launches = Array.isArray(data.models) && data.models.every((row) => Number.isFinite(row.launches))
+    ? data.models.reduce((sum, row) => sum + row.launches, 0) : null;
+  const coverage = element("details");
+  coverage.append(element("summary", "Retained source coverage (not reset statistics)", "compact-summary"),
+    sourceRow("Dely activity log", `${count(log.malformed)} unreadable lines · total source scan`, "Local metadata", false),
+    sourceRow("Orca inventory", `${count(orca.loaded)} / ${count(orca.total)} total source records · ${orca.scope || "unknown scope"}`, "Retained coverage", false),
+    sourceRow("Codex scan", `${count(codex.files)} total local rollout files · ${count(codex.malformed)} unreadable lines`, "Retained coverage", false));
+  $("sources").replaceChildren(
+    sourceRow("Dely activity log", log.present ? `${count(launches)} logged launches${retained(log)}` : "N/A · no activity log recorded", log.present ? "Available" : log.enabled ? "Waiting for events" : "Not enabled", log.present),
+    sourceRow("Orca workers", orca.available ? `${count(data.jobs?.count)} workers${retained(orca)}` : "N/A · worker activity not evaluated", status(orca, orca.complete ? "Complete page set" : "Partial"), orca.available && orca.complete && !sourceProgress(orca) && orca.state !== "error"),
+    sourceRow("Codex conversations", codex.available ? `${count(data.conversations?.sessions)} sessions · ${count(data.conversations?.turns)} turns${retained(codex)}` : "N/A · conversation activity not evaluated", status(codex, codex.state === "partial" ? "Partial" : "Available"), codex.available && !sourceProgress(codex) && !["error", "partial"].includes(codex.state)),
+    coverage);
+}
+
 function renderMeasure(id, title, metric) {
   const card = element("article", null, "measure-card");
   card.id = `metric-${id}`;
@@ -285,10 +304,7 @@ function render(data) {
     const box = element("div", null, "grade");
     box.append(element("p", names[r.grade]), element("b", log.present ? number(r.count) : "—"), element("small", r.grade === "hard" ? "Sol · direct" : r.grade === "medium_plus" ? "Sol · no fallback" : "Flash → Luna")); return box;
   }));
-  $("sources").replaceChildren(
-    sourceRow("Dely activity log", log.present ? `${log.malformed} unreadable lines · local metadata` : "No activity log has been recorded", log.present ? "Available" : log.enabled ? "Waiting for events" : "Not enabled", log.present),
-    sourceRow("Orca workers", sourceProgress(orca) ? "Reading worker inventory; last available values stay visible" : orca.available ? `${orca.loaded} / ${orca.total ?? "unknown"} records · ${orca.scope || "unknown scope"}` : "Local Orca connection unavailable", sourceProgress(orca) || (orca.available ? orca.complete ? "Complete page set" : "Partial" : "Unavailable"), orca.available && orca.complete && !sourceProgress(orca)),
-    sourceRow("Codex conversations", sourceProgress(codex) ? "Reading conversation metadata; last available values stay visible" : codex.available ? `${codex.files} local rollout files · ${codex.malformed} unreadable lines` : "Local conversation metadata unavailable", sourceProgress(codex) || (codex.available ? "Available" : "Unavailable"), codex.available && !sourceProgress(codex)));
+  renderSources(data);
   const gaps = [];
   const excluded = data.coverage.excludedUnknownTime;
   if (excluded && Object.values(excluded).some(Boolean)) gaps.push(`Reset excludes unknown-time evidence: ${excluded.events} journal records, ${excluded.workers} workers, ${excluded.conversations} conversation turns. Source inventories are retained.`);

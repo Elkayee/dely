@@ -12,6 +12,118 @@ const { createMonitor } = require("./dely-monitor.js");
 const { createJevReader } = require("./dely-monitor-jev.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
+
+// Run the production render call, including its source panel, without HTML writes.
+function sourcePanel(data, source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8")) {
+  class Element {
+    constructor(tag) { this.tagName = tag; this.children = []; this.value = ""; this.open = false; this.classList = { toggle() {} }; }
+    set textContent(value) { this.text = String(value); this.children = []; }
+    get textContent() { return (this.text || "") + this.children.map((c) => c.textContent).join(" "); }
+    set innerHTML(_) { throw Error("HTML writes are forbidden"); }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = children; }
+    get firstElementChild() { return this.children[0]; }
+  }
+  const nodes = {};
+  const get = (id) => nodes[id] ||= new Element("div");
+  const helper = source.slice(source.indexOf("const element ="), source.indexOf("\n", source.indexOf("const element =")));
+  const functions = source.slice(source.indexOf("function sourceRow("), source.indexOf("function renderMeasure("));
+  const renderer = source.slice(source.indexOf("function render(data)"), source.indexOf("function renderProjects("));
+  require("node:vm").runInNewContext(helper + functions + renderer + "\nrender(data);", {
+    document: { createElement: (tag) => new Element(tag) }, $: get, data,
+    renderJev() {}, observationStatus() {}, renderProjects() {}, renderMeasure() { return new Element("article"); },
+    bars() {}, showRows() {}, number: (n) => n == null ? "—" : String(n), names: {},
+    observationStart: null, displayedScope: "", visibleRows: 25, taskRowsShown: 20, activity: [],
+  });
+  return get("sources");
+}
+
+function sourceFixture(workers = [], conversations = [], events = [], options = {}) {
+  return { ...summarize(events, workers, conversations, { asOf: Date.parse(ts) + 1000, ...options }), collectedAt: ts,
+    sources: { log: { present: true, enabled: true, malformed: 3 },
+      orca: { available: true, complete: true, loaded: 459, total: 459, scope: "all" },
+      codex: { available: true, files: 497, malformed: 4 } } };
+}
+
+function assertSourceActivity(panel, workers, sessions, turns) {
+  assert.match(panel.children[1].textContent, new RegExp(`${workers} workers`));
+  assert.match(panel.children[2].textContent, new RegExp(`${sessions} sessions · ${turns} turns`));
+  assert.doesNotMatch(panel.children.slice(0, 3).map((r) => r.textContent).join(" "), /459|497|unreadable lines/);
+  const coverage = panel.children[3];
+  assert.equal(coverage?.tagName, "details"); assert.equal(coverage.open, false);
+  assert.ok(!coverage.hidden);
+  assert.equal(coverage.children[0].tagName, "summary");
+  assert.equal(coverage.children[0].textContent, "Retained source coverage (not reset statistics)");
+  assert.match(coverage.textContent, /459 \/ 459 total source records/);
+  assert.match(coverage.textContent, /497 total local rollout files/);
+  assert.match(coverage.textContent, /3 unreadable lines/); assert.match(coverage.textContent, /4 unreadable lines/);
+}
+
+test("source health projects the selected reset window and retains closed full-source coverage", () => {
+  const empty = sourcePanel(sourceFixture());
+  assertSourceActivity(empty, 0, 0, 0);
+  assert.match(empty.children[1].textContent, /Complete page set/);
+  assert.match(empty.children[2].textContent, /Available/);
+  const workers = [{ id: "one", ts, repo }];
+  const conversations = [{ session: "one", ts, repo }, { session: "one", ts, repo }];
+  assertSourceActivity(sourcePanel(sourceFixture(workers, conversations)), 1, 1, 2);
+  for (const options of [{ repo: "D:/other" }, { since: Date.parse(ts) + 1, explicitReset: true }]) {
+    assertSourceActivity(sourcePanel(sourceFixture(workers, conversations, [], options)), 0, 0, 0);
+  }
+  const probe = "D:/.tmp-dely/probe";
+  const probeData = (probes) => sourceFixture([{ ...workers[0], repo: probe }], conversations.map((c) => ({ ...c, repo: probe })), [], { probes });
+  assertSourceActivity(sourcePanel(probeData(false)), 0, 0, 0);
+  assertSourceActivity(sourcePanel(probeData(true)), 1, 1, 2);
+  const html = fs.readFileSync(path.join(__dirname, "../ui/monitor/index.html"), "utf8");
+  assert.doesNotMatch(html, /Orca inventory rows without a timestamp remain a current snapshot/);
+  assert.match(html, /Activity counts follow the selected date, workspace, probe and reset window/);
+});
+
+test("source health preserves missing, partial, loading, refreshing and error evidence", () => {
+  for (const state of ["unavailable", "loading", "error"]) {
+    const data = sourceFixture();
+    for (const name of ["orca", "codex"]) Object.assign(data.sources[name], { available: false, state });
+    const rows = sourcePanel(data).children;
+    for (const row of rows.slice(1, 3)) {
+      assert.match(row.textContent, /N\/A/); assert.doesNotMatch(row.textContent, /0 workers|0 sessions/);
+      assert.match(row.textContent, state === "loading" ? /Reading…/ : state === "error" ? /Error/ : /Unavailable/);
+    }
+  }
+  const partial = sourceFixture(); partial.sources.orca.complete = false; partial.sources.codex.state = "partial";
+  for (const row of sourcePanel(partial).children.slice(1, 3)) assert.match(row.textContent, /Partial/);
+  const refreshing = sourceFixture();
+  refreshing.sources.orca.state = refreshing.sources.codex.state = "refreshing";
+  for (const row of sourcePanel(refreshing).children.slice(1, 3)) assert.match(row.textContent, /retained\/stale values.*Updating…/);
+  const stale = sourceFixture(); stale.refreshError = "Source refresh failed";
+  for (const row of sourcePanel(stale).children.slice(0, 3)) assert.match(row.textContent, /retained\/stale values/);
+  const unknown = sourceFixture(); unknown.jobs.count = null; unknown.conversations.sessions = undefined; unknown.conversations.turns = null;
+  const unknownRows = sourcePanel(unknown).children;
+  assert.match(unknownRows[1].textContent, /N\/A workers/); assert.match(unknownRows[2].textContent, /N\/A sessions · N\/A turns/);
+  const logged = sourceFixture(); logged.models = [{ model: "test", launches: 2 }];
+  assert.match(sourcePanel(logged).children[0].textContent, /2 logged launches/);
+  logged.sources.log.present = false;
+  assert.match(sourcePanel(logged).children[0].textContent, /N\/A.*Waiting for events/);
+  logged.sources.log.enabled = false;
+  assert.match(sourcePanel(logged).children[0].textContent, /Not enabled/);
+  logged.sources.orca.scope = "<img src=x onerror=alert(1)>";
+  assert.match(sourcePanel(logged).children[3].textContent, /<img src=x onerror=alert\(1\)>/);
+});
+
+test("source DOM assertions reject wrong inventory counters, hardcoded zero and dropped coverage", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8");
+  const fresh = sourceFixture([{ id: "one", ts, repo }], [{ session: "one", ts, repo }, { session: "one", ts, repo }]);
+  const mutations = [
+    ["raw Orca inventory", source.replace("count(data.jobs?.count)", "count(orca.loaded)")],
+    ["rollout files as sessions", source.replace("count(data.conversations?.sessions)", "count(codex.files)")],
+    ["hardcoded zero", source.replace("count(data.jobs?.count)", "count(0)")],
+    ["dropped coverage", source.replace("    coverage);", "    element(\"div\"));")],
+    ["hidden coverage", source.replace('const coverage = element("details");', 'const coverage = element("details"); coverage.hidden = true;')],
+  ];
+  for (const [name, wrong] of mutations) {
+    assert.notEqual(wrong, source, name);
+    assert.throws(() => assertSourceActivity(sourcePanel(fresh, wrong), 1, 1, 2), { name: "AssertionError" }, name);
+  }
+});
 test("observation times accept milliseconds and legacy SQL without guessing seconds or missing time", () => {
   assert.equal(instant(Date.parse(ts)), Date.parse(ts));
   assert.equal(instant("2026-10-09 01:00:00"), Date.parse(ts));
