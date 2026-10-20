@@ -48,6 +48,107 @@ function transport(choices, change = () => {}) {
   };
 }
 const run = (input, mode, fetch) => advisor.advise(input, mode, { apiKey: "TEST_KEY", fetch });
+test("frozen installed advisor preserves safe stages and incomplete skill batches", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "jev-installed-test-"));
+  t.after(() => fs.rmSync(home, { recursive: true }));
+  require("./codex-compliance.js").install({
+    routing: path.resolve(__dirname, "../skills/delivery/scripts/task-routing.js"),
+    advisor: require.resolve("./jev_agent.js"),
+  }, home);
+  const installedPath = path.join(home, "dely-compliance", "jev-advisor.js");
+  const source = fs.readFileSync(require.resolve("./jev_agent.js"), "utf8");
+  const declaration = 'const ROOT = path.resolve(__dirname, "..");';
+  const installedSource = fs.readFileSync(installedPath, "utf8");
+  const settings = JSON.parse(fs.readFileSync(path.join(home, "dely-compliance", "settings.json"), "utf8"));
+  assert.equal(installedSource, source.replace(declaration,
+    "const ROOT = " + JSON.stringify(settings.credential_root) + ";\n"), "installer froze current advisor bytes");
+  assert.ok(!installedSource.includes(declaration));
+  assert.ok(!fs.existsSync(path.join(home, "skills")), "no checkout dependency beside frozen advisor");
+  const installed = require(installedPath);
+  const failures = [
+    ["transport", "TRANSPORT_ERROR", async () => { throw Error("PRIVATE_SENTINEL"); }],
+    ...["AbortError", "TimeoutError"].map((name) => ["timeout", "REQUEST_TIMEOUT", async () => {
+      throw Object.assign(Error("PRIVATE_SENTINEL"), { name });
+    }]),
+    ["http", "HTTP_ERROR", async () => ({ ok: false, status: 429 })],
+    ["json", "JSON_DECODE_ERROR", async () => ({ ok: true, status: 200, json: async () => { throw Error("PRIVATE_SENTINEL"); } })],
+    ["schema", "SCHEMA_INVALID", async () => ({ ok: true, status: 200, json: async () => ({ model: "PRIVATE_SENTINEL" }) })],
+  ];
+  for (const api of [advisor, installed]) {
+    const call = (input, mode, fetch) => api.advise(input, mode, { apiKey: "TEST_KEY", fetch });
+    for (const [input, mode] of [[context, "context"], [skills, "skill"]]) {
+      for (const [stage, code, fetch] of failures) {
+        const result = await call(input, mode, fetch);
+        assert.equal(result.status, "NOT_EVALUATED");
+        assert.equal(result.request_diagnostics.stage, stage);
+        assert.equal(result.request_diagnostics.code, code);
+        assert.equal(result.request_diagnostics.requested_model, advisor.MODEL);
+        assert.equal(result.request_diagnostics.http_status, stage === "http" ? 429 : ["json", "schema"].includes(stage) ? 200 : null);
+        assert.equal(result.request_diagnostics.provider_model, null);
+        assert.ok(result.request_diagnostics.duration_ms >= 0);
+        assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+        if (mode === "skill") {
+          assert.deepEqual(result.suggestions, []); assert.equal(result.suggestion, null);
+        }
+      }
+      const success = await call(input, mode, transport({ c0: "direct", c1: "direct", c2: "direct", s0: "direct", s1: "direct" }));
+      assert.equal(success.status, "REVIEW_REQUIRED");
+      assert.equal(success.request_diagnostics.stage, "complete");
+      assert.equal(success.request_diagnostics.code, "OK");
+      assert.equal(success.request_diagnostics.provider_model, advisor.MODEL);
+    }
+    const many = { request: skills.request, skills: Array.from({ length: 500 }, (_, i) => ({
+      name: "skill-" + i, path: "skills/skill-" + i + "/SKILL.md", description: "documented procedure ".repeat(10),
+    })) };
+    for (const [stage, code, fail] of failures) {
+      let calls = 0;
+      const result = await call(many, "skill", async (...args) => ++calls === 2 ? fail(...args) : transport({}, (reply) => {
+        for (const answer of Object.values(reply.answers)) {
+          answer.choice = "direct";
+          for (const key of Object.keys(answer.probabilities)) answer.probabilities[key] = Number(key === "direct");
+        }
+      })(...args));
+      assert.equal(calls, 2);
+      assert.equal(result.status, "NOT_EVALUATED");
+      assert.deepEqual(result.suggestions, []); assert.equal(result.suggestion, null);
+      assert.deepEqual(result.evaluations, []);
+      const progress = result.incomplete_batch_progress;
+      assert.equal(progress.input_sha256, result.input_sha256);
+      assert.equal(progress.batch_index, 1); assert.equal(progress.completed_batches, 1);
+      assert.ok(progress.completed_evaluations > 0);
+      assert.equal(progress.evaluations.length, progress.completed_evaluations);
+      assert.ok(progress.batch_count > 1);
+      assert.equal(progress.requests.length, 2);
+      assert.equal(progress.requests[0].stage, "complete");
+      assert.equal(progress.requests[1].stage, stage); assert.equal(progress.requests[1].code, code);
+      assert.equal(progress.requests[1].provider_model, null);
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+    }
+  }
+});
+test("both advice modes record bounded request failure stages and no raw provider content", async () => {
+  for (const [stage, fetch] of [
+    ["transport", async () => { throw Error("PRIVATE_SENTINEL"); }],
+    ["timeout", async () => { throw Object.assign(Error("PRIVATE_SENTINEL"), { name: "AbortError" }); }],
+    ["http", async () => ({ ok: false, status: 429 })],
+    ["json", async () => ({ ok: true, status: 200, json: async () => { throw Error("PRIVATE_SENTINEL"); } })],
+    ["schema", async () => ({ ok: true, status: 200, json: async () => ({ model: "PRIVATE_SENTINEL" }) })],
+  ]) {
+    for (const [input, mode] of [[context, "context"], [skills, "skill"]]) {
+      const result = await run(input, mode, fetch);
+      assert.equal(result.status, "NOT_EVALUATED");
+      assert.equal(result.request_diagnostics.stage, stage);
+      assert.equal(result.request_diagnostics.provider_model, null);
+      assert.ok(result.request_diagnostics.duration_ms >= 0);
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+      if (mode === "skill") {
+        assert.deepEqual(result.suggestions, []); assert.equal(result.suggestion, null);
+        assert.equal(result.incomplete_batch_progress.completed_batches, 0);
+        assert.deepEqual(result.incomplete_batch_progress.evaluations, []);
+      }
+    }
+  }
+});
 
 test("context ranks relevant code, pins requirements and retains all original provenance", async () => {
   const before = structuredClone(context);

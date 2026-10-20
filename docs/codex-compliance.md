@@ -111,6 +111,87 @@ Neither field changes admission or routing. Missing or
 unwritable logging never changes routing or admission. Tests use a private
 journal so their results do not inflate ordinary usage.
 
+## Request advisory before implementation review
+
+Use the installed adapter's `advise` command to consult the frozen Jev advisor
+before task assessment. Add an `advisory` envelope to the current-turn task JSON
+before creating the exact input file printed by UserPromptSubmit. Keep the full
+native skill roster and mandatory skills in that task.
+
+```json
+"advisory": {
+  "mode": "plan",
+  "input": {
+    "request": "The same exact request as the enclosing task",
+    "tasks": [{
+      "id": "fix",
+      "objective": "Fix the known issue",
+      "scope": "One internal adapter",
+      "acceptance": "The focused regression passes",
+      "depends_on": []
+    }]
+  }
+}
+```
+
+Run the absolute native Node executable and installed adapter from the hook's
+guidance, changing `prepare` to `advise` and retaining `--session`, `--turn`,
+`--repo`, `--home` and `--task-file`. No other flags are accepted. The task file
+must be this prompt's exact nonce-bound input; arbitrary input/output paths,
+inline JSON and linked paths are rejected. `mode` also accepts `skill` or
+`context` using the [existing schemas](agent-advice.md). Skill input must retain
+the enclosing task's complete supplied roster. Advice requests retain the exact
+request text, code provenance and mandatory instructions.
+
+The adapter validates the current owner, prompt, task and frozen dependencies.
+It reserves `tasks/advisory-<prompt-hash>/request.json` exclusively before the
+provider call and writes `result.json` with task/input/advisor hashes. It never
+marks the native task reviewed or admits source edits. Control reads that result,
+settles the plan explicitly, and then runs normal `prepare` and `review`.
+An existing complete result is returned without another call. An incomplete
+reservation or changed binding stops; timeout alone never permits a retry.
+Provider failures stay `NOT_EVALUATED`. An updated plan requires a fresh prompt
+and its new input file, within the advisor's existing revision bound.
+
+Install an advisor that supports `plan` before using that mode. Refresh frozen
+software between completed plans with `--preserve-hooks`; do not replace the
+advisor during an admitted implementation. Advice grants no skill, model,
+difficulty, dispatch or fallback authority.
+
+## Continue the same confirmed task
+
+An implementation review saves a private immutable `continuation.json` checkpoint.
+After a wake, native state remains `PENDING`; the checkpoint grants no permission.
+Stage the new current-turn input from the actual session roster, retaining the same
+specification, context, target and mandatory skills. Add `--continue` to the printed
+`prepare` command and supply the original `--run` for delegated work. Direct Hard
+work omits `--run`. Build the input normally; `native_continuation` is reserved
+adapter metadata and must not be supplied by the caller.
+
+Continuation reuses the original paths and raw assessment without another Jev
+request. It validates the owner session, native model, thread/terminal, instructions,
+selected policies, software, target and artifact fingerprints. A delegated task
+also needs its original matching dispatch. The preparation event uses operation
+`continue`, rather than suggesting a new assessment occurred.
+
+Explicit current-turn Control review remains required. Keep the original difficulty,
+Run, selected skill set and any correction proof. A fresh reviewed artifact is
+written for the current turn; the original assessment and review stay unchanged.
+Workers cannot consume a Control continuation through a staged receipt claim.
+
+For a changed task, instructions, model, roster, target, dependency or software,
+use normal preparation and the required new dispatch. Older states without a
+checkpoint also use normal preparation. Normal preparation remains the default;
+the adapter never guesses that a new user request continues an old approval.
+
+A retained unavailable Jev result stays `NOT_EVALUATED`; continuation is not a
+provider retry. Record a Control disposition for missing mandatory evidence:
+existing source-evidence review, or fresh assessment before resumed work.
+Optional skill advice and valid Hard exclusions do not require backfill. Keep
+supplemental results separate, linked by original input/result hashes; they do
+not rewrite an approved assessment or dispatch. A later changed snapshot is a
+matching candidate until Control confirms its relationship to the original.
+
 File input keeps a large session skill catalog out of the Windows process
 command line. Relative paths resolve from the current working directory;
 quote paths containing spaces. UTF-8 with or without a BOM is accepted.

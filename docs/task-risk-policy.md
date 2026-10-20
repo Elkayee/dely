@@ -32,7 +32,9 @@ transport evidence. Each snapshot claims stage one once and each Run serializes
 dispatch/recovery. A stale crash lock requires Control to verify the original
 process and owned workers are inactive before removing that exact lock.
 
-Known consequential risk selects Hard before missing-input checks or Jev.
+Known consequential risk in one of the five automatic exclusions selects Hard
+before missing-input checks or Jev. `production` alone is context for Jev,
+not an automatic exclusion.
 Without known Hard, incomplete or unconfirmed evidence stays
 `NOT_EVALUATED`. Native preparation still requires complete inputs even
 when core classification has already identified Hard.
@@ -49,16 +51,25 @@ is assumed calibrated.
 Supply strings `scope`, `coupling`, `acceptance`, `evidence`,
 `requirements_confirmed: true`, and all six boolean risks in the context.
 
-| Flag | Effect that selects Hard | When false can be supported |
+| Flag | Routing effect | When false can be supported |
 | --- | --- | --- |
 | `security` | Authentication, authorization, trust boundary, secret access or permission enforcement changes | Internal display preserves permissions, data visibility and access capabilities |
 | `data` | Authoritative data changes, sensitive-data exposure, persisted schema/manifest compatibility or business meaning | Known rendering/filtering preserves meaning, persistence and exposure |
 | `public_contract` | A consumer interface or compatibility guarantee changes | A private helper preserves its callers' contract and trust boundary |
 | `architecture` | System boundaries change or consequential architecture remains unresolved | Internal extraction preserves known boundaries, owners and dependencies |
-| `production` | Live cutover, migration or consequential rollout in scope | Local candidate/fixture work has no live execution in its acceptance |
+| `production` | Required production context; does not automatically select Hard | The task has no production context |
 | `routing` | Delegation policy, admission, fallback authority or worker ownership changes | Ordinary dispatch applies the existing reviewed policy |
 
-Control records the concrete effect behind every true flag. Unknown is not
+Only `security`, `data`, `public_contract`, `architecture` and `routing` are
+automatic Hard exclusions. With only `production=true`, complete evidence
+reaches Jev and normal Control review, retaining its raw five-dimension maximum.
+Production context neither forces Easy nor bypasses Dely admission. Missing or
+malformed production context stays `NOT_EVALUATED`, like the other required keys.
+Existing saved decisions remain historical evidence; assess a fresh snapshot
+to use this rule. The six-key schema and v4 binding remain unchanged.
+
+Control records the concrete effect behind every true exclusion and the context
+behind production. Unknown is not
 false. Read-only access can expose sensitive data; an internal endpoint can
 change authorization or compatibility. Writing a consequential migration
 retains data risk before deployment. Converting missing values to zero or
@@ -76,7 +87,8 @@ A reason string cannot downgrade known Hard on the same snapshot.
 ## Optional correction
 
 Normal low tasks need no extra proof. A correction candidate requires complete
-confirmed evidence, six false risks, and a valid Jev response with exactly one
+confirmed evidence, all six boolean values, five false automatic exclusions
+(production may be true), and a valid Jev response with exactly one
 Medium+ dimension: verification or coordination. Every other dimension must
 be at most Medium-. Candidate metadata grants no route change: normal review
 retains Medium+/Sol until Control explicitly approves a valid correction.
@@ -185,7 +197,8 @@ select difficulty, workers or fallback authority.
 For a report feedback task with live delivery, implementation can own a local
 UI fixture and focused detector; integration owns report-flow acceptance;
 rollout owns live activation, smoke checks, rollback and retention. Rollout
-retains production risk. A security change or consequential migration retains
+retains production context, which Jev assesses rather than automatically
+selecting Hard. A security change or consequential migration retains
 its own risk even in an implementation-only child. The parent stays open until
 integration and rollout acceptance finish; worker completion is not parent
 completion. Use existing task/run links; no planner or DAG engine is added.

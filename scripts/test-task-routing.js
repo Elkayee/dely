@@ -39,6 +39,39 @@ function result(changes = {}) {
     usage: { input_tokens: 500, output_tokens: 0 } };
 }
 const mock = (body) => ({ apiKey: "test-key", fetch: async () => ({ ok: true, json: async () => body }) });
+test("request diagnostics distinguish safe failure stages without retaining provider secrets", async () => {
+  const secret = "PRIVATE_SENTINEL_BODY_TOKEN";
+  const cases = [
+    ["transport", "TRANSPORT_ERROR", async () => { throw Error(secret); }],
+    ["timeout", "REQUEST_TIMEOUT", async () => { throw Object.assign(Error(secret), { name: "TimeoutError" }); }],
+    ["http", "HTTP_ERROR", async () => ({ ok: false, status: 503, body: secret })],
+    ["json", "JSON_DECODE_ERROR", async () => ({ ok: true, status: 200, json: async () => { throw Error(secret); } })],
+    ["schema", "SCHEMA_INVALID", async () => ({ ok: true, status: 200, json: async () => ({ model: secret }) })],
+  ];
+  for (const [stage, code, fetch] of cases) {
+    const record = await routing.assess(task(), { apiKey: "test-key", fetch });
+    assert.equal(record.status, "NOT_EVALUATED");
+    assert.equal(record.request_diagnostics.stage, stage);
+    assert.equal(record.request_diagnostics.code, code);
+    assert.equal(record.request_diagnostics.requested_model, routing.MODEL);
+    assert.equal(record.request_diagnostics.provider_model, null);
+    assert.ok(record.request_diagnostics.duration_ms >= 0);
+    assert.equal(record.request_diagnostics.http_status, ["http", "json", "schema"].includes(stage) ? (stage === "http" ? 503 : 200) : null);
+    assert.doesNotMatch(JSON.stringify(record), /PRIVATE_SENTINEL/);
+  }
+});
+test("success telemetry validates the provider model and does not change routing basis", async () => {
+  const reply = result();
+  reply.body = "PRIVATE_SENTINEL"; reply.usage = { secret: "PRIVATE_SENTINEL" };
+  reply.answers.scope.message = "PRIVATE_SENTINEL";
+  const record = await routing.assess(task(), mock(reply));
+  assert.equal(record.request_diagnostics.stage, "complete");
+  assert.equal(record.request_diagnostics.provider_model, routing.MODEL);
+  assert.equal(record.request_diagnostics.http_status, null, "mock did not measure a status");
+  const basis = routing.deriveAssessmentBasis(record);
+  assert.deepEqual(routing.deriveAssessmentBasis({ ...record, request_diagnostics: null }), basis);
+  assert.doesNotMatch(JSON.stringify(record), /PRIVATE_SENTINEL/);
+});
 function approvedFile(record) {
   const file = path.join(record.task.repo, "assessment.json");
   fs.writeFileSync(file, JSON.stringify(record));
@@ -366,8 +399,79 @@ test("Easy and Medium- start Flash, Medium+ starts Sol/medium, Hard bypasses Del
   assert.throws(() => routing.route("medium"), /Invalid difficulty/);
 });
 
+test("production context reaches Jev without forcing or bypassing its grade", async () => {
+  const risks = { ...Object.fromEntries(routing.RISK_KEYS.map((key) => [key, false])), production: true };
+  for (const grade of ["easy", "medium_minus", "medium_plus", "hard"]) {
+    let calls = 0;
+    const assessed = await routing.assess(task({ risks }), { apiKey: "test-key", fetch: async (_, request) => {
+      calls++;
+      const sent = JSON.parse(request.body);
+      assert.equal(sent.state.context.risks.production, true);
+      assert.ok(!sent.questions.risk.criteria.hard.includes(routing.RISK_CRITERIA.production));
+      return { ok: true, json: async () => result({ scope: grade }) };
+    } });
+    assert.equal(calls, 1, "production alone must reach Jev");
+    assert.equal(assessed.status, "REVIEW_REQUIRED");
+    assert.equal(assessed.difficulty, grade, "production must not force Easy or Hard");
+    assert.equal(assessed.hard_exclusions, undefined);
+    assert.equal(assessed.task.context.risks.production, true);
+    if (grade !== "hard") assert.throws(() => routing.requireApprovedRoute(flags(assessed)), /Control must review/);
+    const approved = routing.review(assessed, grade, "Retain the actual Jev grade for production context");
+    if (grade === "hard") assert.throws(() => routing.requireApprovedRoute(flags(approved)), /HARD_DIRECT_CODEX/);
+    else assert.doesNotThrow(() => routing.requireApprovedRoute(flags(approved)));
+  }
+  const candidate = await routing.assess(task({ risks }), mock(result({ verification: "medium_plus" })));
+  assert.equal(candidate.correction_candidate.dimension, "verification");
+  assert.throws(() => routing.review(candidate, "medium_minus", "No correction proof supplied"), /CORRECTION_PROOF|proof/i);
+});
+
+test("production context retains other Hard vetoes and complete-evidence checks", async () => {
+  const risks = { ...Object.fromEntries(routing.RISK_KEYS.map((key) => [key, false])), production: true };
+  for (const key of ["security", "data", "public_contract", "architecture", "routing"]) {
+    const assessed = await routing.assess(task({ risks: { ...risks, [key]: true } }), {
+      apiKey: "test-key", fetch: async () => assert.fail("A remaining Hard effect must still skip Jev") });
+    assert.equal(assessed.status, "DIRECT_CODEX");
+    assert.deepEqual(assessed.hard_exclusions, [key]);
+    assert.throws(() => routing.review(assessed, "easy", "Production is easy"), /Hard exclusion/);
+  }
+  for (const value of [undefined, null, "true", 1]) {
+    const incomplete = await routing.assess(task({ risks: { ...risks, production: value } }), {
+      apiKey: "test-key", fetch: async () => assert.fail("Unknown production evidence must not call Jev") });
+    assert.equal(incomplete.status, "NOT_EVALUATED");
+    assert.ok(incomplete.missing.includes("risks.production"));
+  }
+  const noKey = await routing.assess(task({ risks }), { apiKey: "", fetch: async () => assert.fail("No key") });
+  assert.equal(noKey.status, "NOT_EVALUATED");
+  assert.equal(noKey.route, null);
+  const abstained = await routing.assess(task({ risks }), mock(result({ risk: "insufficient_evidence" })));
+  assert.equal(abstained.status, "NOT_EVALUATED");
+  assert.equal(abstained.route, null);
+  const failed = await routing.assess(task({ risks }), { apiKey: "test-key", fetch: async () => ({ ok: false, status: 503 }) });
+  assert.equal(failed.status, "NOT_EVALUATED");
+  assert.equal(failed.request_diagnostics.stage, "http");
+  assert.equal(failed.route, null);
+});
+
+test("historical production exclusions require a fresh assessment before a lower route", async () => {
+  const risks = { ...Object.fromEntries(routing.RISK_KEYS.map((key) => [key, false])), production: true };
+  const historical = { ...await routing.assess(task({ risks }), { apiKey: "" }),
+    status: "DIRECT_CODEX", difficulty: "hard", hard_exclusions: ["production"], route: routing.route("hard") };
+  const original = JSON.stringify(historical);
+  assert.throws(() => routing.review(historical, "easy", "Apply the new production rule"), /fresh assessment/i);
+  assert.equal(JSON.stringify(historical), original);
+  const retained = routing.review(historical, "hard", "Preserve the recorded historical decision");
+  assert.throws(() => routing.requireApprovedRoute(flags(retained)), /HARD_DIRECT_CODEX/);
+  const fresh = await routing.assess(historical.task, mock(result()));
+  assert.equal(fresh.difficulty, "easy");
+  assert.equal(fresh.hard_exclusions, undefined);
+  const approved = routing.review(fresh, "easy", "Fresh complete evidence");
+  assert.doesNotThrow(() => routing.requireApprovedRoute(flags(approved)));
+});
+
 test("known security/data exclusions cannot be cleared by Jev or Control", async () => {
-  for (const key of routing.RISK_KEYS) {
+  assert.deepEqual(routing.HARD_RISK_KEYS, ["security", "data", "public_contract", "architecture", "routing"]);
+  assert.equal(routing.RISK_KEYS.length, 6);
+  for (const key of routing.HARD_RISK_KEYS) {
     const t = task({ risks: { [key]: true } });
     const assessed = await routing.assess(t, { apiKey: "test-key", fetch: async () => { assert.fail("Hard risk must not call Jev"); } });
     assert.equal(assessed.status, "DIRECT_CODEX");

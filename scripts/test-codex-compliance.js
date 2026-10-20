@@ -8,7 +8,8 @@ const os = require("os");
 const { spawnSync } = require("child_process");
 const vm = require("node:vm");
 const { createRequire } = require("node:module");
-const guard = require("./codex-compliance.js");
+const installer = require("./codex-compliance.js");
+const guard = process.env.COMPLIANCE_ADAPTER ? require(path.resolve(process.env.COMPLIANCE_ADAPTER)) : installer;
 const routingPath = process.env.COMPLIANCE_ROUTING || path.resolve(__dirname, "../skills/delivery/scripts/task-routing.js");
 const catalogHelpers = 'const {combineSkills,skillKey,skillPolicyPaths,validateInput}=require(' + JSON.stringify(require.resolve("./jev_agent.js")) + ');\nObject.assign(exports,{combineSkills,skillKey,skillPolicyPaths,validateInput});\n';
 
@@ -26,7 +27,7 @@ function fixture(t) {
   fs.writeFileSync(path.join(home, "hooks.json"), JSON.stringify({
     hooks: { SessionStart: [{ hooks: [{ type: "command", command: "existing-session-hook" }] }] },
   }));
-  guard.install({ routing: routingPath, advisor }, home);
+  installer.install({ routing: routingPath, advisor }, home);
   const settings = JSON.parse(fs.readFileSync(guard.settingsFile(home), "utf8"));
   settings.journal = path.join(directory, "journal.jsonl");
   fs.writeFileSync(guard.settingsFile(home), JSON.stringify(settings));
@@ -91,6 +92,228 @@ async function correctionFixture(t) {
       would_fail_if: "The prior wrong branch returns a different fixture result" } };
   return { ...f, prepared, proof, routing };
 }
+
+test("production-only routing still requires native review and bound Dely dispatch", async (t) => {
+  const f = fixture(t), routing = require(routingPath), assess = routing.assess;
+  let requests = 0;
+  f.task.context.risks.routing = false;
+  f.task.context.risks.production = true;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task) => assess(task, { apiKey: "fixture", fetch: async () => {
+    requests++;
+    return { ok: true, json: async () => ({ model: routing.MODEL,
+      answers: Object.fromEntries(routing.DIMENSIONS.map((name) => [name, {
+        type: "choice", choice: "medium_plus", confidence: 1,
+        probabilities: Object.fromEntries(["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"]
+          .map((label) => [label, Number(label === "medium_plus")])) }])) }) };
+  } });
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Production context with no Hard effect" }, f.home);
+  const prepared = await f.prepare();
+  assert.equal(requests, 1);
+  assert.equal(prepared.assessment.difficulty, "medium_plus");
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.throws(() => f.review({ difficulty: "medium_plus", skills: '["required","dely:delivery"]' }), /Run/);
+  f.review({ difficulty: "medium_plus", run: "production_context_run", skills: '["required","dely:delivery"]' });
+  assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const route = { event: "task_route", run: state.run, repo: f.repo, policy: state.assessment.policy,
+    specSha256: state.assessment.task.spec_sha256, contextSha256: state.assessment.task.context_sha256,
+    assessmentBasisSha256: state.assessment.assessment_basis_sha256, difficulty: "medium_plus",
+    correctionSha256: null, reviewSource: state.assessment.review.source };
+  const dispatch = { event: "dispatch", run: state.run, repo: f.repo, phase: "implement",
+    promptSha256: route.specSha256, contextSha256: route.contextSha256,
+    assessmentBasisSha256: route.assessmentBasisSha256, correctionSha256: null,
+    launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "production_context_dispatch" };
+  fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+test("confirmed continuation preserves the dispatch basis and requires fresh Control review", async (t) => {
+  const f = fixture(t), routing = require(routingPath), assess = routing.assess;
+  let requests = 0;
+  t.after(() => { routing.assess = assess; });
+  routing.assess = (task) => assess(task, { apiKey: "fixture", fetch: async () => {
+    requests++;
+    return { ok: true, json: async () => ({ model: routing.MODEL,
+      answers: Object.fromEntries(routing.DIMENSIONS.map((name) => [name, {
+        type: "choice", choice: "medium_plus", confidence: 1,
+        probabilities: Object.fromEntries(["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"]
+          .map((label) => [label, Number(label === "medium_plus")])) }])) }) };
+  } });
+  f.task.context.risks.routing = false;
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the confirmed task" }, f.home);
+  await f.prepare();
+  f.review({ difficulty: "medium_plus", run: "continuation_run", skills: '["required","dely:delivery"]' });
+  const prior = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const original = fs.readFileSync(prior.original_assessment, "utf8");
+  const approved = fs.readFileSync(path.join(path.dirname(prior.skill_input), "reviewed.json"), "utf8");
+  const route = { event: "task_route", run: prior.run, repo: f.repo, policy: prior.assessment.policy,
+    specSha256: prior.assessment.task.spec_sha256, contextSha256: prior.assessment.task.context_sha256,
+    assessmentBasisSha256: prior.assessment.assessment_basis_sha256, difficulty: "medium_plus",
+    correctionSha256: null, reviewSource: prior.assessment.review.source };
+  const dispatch = { event: "dispatch", run: prior.run, repo: f.repo, phase: "implement",
+    promptSha256: route.specSha256, contextSha256: route.contextSha256,
+    assessmentBasisSha256: route.assessmentBasisSha256, correctionSha256: null,
+    launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "continued_dispatch" };
+  fs.appendFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
+  const next = { ...f.event, turn_id: "continuation_turn" };
+  guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same Run after worker completion" }, f.home);
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  fs.writeFileSync(f.settings.journal, JSON.stringify(route) + "\n");
+  await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
+    run: prior.run, "task-json": JSON.stringify(f.task) }, f.home), /matching dispatch/);
+  fs.appendFileSync(f.settings.journal, JSON.stringify(dispatch) + "\n");
+  const prepared = await guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
+    run: prior.run, "task-json": JSON.stringify(f.task) }, f.home);
+  assert.equal(prepared.assessment.assessment_basis_sha256, route.assessmentBasisSha256,
+    "a continuation must retain the dispatched frozen basis");
+  assert.equal(requests, 1, "continuation must not repeat the Jev provider request");
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.throws(() => f.review({ turn: next.turn_id, difficulty: "hard", run: prior.run,
+    skills: '["required","dely:delivery"]' }), /original route/);
+  f.review({ turn: next.turn_id, difficulty: "medium_plus", run: prior.run, skills: '["required","dely:delivery"]' });
+  assert.deepEqual(guard.hook(next, f.home), {});
+  assert.equal(fs.readFileSync(prior.original_assessment, "utf8"), original);
+  assert.equal(fs.readFileSync(path.join(path.dirname(prior.skill_input), "reviewed.json"), "utf8"), approved);
+});
+
+test("continuation rejects changed inputs, authority and immutable proof", async (t) => {
+  const cases = [
+    ["spec", (f) => { f.task.spec += "Different work.\n"; }],
+    ["context", (f) => { f.task.context.acceptance = "Different acceptance"; }],
+    ["roster", (f) => { f.task.skills[0].description = "Different workflow"; }],
+    ["mandatory skills", (f) => { f.task.required_skills = []; }],
+    ["instructions", (f) => { fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed authority.\n"); }],
+    ["skill body", (f) => { fs.appendFileSync(f.skill, "Changed workflow.\n"); }],
+    ["original evidence", (f, prior) => { fs.appendFileSync(prior.original_assessment, " "); }],
+    ["checkpoint", (f, prior) => { fs.appendFileSync(prior.continuation_checkpoint.file, " "); }],
+    ["settings", (f) => { const s = { ...f.settings, journal: path.join(f.home, "different.jsonl") };
+      fs.writeFileSync(guard.settingsFile(f.home), JSON.stringify(s)); }],
+    ["foreign model", () => {}, { model: "different-model" }],
+    ["worker claim", () => {}, { prompt: "receipt rcpt_0000000000000000" }],
+    ["foreign Run", () => {}, { run: "different_run" }],
+    ["foreign session", () => {}, { session: "different_session" }],
+    ["reserved native metadata", (f) => { f.task.native_continuation = { file: "forged", sha256: "0".repeat(64) }; }],
+    ["foreign terminal", (f, prior, sub) => {
+      const old = process.env.ORCA_TERMINAL_HANDLE;
+      process.env.ORCA_TERMINAL_HANDLE = "different_terminal";
+      sub.after(() => { if (old === undefined) delete process.env.ORCA_TERMINAL_HANDLE;
+        else process.env.ORCA_TERMINAL_HANDLE = old; });
+    }],
+  ];
+  for (const [name, change, extra = {}] of cases) await t.test(name, async (sub) => {
+    const f = fixture(sub);
+    guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the task" }, f.home);
+    await f.prepare(); f.review();
+    const prior = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+    change(f, prior, sub);
+    const next = { ...f.event, turn_id: "continued", model: extra.model || f.event.model };
+    guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: extra.prompt || "Continue unchanged" }, f.home);
+    await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id,
+      continue: true, ...extra, "task-json": JSON.stringify(f.task) }, f.home), /continuation|changed|checkpoint/i);
+    assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  });
+});
+
+test("advice-only approval does not advertise an execution continuation", async (t) => {
+  const f = fixture(t);
+  f.task.mode = "advice";
+  await f.prepare();
+  f.review();
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.continuation_checkpoint, undefined);
+});
+
+test("continuation metadata cannot be erased before its fresh review", async (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the task" }, f.home);
+  await f.prepare(); f.review();
+  guard.hook({ ...f.event, turn_id: "next", hook_event_name: "UserPromptSubmit", prompt: "Continue the task" }, f.home);
+  await guard.prepare({ ...f.options, turn: "next", continue: true, "task-json": JSON.stringify(f.task) }, f.home);
+  const file = guard.stateFile(f.home, "session"), state = JSON.parse(fs.readFileSync(file, "utf8"));
+  delete state.continuation;
+  fs.writeFileSync(file, JSON.stringify(state));
+  assert.throws(() => f.review({ turn: "next" }), /continuation/i);
+});
+
+test("a fresh prompt safely resets an unreadable prior continuation state", (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(path.dirname(guard.stateFile(f.home, "session")), { recursive: true });
+  for (const prior of ["{", "null", "[]", '"unusable"']) {
+    fs.writeFileSync(guard.stateFile(f.home, "session"), prior);
+    guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Start a fresh confirmed task" }, f.home);
+    const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+    assert.equal(state.status, "PENDING");
+    assert.equal(state.continuation_checkpoint, undefined);
+    assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+  }
+});
+
+test("native continuation CLI retains direct Hard evidence and normal prepare stays fresh", async (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the task" }, f.home);
+  await f.prepare(); f.review();
+  const original = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const next = { ...f.event, turn_id: "next" };
+  const guidance = guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the task" }, f.home);
+  assert.match(guidance.hookSpecificOutput.additionalContext, /--continue/);
+  const result = spawnSync(process.execPath, [path.join(f.home, "dely-compliance/codex-compliance.js"), "prepare",
+    "--home", f.home, "--repo", f.repo, "--session", "session", "--turn", "next", "--continue",
+    "--task-json", JSON.stringify(f.task)], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const prepared = JSON.parse(result.stdout);
+  assert.equal(prepared.continuation, true);
+  assert.equal(prepared.assessment.assessment_basis_sha256, original.assessment.assessment_basis_sha256);
+  f.review({ turn: "next" });
+  assert.deepEqual(guard.hook(next, f.home), {});
+  const admitted = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  delete admitted.continuation_source;
+  fs.writeFileSync(guard.stateFile(f.home, "session"), JSON.stringify(admitted));
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  guard.hook({ ...f.event, turn_id: "fresh", hook_event_name: "UserPromptSubmit", prompt: "A new confirmed task" }, f.home);
+  const fresh = await guard.prepare({ ...f.options, turn: "fresh", "task-json": JSON.stringify(f.task) }, f.home);
+  assert.equal(fresh.continuation, false);
+  assert.notEqual(fresh.assessment.assessment_basis_sha256, original.assessment.assessment_basis_sha256);
+});
+
+test("continuation retains candidate ownership when the offered target changes", async (t) => {
+  const f = candidateFixture(t);
+  await f.prepare(); f.review();
+  guard.hook({ ...f.event, turn_id: "next", hook_event_name: "UserPromptSubmit", prompt: "Continue" }, f.home);
+  f.task.execution_repo = f.repo;
+  await assert.rejects(() => guard.prepare({ ...f.options, turn: "next", continue: true,
+    "task-json": JSON.stringify(f.task) }, f.home), /continuation owner, target/i);
+});
+
+test("continuation retains the original correction proof and never invents a low-tier approval", async (t) => {
+  const f = await correctionFixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the task" }, f.home);
+  const prepared = await f.prepare();
+  const proof = { ...f.proof, assessment_basis_sha256: prepared.assessment.assessment_basis_sha256 };
+  const review = { difficulty: "medium_minus", run: "corrected_continuation", skills: '["required","dely:delivery"]',
+    "review-evidence-json": JSON.stringify(proof) };
+  f.review(review);
+  const prior = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const route = { event: "task_route", run: prior.run, repo: f.repo, policy: prior.assessment.policy,
+    specSha256: prior.assessment.task.spec_sha256, contextSha256: prior.assessment.task.context_sha256,
+    assessmentBasisSha256: prior.assessment.assessment_basis_sha256, difficulty: "medium_minus",
+    correctionSha256: prior.assessment.review.correction_sha256, reviewSource: prior.assessment.review.source };
+  const dispatch = { event: "dispatch", run: prior.run, repo: f.repo, phase: "implement", promptSha256: route.specSha256,
+    contextSha256: route.contextSha256, assessmentBasisSha256: route.assessmentBasisSha256,
+    correctionSha256: route.correctionSha256, dispatchId: "corrected_dispatch",
+    launch: { effective: { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" } } };
+  fs.appendFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
+  const next = { ...f.event, turn_id: "next" };
+  guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the corrected task" }, f.home);
+  await guard.prepare({ ...f.options, turn: "next", continue: true, run: prior.run,
+    "task-json": JSON.stringify(f.task) }, f.home);
+  assert.throws(() => f.review({ ...review, turn: "next", "review-evidence-json": undefined }), /correction|proof/i);
+  f.review({ ...review, turn: "next" });
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.assessment.assessment_basis_sha256, route.assessmentBasisSha256);
+  assert.equal(state.assessment.review.correction_sha256, route.correctionSha256);
+  assert.deepEqual(guard.hook(next, f.home), {});
+});
 
 test("case32/case33 native CLI persists proof through preflight, dispatch, Control gate and worker admission", async (t) => {
   const f = await correctionFixture(t);

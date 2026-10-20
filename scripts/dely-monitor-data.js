@@ -7,6 +7,8 @@ const readline = require("node:readline");
 const { execFile } = require("node:child_process");
 const { taskKey, runtimeFingerprint } = require("../skills/delivery/scripts/usage.js");
 const crypto = require("node:crypto");
+const { createJevReader } = require("./dely-monitor-jev.js");
+const readJev = createJevReader();
 
 const GRADES = ["easy", "medium_minus", "medium_plus", "hard"];
 const ROOTS = [path.join(os.homedir(), ".codex"), process.env.CODEX_HOME,
@@ -15,6 +17,7 @@ const sourceLabel = (repo) => String(repo || "").replace(/\\/g, "/");
 const snapshotKey = (policy, key) => JSON.stringify([policy || null, key]);
 const isProbe = (repo) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-)/i.test(sourceLabel(repo));
 function instant(value) {
+  if (typeof value === "number") return Number.isFinite(value) && Number.isFinite(new Date(value).getTime()) ? value : null;
   if (typeof value !== "string") return null;
   const normalized = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(value) ? value.replace(" ", "T") + "Z" : value;
   const time = Date.parse(normalized);
@@ -236,12 +239,15 @@ function snapshotCohort(events, options, visible) {
 
 function summarize(events, workers, conversations, options = {}) {
   const since = options.since || 0;
-  const repo = options.repo || "";
-  const visible = (r) => (!repo || sourceLabel(r.repo) === repo) &&
-    (options.probes || !isProbe(r.repo)) && (instant(r.ts) == null || instant(r.ts) >= since);
+  const repo = sourceLabel(options.repo);
+  const scope = (r) => (!repo || sourceLabel(r.repo) === repo) && (options.probes || !isProbe(r.repo));
+  const inWindow = (r) => instant(r.ts) == null ? !options.explicitReset :
+    instant(r.ts) >= since && instant(r.ts) <= (options.asOf ?? Date.now());
+  const visible = (r) => scope(r) && inWindow(r);
   const filtered = events.filter((e) => visible(e) && (instant(e.ts) == null || instant(e.ts) <= (options.asOf ?? Date.now())));
   const tasks = new Map();
-  const snapshots = snapshotCohort(events, options, visible);
+  // Canonical cohorts apply their own effective-time windows after full-history binding.
+  const snapshots = snapshotCohort(events, options, scope);
   const launches = new Map([...snapshots.launches].filter(([, l]) => visible(l)));
   for (const e of filtered) {
     if (e.event === "task_assessment" && e.taskKey) {
@@ -266,13 +272,14 @@ function summarize(events, workers, conversations, options = {}) {
     id: l.dispatchId, run: l.run, repo: l.repo, ts: l.ts,
     task_title: l.assessment?.task_title || null, domain: l.assessment?.domain || null,
     grade: l.assessment?.difficulty || null,
-    model: l.launch?.effective?.model || null, requestedModel: l.launch?.requested?.model || null,
+    model: l.launch?.effective?.model || null, effort: l.launch?.effective?.effort || null,
+    snapshotId: l.taskKey, bound: !!l.assessment, requestedModel: l.launch?.requested?.model || null,
     status: workerById.get(l.dispatchId)?.status || "Not observed", fallback: l.fallbackReason || null,
-    source: "Dely log",
+    source: "Dely log", diagnosticAvailable: workerById.has(l.dispatchId),
   }));
   const launchIds = new Set(activity.map((l) => l.id));
   for (const w of jobs) if (!launchIds.has(w.id)) activity.push({
-    ...w, grade: null, model: w.model || null, fallback: null, source: "Orca",
+    ...w, grade: null, model: w.model || null, fallback: null, source: "Orca", diagnosticAvailable: true,
   });
   const sessions = conversations.filter(visible);
   const conversationModels = new Map();
@@ -281,7 +288,45 @@ function summarize(events, workers, conversations, options = {}) {
     const row = conversationModels.get(model) || { model, turns: 0, sessions: new Set() };
     row.turns++; row.sessions.add(c.session); conversationModels.set(model, row);
   }
-  return {
+  const detailTasks = new Map();
+  for (const [id, t] of tasks) detailTasks.set(id, { id, repo: sourceLabel(t.repo),
+    task_title: t.task_title || null, domain: t.domain || null, grade: t.status === "APPROVED" ? t.difficulty || null : null,
+    latestApproval: { grade: t.difficulty || null, status: t.status || null, ts: t.ts },
+    ts: t.ts, status: t.status !== "APPROVED" ? t.status || "NOT_EVALUATED" :
+      t.workflow === "dely" ? "Awaiting dispatch" : t.workflow === "direct" ? "Direct Control work / no Dely dispatch expected" : "Unknown workflow", attempts: [] });
+  for (const [id, task] of detailTasks) {
+    const first = snapshots.first.get(id);
+    if (!first?.assessment) continue;
+    task.task_title = first.assessment.task_title || null; task.domain = first.assessment.domain || null;
+    task.grade = first.assessment.difficulty || null; task.ts = first.ts;
+    task.confirmedSnapshot = true; task.inSnapshotWindow = snapshots.cohort.some((s) => s.taskKey === id);
+    task.status = "First implementation confirmed / no attempts in this window";
+    task.firstImplementation = { model: first.launch.effective.model, effort: first.launch.effective.effort };
+  }
+  for (const t of filtered.filter((e) => e.event === "task_assessment" && !e.taskKey)) {
+    const id = `unidentified:${crypto.createHash("sha256").update(JSON.stringify(t)).digest("hex")}`;
+    detailTasks.set(id, { id, repo: sourceLabel(t.repo), task_title: null, grade: null,
+      ts: t.ts, status: "Missing task identity / unconfirmed assessment", attempts: [] });
+  }
+  for (const l of launches.values()) {
+    const first = snapshots.first.get(l.taskKey);
+    const frozen = first?.assessment;
+    const id = l.taskKey || `dispatch:${l.dispatchId}`;
+    const task = detailTasks.get(id) || { id, repo: sourceLabel(l.repo), latestApproval: null, attempts: [] };
+    // Full-history first confirmation owns snapshot metadata, even outside the reset window.
+    const metadata = frozen || l.assessment;
+    task.task_title = metadata?.task_title || null; task.domain = metadata?.domain || null;
+    task.grade = metadata?.difficulty || null; task.ts = first?.ts || l.ts;
+    task.status = "Launch observed"; task.confirmedSnapshot = !!frozen;
+    task.firstImplementation = frozen ? { model: first.launch.effective.model, effort: first.launch.effective.effort } : null;
+    task.inSnapshotWindow = snapshots.cohort.some((s) => s.taskKey === l.taskKey);
+    task.attempts.push(activity.find((a) => a.id === l.dispatchId));
+    detailTasks.set(id, task);
+  }
+  for (const w of activity.filter((a) => a.source === "Orca")) detailTasks.set(`worker:${w.id}`, {
+    id: `worker:${w.id}`, repo: sourceLabel(w.repo), task_title: null, grade: null,
+    ts: w.ts, status: w.status || "Unknown", attempts: [w] });
+  const result = {
     metrics: snapshots.metrics, coverage: snapshots.coverage, window: snapshots.window,
     runtimeCohorts: snapshots.runtimeCohorts,
     pending: eligible.filter((t) => !snapshots.first.has(snapshotKey(t.policy, t.taskKey))).length,
@@ -291,18 +336,40 @@ function summarize(events, workers, conversations, options = {}) {
       grades: GRADES.map((grade) => ({ grade, count: known.filter((t) => t.difficulty === grade).length })) },
     models: [...models.values()].sort((a, b) => b.launches - a.launches),
     jobs: { count: jobs.length, succeeded: jobs.filter((w) => w.status === "succeeded").length,
+      states: [...new Set(jobs.map((w) => w.status || "Unknown"))].map((status) => ({ status,
+        count: jobs.filter((w) => (w.status || "Unknown") === status).length })),
       failed: jobs.filter((w) => w.status === "failed").length,
       active: jobs.filter((w) => ["running", "queued", "starting"].includes(w.status)).length,
       unknownModel: jobs.filter((w) => !w.model && !launches.has(w.id)).length },
     conversations: { sessions: new Set(sessions.map((c) => c.session)).size, turns: sessions.length,
       models: [...conversationModels.values()].map((r) => ({ model: r.model, turns: r.turns, sessions: r.sessions.size })) },
     activity: activity.sort((a, b) => (instant(b.ts) || 0) - (instant(a.ts) || 0)),
+    taskDetails: [...detailTasks.values()].sort((a, b) => (instant(b.ts) || 0) - (instant(a.ts) || 0)),
     approvals: known.map((t) => ({ id: t.taskKey, repo: t.repo, ts: t.ts, grade: t.difficulty,
       task_title: t.task_title || null, domain: t.domain || null,
       model: t.primary?.model || null, workflow: t.workflow, policy: t.policy || null,
       dispatched: launchedTasks.has(snapshotKey(t.policy, t.taskKey)) })),
     repos: [...new Set([...events, ...workers, ...conversations].map((r) => sourceLabel(r.repo)).filter(Boolean))].sort(),
   };
+  result.coverage.excludedUnknownTime = Object.fromEntries(Object.entries({ events, workers, conversations })
+    .map(([name, rows]) => [name, options.explicitReset ? rows.filter((r) => scope(r) && instant(r.ts) == null).length : 0]));
+  if (!options.projectSummary) {
+    const allOptions = { ...options, repo: "", projectSummary: true };
+    const allVisible = (r) => (options.probes || !isProbe(r.repo)) && inWindow(r);
+    const rows = [...events, ...workers, ...conversations].filter(allVisible);
+    const paths = [...new Set(rows.map((r) => sourceLabel(r.repo)).filter(Boolean))].sort();
+    const project = (path, summary) => ({ repo: path, name: path.split("/").filter(Boolean).pop(),
+      snapshots: summary.metrics.agyStart.denominator, agyStart: summary.metrics.agyStart,
+      tasks: summary.tasks, pending: summary.pending, models: summary.models,
+      jobs: summary.jobs, conversations: summary.conversations,
+      launches: summary.activity.filter((a) => a.source === "Dely log").length,
+      coverage: summary.coverage });
+    result.projects = paths.map((path) => project(path, summarize(events, workers, conversations, { ...allOptions, repo: path })));
+    const unknown = (r) => !sourceLabel(r.repo);
+    result.unassigned = { records: rows.filter(unknown).length,
+      ...project("", summarize(events.filter(unknown), workers.filter(unknown), conversations.filter(unknown), allOptions)) };
+  }
+  return result;
 }
 
 async function jsonLines(file, visit) {
@@ -317,37 +384,52 @@ async function jsonLines(file, visit) {
   return malformed;
 }
 
-async function readConversations(since) {
-  const files = new Map();
-  for (const root of [...new Set(ROOTS)]) {
-    const sessions = path.join(root, "sessions");
-    if (!fs.existsSync(sessions)) continue;
-    for (let time = Date.now(); time >= since - 86400000; time -= 86400000) {
-      const date = new Date(time).toISOString().slice(0, 10).split("-");
-      const folder = path.join(sessions, ...date);
-      if (!fs.existsSync(folder)) continue;
-      for (const name of fs.readdirSync(folder)) if (name.endsWith(".jsonl")) {
-        const file = path.join(folder, name), size = fs.statSync(file).size;
-        if (!files.has(name) || files.get(name).size < size) files.set(name, { file, size });
+function createConversationReader({ roots = ROOTS, readLines = jsonLines, now = Date.now } = {}) {
+  const cache = new Map();
+  return async function readConversations(since) {
+    const files = new Map();
+    for (const root of [...new Set(roots)]) {
+      const sessions = path.join(root, "sessions");
+      if (!fs.existsSync(sessions)) continue;
+      for (let time = now(); time >= since - 86400000; time -= 86400000) {
+        const date = new Date(time).toISOString().slice(0, 10).split("-");
+        const folder = path.join(sessions, ...date);
+        if (!fs.existsSync(folder)) continue;
+        for (const name of fs.readdirSync(folder)) if (name.endsWith(".jsonl")) {
+          const file = path.join(folder, name), stat = fs.statSync(file);
+          const signature = [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+          if (!files.has(name) || files.get(name).size < stat.size) files.set(name, { file, size: stat.size, signature });
+        }
       }
     }
-  }
-  const turns = new Map(); let malformed = 0;
-  for (const { file } of files.values()) {
-    let session = null, root = true;
-    malformed += await jsonLines(file, (item) => {
-      if (item.type === "session_meta") {
-        session = item.payload.id; root = !JSON.stringify(item.payload.source || "").includes("subagent");
+    const turns = new Map(); let malformed = 0, hits = 0, parsed = 0;
+    for (const file of cache.keys()) if (!fs.existsSync(file)) cache.delete(file);
+    for (const { file, signature } of files.values()) {
+      let entry = cache.get(file);
+      if (entry?.signature === signature) hits++;
+      else {
+        let session = null, root = true;
+        const rows = [];
+        const errors = await readLines(file, (item) => {
+          if (item.type === "session_meta") {
+            session = item.payload.id; root = !JSON.stringify(item.payload.source || "").includes("subagent");
+          }
+          if (root && session && item.type === "turn_context") {
+            const p = item.payload, id = p.turn_id || item.timestamp;
+            rows.push({ id, session, model: p.model || null, repo: p.cwd, ts: item.timestamp });
+          }
+        });
+        entry = { signature, rows, malformed: errors }; cache.set(file, entry); parsed++;
       }
-      if (root && session && item.type === "turn_context" && instant(item.timestamp) >= since) {
-        const p = item.payload, id = p.turn_id || item.timestamp;
-        turns.set(session + ":" + id, { session, model: p.model || null, repo: p.cwd, ts: item.timestamp });
-      }
-    });
-  }
-  return { rows: [...turns.values()], files: files.size, malformed,
-    available: ROOTS.some((root) => fs.existsSync(path.join(root, "sessions"))) };
+      malformed += entry.malformed;
+      for (const { id, ...row } of entry.rows) if (instant(row.ts) >= since) turns.set(row.session + ":" + id, row);
+    }
+    return { rows: [...turns.values()], files: files.size, malformed,
+      cache: { hits, parsed }, available: roots.some((root) => fs.existsSync(path.join(root, "sessions"))) };
+  };
 }
+
+const readConversations = createConversationReader();
 
 function orca(args) {
   return new Promise((resolve, reject) => {
@@ -370,12 +452,45 @@ async function readWorkers() {
     total = result.page?.total ?? total; scope = result.scope?.source || scope;
     for (const w of result.workers || []) rows.push({
       id: w.dispatchId, run: w.runId, repo: w.resource?.worktreeId?.split("::").slice(1).join("::") || null,
-      ts: w.projection?.evidence?.lastObservedAt || null, status: w.workerState || "Unknown",
+      ts: w.projection?.evidence?.lastObservedAt ?? null, status: w.workerState || "Unknown",
       model: typeof w.projection?.provider?.model === "string" ? w.projection.provider.model : null,
     });
     cursor = result.page?.hasMore ? result.page.nextCursor : null; pages++;
   } while (cursor && pages < 10);
   return { rows, total, pages, complete: !cursor, scope };
+}
+
+const workerId = /^ctx_[a-f0-9]{12}$/;
+async function readWorkerDiagnostic(id, read = orca) {
+  if (typeof id !== "string" || id.length !== 16 || !workerId.test(id)) throw new Error("Invalid dispatch id");
+  const result = (await read(["orchestration", "worker-show", "--dispatch", id, "--json"]))?.result;
+  const dispatch = result?.dispatch, projection = result?.projection;
+  if (!dispatch || dispatch.id !== id) throw new Error("Worker diagnostic is unavailable");
+  const known = (value, values) => values.includes(value) ? value : null;
+  const terminationReason = known(dispatch.terminationReason, ["operator_close"]);
+  const failure = { kind: terminationReason || "unknown", source: terminationReason ? "dispatch.terminationReason" : null,
+    reportedDepth: null, maxDepth: null };
+  if (!terminationReason && typeof dispatch.lastFailure === "string" && dispatch.lastFailure.length <= 16384) {
+    let report;
+    try { report = JSON.parse(dispatch.lastFailure); } catch (_) { /* Unreadable evidence remains unknown. */ }
+    if (report?.provenance === "worker_report" && report.outcome === "failed" && typeof report.body === "string") {
+      failure.kind = "worker_report"; failure.source = "dispatch.lastFailure.worker_report";
+      const matches = [...report.body.matchAll(/\bnested dispatch depth (\d{1,3}) exceeds max (\d{1,3})\b/g)];
+      if (matches.length === 1 && Number(matches[0][1]) > Number(matches[0][2])) {
+        failure.kind = "reported_depth_limit";
+        failure.reportedDepth = Number(matches[0][1]); failure.maxDepth = Number(matches[0][2]);
+      }
+    }
+  }
+  return {
+    id, status: known(dispatch.status, ["pending", "dispatched", "completed", "failed", "canceled", "cancelled"]),
+    outcome: known(projection?.outcome, ["in_progress", "succeeded", "failed", "canceled", "cancelled", "unknown"]),
+    terminationReason, depth: Number.isSafeInteger(dispatch.depth) && dispatch.depth >= 0 ? dispatch.depth : null,
+    liveness: { verdict: known(projection?.liveness?.verdict, ["live", "unverifiable", "exited", "unknown"]) || "unknown",
+      source: "projection.liveness", evidenceSource: known(projection?.liveness?.source,
+        ["agent_status", "terminal", "terminal_status", "process", "durable", "execution_host"]) },
+    failure,
+  };
 }
 
 async function collect(options = {}) {
@@ -384,16 +499,46 @@ async function collect(options = {}) {
   if (sources.log.present) sources.log.malformed = await jsonLines(file, (e) => {
     if (e && ["task_assessment", "task_route", "dispatch", "task_control_result", "task_reference_audit"].includes(e.event)) events.push(e);
   });
-  const outcomes = await Promise.allSettled([(options.readWorkers || readWorkers)(),
-    (options.readConversations || readConversations)(Date.now() - 30 * 86400000)]);
-  const workers = outcomes[0].status === "fulfilled" ? outcomes[0].value : { rows: [], available: false };
-  const conversations = outcomes[1].status === "fulfilled" ? outcomes[1].value : { rows: [], available: false };
-  sources.orca = { available: outcomes[0].status === "fulfilled", total: workers.total ?? null,
-    loaded: workers.rows.length, complete: workers.complete || false, scope: workers.scope || null };
-  sources.codex = { available: outcomes[1].status === "fulfilled" && conversations.available, files: conversations.files ?? null,
-    malformed: conversations.malformed ?? null };
+  let workers = [], conversations = [], jev = [];
+  const collectedAt = new Date().toISOString();
+  sources.orca = { available: false, state: "loading", total: null, loaded: 0, complete: false, scope: null };
+  sources.codex = { available: false, state: "loading", files: null, malformed: null };
+  sources.jev = { available: false, state: "loading", coverage: [] };
   sources.runtimes = readRuntimes();
-  return { events, workers: workers.rows, conversations: conversations.rows, sources, collectedAt: new Date().toISOString() };
+  const snapshot = () => ({ events, workers, conversations, jev, sources: { ...sources }, collectedAt });
+  const publish = () => options.onUpdate?.(snapshot());
+  publish();
+  await Promise.all([
+    (async () => {
+      try {
+        const result = await (options.readJev || readJev)();
+        jev = result.rows;
+        sources.jev = { available: result.coverage.some((s) => ["ready", "partial"].includes(s.state)),
+          state: result.coverage.every((s) => s.state === "ready") ? "ready" : "partial",
+          asOf: new Date().toISOString(), coverage: result.coverage, cache: result.cache };
+      } catch (_) { sources.jev = { ...sources.jev, state: "error" }; }
+      publish();
+    })(),
+    (async () => {
+      try {
+        const result = await (options.readWorkers || readWorkers)();
+        workers = result.rows;
+        sources.orca = { available: true, state: "ready", asOf: new Date().toISOString(),
+          total: result.total ?? null, loaded: workers.length, complete: result.complete || false, scope: result.scope || null };
+      } catch (_) { sources.orca = { ...sources.orca, state: "error" }; }
+      publish();
+    })(),
+    (async () => {
+      try {
+        const result = await (options.readConversations || readConversations)(Date.now() - 30 * 86400000);
+        conversations = result.rows;
+        sources.codex = { available: !!result.available, state: result.available ? "ready" : "unavailable",
+          asOf: new Date().toISOString(), files: result.files ?? null, malformed: result.malformed ?? null, cache: result.cache || null };
+      } catch (_) { sources.codex = { ...sources.codex, state: "error" }; }
+      publish();
+    })(),
+  ]);
+  return snapshot();
 }
 
 function readRuntimes(homes = ROOTS) {
@@ -411,4 +556,4 @@ function readRuntimes(homes = ROOTS) {
   });
 }
 
-module.exports = { GRADES, instant, isProbe, summarize, jsonLines, readConversations, readRuntimes, collect };
+module.exports = { GRADES, instant, isProbe, summarize, jsonLines, createConversationReader, readConversations, readRuntimes, collect, readWorkerDiagnostic };

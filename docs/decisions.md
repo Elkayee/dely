@@ -1,5 +1,25 @@
 # Decisions
 
+## 2026-10-19 — Safe Jev stages and incomplete batch observations (0.27.8)
+
+Record measured request metadata with fixed stage/code enums across task,
+context and skill advice. Retain legacy generic reasons and leave historical
+unknowns unclassified. Provider models are recorded only after full validation;
+unvalidated content and exception text never enter request diagnostics.
+
+Keep completed skill batches from an interrupted run in the separately named,
+input-hash-bound `incomplete_batch_progress` field. These are observations only:
+final suggestions stay empty, the leading suggestion stays null, and the final
+decision stays unevaluated. The monitor projects safe telemetry/progress without
+changing its original-versus-Control distinction or denominators. The portable
+`jev-task-routing-v4` policy, approval basis, request timeout, dispatch, provider
+discovery and fallback behavior remain unchanged. Activation is performed by
+Control between settled plans; this slice does not change worker launches.
+The advisor and router retain independent self-contained request helpers with
+the same diagnostic contract. Importing the router into the advisor would break
+the native installer's frozen advisor copy, which has no sibling skills tree;
+private temporary-home installation tests cover the copied public advice API.
+
 What has been settled, what is still open, and what was rejected and why.
 Rationale is kept because the reasons are the reusable part.
 
@@ -8,6 +28,21 @@ Last updated 2026-10-18.
 ---
 
 ## Settled
+
+### 2026-10-19 — Explicit native continuation retains frozen admission evidence
+
+Native implementation reviews save a private immutable continuation checkpoint.
+An explicit current-turn continuation validates its owner, original fingerprints,
+instructions, roster, model, software and target, then reuses the original raw
+assessment and paths. Delegated continuations also require the bound Run and
+dispatch. This avoids changing the v4 assessment basis through repeated Jev calls
+or newly allocated input paths after a wake. Original artifacts are never rewritten.
+
+The next prompt remains pending and requires fresh input and Control review with
+the same route, selected skills and correction identity. Changed or missing proof
+requires a fresh flow. Advice-only reviews grant no execution continuation; worker
+claims, changed owners and checkpoint/metadata tampering remain denied. Portable
+dispatch, model, fallback and hook-trust rules are unchanged by this native slice.
 
 ### 2026-10-18 — Reconciled transport fallback and independent usage evidence
 
@@ -5604,3 +5639,20 @@ their multi-harness baseline and destructive/trust/quiet-worker scenarios are
 outside this focused verification. OMP/Pi are not installed. No full checklist
 PASS is claimed. A separate probe session inspects the committed archive;
 the focused instruments and the archive identity remain the local evidence.
+
+## 2026-10-20 — Production context does not automatically select Hard
+
+The user removed `production=true` from the automatic Hard/direct gate because
+production work can be straightforward. Version 0.27.10 keeps all six required
+boolean values, while only security, data, public-contract, architecture and
+routing effects automatically skip Jev. The v4 schema and approval binding stay
+unchanged. Production-only work reaches Jev and Control review; raw Jev Hard,
+missing evidence and the five remaining exclusions retain their vetoes.
+
+This supersedes the production exclusion in earlier routing decisions without
+rewriting their saved assessments or approvals. New decisions use a fresh
+snapshot. The monitor displays recorded exclusion names and marks a saved
+production exclusion as historical instead of inferring it from a true context
+flag. Focused routing tests cover every Jev grade, mixed exclusions, missing
+context and provider failures; native admission still requires reviewed Dely
+dispatch evidence for an eligible production-only task.
