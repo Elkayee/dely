@@ -1214,3 +1214,185 @@ test("reset newer than the collector cache reloads sources before summarizing", 
     assert.equal(response.window.end, new Date(last).toISOString());
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+
+function runSidebarNavigation(initialHash, source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8")) {
+  class MockElement {
+    constructor(tag, href = "", className = "") {
+      this.tagName = tag;
+      this.href = href;
+      this.className = className;
+      this.attributes = new Map();
+      if (href) this.attributes.set("href", href);
+      this.classes = new Set(className ? className.split(/\s+/).filter(Boolean) : []);
+      this.classList = {
+        add: (...cls) => cls.forEach((c) => this.classes.add(c)),
+        remove: (...cls) => cls.forEach((c) => this.classes.delete(c)),
+        toggle: (c, force) => {
+          if (force === undefined) force = !this.classes.has(c);
+          if (force) this.classes.add(c); else this.classes.delete(c);
+          return force;
+        },
+        contains: (c) => this.classes.has(c),
+      };
+      this.open = false;
+      this.parent = null;
+      this.scrollIntoViewCalled = false;
+    }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    removeAttribute(name) { this.attributes.delete(name); }
+    hasAttribute(name) { return this.attributes.has(name); }
+    closest(selector) {
+      if (selector === ".advanced" && (this.className.includes("advanced") || this.parent?.className.includes("advanced"))) {
+        return this.parent?.className.includes("advanced") ? this.parent : this;
+      }
+      return null;
+    }
+    scrollIntoView() { this.scrollIntoViewCalled = true; }
+  }
+
+  const navItems = [
+    new MockElement("a", "#overview", "nav-item active"),
+    new MockElement("a", "#models", "nav-item"),
+    new MockElement("a", "#measures", "nav-item"),
+    new MockElement("a", "#routing", "nav-item"),
+    new MockElement("a", "#jev", "nav-item"),
+    new MockElement("a", "#activity", "nav-item"),
+  ];
+
+  const advanced = new MockElement("details", "", "advanced");
+  const targets = {
+    overview: new MockElement("header"),
+    models: new MockElement("section"),
+    activity: new MockElement("section"),
+    measures: new MockElement("section"),
+    routing: new MockElement("section"),
+    jev: new MockElement("section"),
+    "observation-start": new MockElement("p"),
+  };
+  targets.measures.parent = advanced;
+  targets.routing.parent = advanced;
+  targets.jev.parent = advanced;
+  targets["observation-start"].parent = advanced;
+
+  const listeners = {};
+  const windowObj = {
+    addEventListener: (event, fn) => { (listeners[event] ||= []).push(fn); },
+  };
+  const locationObj = { hash: initialHash };
+  const documentObj = {
+    querySelectorAll: (sel) => {
+      if (sel.includes(".sidebar .nav-item") || sel.includes(".nav-item")) return navItems;
+      return [];
+    },
+    getElementById: (id) => targets[id] || null,
+  };
+
+  const navCode = source.slice(
+    source.indexOf("function revealEvidence()"),
+    source.lastIndexOf("observationStatus();")
+  );
+
+  require("node:vm").runInNewContext(navCode, {
+    window: windowObj,
+    document: documentObj,
+    location: locationObj,
+  });
+
+  return {
+    navItems,
+    advanced,
+    targets,
+    location: locationObj,
+    triggerHashChange: (newHash) => {
+      locationObj.hash = newHash;
+      for (const fn of (listeners["hashchange"] || [])) fn();
+    },
+    getActive: () => navItems.filter((item) => item.classList.contains("active")),
+    getWithAriaCurrent: () => navItems.filter((item) => item.hasAttribute("aria-current")),
+  };
+}
+
+function assertSidebarState(env, expectedHref, messagePrefix = "") {
+  const active = env.getActive();
+  assert.equal(active.length, 1, String(messagePrefix) + "Expected exactly one active sidebar link, found " + active.length);
+  assert.equal(active[0].getAttribute("href"), expectedHref, String(messagePrefix) + "Expected active href to be " + expectedHref);
+  const current = env.getWithAriaCurrent();
+  assert.equal(current.length, 1, String(messagePrefix) + "Expected exactly one link with aria-current, found " + current.length);
+  assert.equal(current[0].getAttribute("href"), expectedHref, String(messagePrefix) + "Expected aria-current on " + expectedHref);
+  assert.equal(current[0].getAttribute("aria-current"), "location", String(messagePrefix) + "Expected aria-current=\"location\"");
+}
+
+test("sidebar synchronizes active link and aria-current on initial load, hashchange, history, and falls back to overview", () => {
+  // 1. Initial page load with #models
+  const env = runSidebarNavigation("#models");
+  assertSidebarState(env, "#models", "Initial load: ");
+
+  // 2. Each of the six known fragments
+  const knownFragments = ["#overview", "#models", "#measures", "#routing", "#jev", "#activity"];
+  for (const frag of knownFragments) {
+    env.triggerHashChange(frag);
+    assertSidebarState(env, frag, "Known fragment " + frag + ": ");
+  }
+
+  // 3. Hash changes representing click, advanced target revelation, and Back/Forward history navigation
+  // Click #measures (inside advanced details)
+  env.triggerHashChange("#measures");
+  assertSidebarState(env, "#measures", "Click #measures: ");
+  assert.equal(env.advanced.open, true, "Advanced details should be opened for #measures");
+  assert.equal(env.targets.measures.scrollIntoViewCalled, true, "scrollIntoView called for #measures");
+
+  // Click #activity (regular section)
+  env.triggerHashChange("#activity");
+  assertSidebarState(env, "#activity", "Click #activity: ");
+
+  // Back button to #measures
+  env.triggerHashChange("#measures");
+  assertSidebarState(env, "#measures", "Back to #measures: ");
+
+  // Back button to #models
+  env.triggerHashChange("#models");
+  assertSidebarState(env, "#models", "Back to #models: ");
+
+  // 4. Missing or unknown fragments fall back to #overview
+  // Empty fragment
+  env.triggerHashChange("");
+  assertSidebarState(env, "#overview", "Empty fragment: ");
+
+  // Bare '#'
+  env.triggerHashChange("#");
+  assertSidebarState(env, "#overview", "Bare # fragment: ");
+
+  // Unknown fragment
+  env.triggerHashChange("#unknown-section");
+  assertSidebarState(env, "#overview", "Unknown fragment: ");
+
+  // Unknown fragment inside advanced (#observation-start is in DOM but not a sidebar link)
+  env.advanced.open = false;
+  env.targets["observation-start"].scrollIntoViewCalled = false;
+  env.triggerHashChange("#observation-start");
+  assertSidebarState(env, "#overview", "In-page target #observation-start should default sidebar to #overview: ");
+  assert.equal(env.advanced.open, true, "Target in advanced details should still open advanced");
+  assert.equal(env.targets["observation-start"].scrollIntoViewCalled, true, "Target scrollIntoView should be called");
+});
+
+test("sidebar detector rejects present-but-wrong handlers (static overview or missing updates)", () => {
+  // Static overview / no-op handler that keeps #overview active regardless of location.hash
+  const staticOverviewSource = `
+function revealEvidence() {
+  const target = document.getElementById(location.hash.slice(1));
+  if (target?.closest(".advanced")) {
+    target.closest(".advanced").open = true;
+    target.scrollIntoView();
+  }
+}
+window.addEventListener("hashchange", revealEvidence);
+revealEvidence();
+observationStatus();
+`;
+  assert.throws(() => {
+    const env = runSidebarNavigation("#models", staticOverviewSource);
+    assertSidebarState(env, "#models");
+  }, /Expected active href to be #models/);
+});

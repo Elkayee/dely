@@ -686,10 +686,20 @@ $("jev-more").addEventListener("click", () => { jevShown += 25; showJevRows(); }
 window.addEventListener("pagehide", () => clearTimeout(loadingTimer));
 window.addEventListener("pageshow", (event) => { if (event.persisted) refresh(); });
 function revealEvidence() {
-  const target = document.getElementById(location.hash.slice(1));
+  const hash = location.hash;
+  const links = Array.from(document.querySelectorAll(".sidebar .nav-item"));
+  const activeLink = links.find((link) => link.getAttribute("href") === hash)
+    || links.find((link) => link.getAttribute("href") === "#overview");
+  for (const link of links) {
+    const isActive = link === activeLink;
+    link.classList.toggle("active", isActive);
+    if (isActive) link.setAttribute("aria-current", "location");
+    else link.removeAttribute("aria-current");
+  }
+  const target = document.getElementById(hash.slice(1));
   if (target?.closest(".advanced")) {
     target.closest(".advanced").open = true;
-    target.scrollIntoView();
+    if (typeof target.scrollIntoView === "function") target.scrollIntoView();
   }
 }
 window.addEventListener("hashchange", revealEvidence);
