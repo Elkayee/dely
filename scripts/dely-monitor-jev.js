@@ -20,7 +20,7 @@ const hash = (v) => crypto.createHash("sha256").update(JSON.stringify(v)).digest
 const digest = (v) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v) ? v : null;
 const stamp = (v) => typeof v === "string" && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null;
 const repoPath = (v) => text(v)?.replace(/\\/g, "/") || null;
-const probe = (v) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-)/i.test(v || "");
+const probe = (v) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-|(?:^|[\\/])codex-compliance-test-[^\\/]*(?:[\\/]|$))/i.test(v || "");
 const unit = (v) => Number.isFinite(v) && v >= 0 && v <= 1;
 
 // Never echo exception messages or arbitrary recorded reason text.

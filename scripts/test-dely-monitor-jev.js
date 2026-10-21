@@ -447,6 +447,29 @@ test("strict answer projections reject wrong shapes and keep valid insufficient-
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_/);
 });
 
+test("codex-compliance-test-* fixture directory components are excluded by default and included with probes=true in Jev", () => {
+  const rows = [
+    { ts, repo: "D:/example", category: "valid", mode: "task" },
+    { ts, repo: "/tmp/codex-compliance-test-abc/repo", category: "error", mode: "task" },
+    { ts, repo: "C:\\temp\\codex-compliance-test-def\\repo", category: "error", mode: "skill" },
+    { ts, repo: "C:/temp/CODEX-COMPLIANCE-TEST-XYZ/repo", category: "error", mode: "context" },
+    { ts, repo: "D:/projects/my-codex-compliance-test-suite", category: "valid", mode: "task" },
+    { ts, repo: "D:/projects/codex-compliance-test", category: "valid", mode: "skill" },
+    { ts, repo: "D:/.tmp-dely/probe", category: "error", mode: "task" },
+  ];
+  const end = Date.parse(ts) + 1000;
+
+  const def = summarizeJev(rows, { asOf: end });
+  assert.equal(def.recorded, 3);
+  assert.equal(def.valid, 3);
+  assert.equal(def.errors, 0);
+
+  const withProbes = summarizeJev(rows, { probes: true, asOf: end });
+  assert.equal(withProbes.recorded, 7);
+  assert.equal(withProbes.valid, 3);
+  assert.equal(withProbes.errors, 4);
+});
+
 test("time, workspace, probe and observation-reset filters preserve unknown time coverage", () => {
   const rows = [
     { ts, repo: "D:/example", category: "valid", mode: "task" },

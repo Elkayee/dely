@@ -142,7 +142,7 @@ dashboard does not infer them from adoption or candidate counts.
 The dashboard reads up to ten Orca pages and states when inventory is partial.
 Conversation metadata covers thirty days of locally available rollout files.
 Time and workspace filters apply to the records that carry that evidence.
-Probe runs are excluded by default; their filter can be enabled explicitly.
+Probe runs and compliance test fixtures (`codex-compliance-test-*`) are excluded by default; their filter can be enabled explicitly.
 Source health shows the same filtered activity as the statistics cards: Orca
 workers, Codex sessions and turns, and logged Dely launches. Reset statistics
 changes that activity window and excludes unknown-time evidence. The closed

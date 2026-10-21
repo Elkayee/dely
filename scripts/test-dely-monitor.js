@@ -7,7 +7,7 @@ const { once } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { instant, summarize, jsonLines, collect, readRuntimes, createConversationReader, readWorkerDiagnostic } = require("./dely-monitor-data.js");
+const { instant, isProbe, summarize, jsonLines, collect, readRuntimes, createConversationReader, readWorkerDiagnostic } = require("./dely-monitor-data.js");
 const { createMonitor } = require("./dely-monitor.js");
 const { createJevReader } = require("./dely-monitor-jev.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
@@ -845,6 +845,84 @@ test("an approved eligible task without a launch is visible as not observed", ()
   const result = summarize([approval], [], []);
   assert.equal(result.tasks.rate, null); assert.equal(result.approvals[0].dispatched, false);
   assert.equal(result.pending, 1);
+});
+
+test("codex-compliance-test-* fixture directory components are recognized as probes while preserving genuine repos", () => {
+  const fixturePaths = [
+    "/tmp/codex-compliance-test-12345/repo",
+    "C:\\Users\\User\\AppData\\Local\\Temp\\codex-compliance-test-123456\\repo",
+    "C:/temp/CODEX-COMPLIANCE-TEST-XYZ/repo",
+    "codex-compliance-test-standalone",
+    "D:/tmp/codex-compliance-test-end",
+    "/tmp/codex-compliance-test-/repo",
+  ];
+  for (const p of fixturePaths) {
+    assert.equal(isProbe(p), true, `Fixture path should be probe: ${p}`);
+  }
+
+  for (const p of ["D:/.tmp-dely/fixture", "D:/dely-probe/test", "D:/routing-tests-1", "D:/jev-agent-1"]) {
+    assert.equal(isProbe(p), true, `Existing probe class should be preserved: ${p}`);
+  }
+
+  const genuineRepos = [
+    "D:/projects/my-codex-compliance-test-suite",
+    "C:\\projects\\my-codex-compliance-test-suite",
+    "D:/projects/codex-compliance-test",
+    "C:\\projects\\codex-compliance-test",
+    "D:/projects/codex-compliance-testing",
+    "D:/projects/foo-codex-compliance-test-bar/repo",
+    "D:/projects/ordinary-repo",
+  ];
+  for (const p of genuineRepos) {
+    assert.equal(isProbe(p), false, `Genuine repo should not be probe: ${p}`);
+  }
+
+  const posixFixture = "/tmp/codex-compliance-test-abc/repo";
+  const winFixture = "C:\\temp\\codex-compliance-test-def\\repo";
+  const genuineRepo = "D:/projects/my-codex-compliance-test-suite";
+
+  const events = [
+    approval,
+    { ...approval, taskKey: "genuine", repo: genuineRepo, difficulty: "easy" },
+    { ...approval, taskKey: "fixture-posix", repo: posixFixture, difficulty: "hard" },
+    { ...approval, taskKey: "fixture-win", repo: winFixture, difficulty: "medium_plus" },
+  ];
+  const workers = [
+    { id: "w-ordinary", repo, ts, status: "succeeded" },
+    { id: "w-genuine", repo: genuineRepo, ts, status: "succeeded" },
+    { id: "w-posix", repo: posixFixture, ts, status: "failed" },
+    { id: "w-win", repo: winFixture, ts, status: "failed" },
+  ];
+  const conversations = [
+    { session: "c-ordinary", repo, ts, model: "sol" },
+    { session: "c-genuine", repo: genuineRepo, ts, model: "sol" },
+    { session: "c-posix", repo: posixFixture, ts, model: "sol" },
+    { session: "c-win", repo: winFixture, ts, model: "sol" },
+  ];
+
+  const defaultSummary = summarize(events, workers, conversations);
+  assert.equal(defaultSummary.tasks.approved, 2);
+  assert.equal(defaultSummary.tasks.grades.find((g) => g.grade === "hard").count, 0);
+  assert.equal(defaultSummary.tasks.grades.find((g) => g.grade === "medium_plus").count, 0);
+  assert.equal(defaultSummary.tasks.grades.find((g) => g.grade === "easy").count, 1);
+  assert.equal(defaultSummary.tasks.grades.find((g) => g.grade === "medium_minus").count, 1);
+  assert.equal(defaultSummary.jobs.count, 2);
+  assert.equal(defaultSummary.conversations.turns, 2);
+  const projectPaths = defaultSummary.projects.map((p) => p.repo);
+  assert.ok(projectPaths.includes(repo));
+  assert.ok(projectPaths.includes(genuineRepo));
+  assert.ok(!projectPaths.includes(posixFixture));
+  assert.ok(!projectPaths.includes("C:/temp/codex-compliance-test-def/repo"));
+
+  const probeSummary = summarize(events, workers, conversations, { probes: true });
+  assert.equal(probeSummary.tasks.approved, 4);
+  assert.equal(probeSummary.tasks.grades.find((g) => g.grade === "hard").count, 1);
+  assert.equal(probeSummary.tasks.grades.find((g) => g.grade === "medium_plus").count, 1);
+  assert.equal(probeSummary.jobs.count, 4);
+  assert.equal(probeSummary.conversations.turns, 4);
+  const probeProjectPaths = probeSummary.projects.map((p) => p.repo);
+  assert.ok(probeProjectPaths.includes(posixFixture));
+  assert.ok(probeProjectPaths.includes("C:/temp/codex-compliance-test-def/repo"));
 });
 
 test("repo, date and probe filters use the same cohort for approvals and launches", () => {

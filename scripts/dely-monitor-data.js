@@ -15,7 +15,7 @@ const ROOTS = [path.join(os.homedir(), ".codex"), process.env.CODEX_HOME,
   path.join(process.env.APPDATA || "", "orca", "codex-runtime-home", "home")].filter(Boolean);
 const sourceLabel = (repo) => String(repo || "").replace(/\\/g, "/");
 const snapshotKey = (policy, key) => JSON.stringify([policy || null, key]);
-const isProbe = (repo) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-)/i.test(sourceLabel(repo));
+const isProbe = (repo) => /(?:\.tmp-dely|dely-probe|routing-tests-|jev-agent-|(?:^|[\\/])codex-compliance-test-[^\\/]*(?:[\\/]|$))/i.test(sourceLabel(repo));
 function instant(value) {
   if (typeof value === "number") return Number.isFinite(value) && Number.isFinite(new Date(value).getTime()) ? value : null;
   if (typeof value !== "string") return null;
