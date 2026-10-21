@@ -14,7 +14,7 @@ const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../sk
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
 
 // Run the production render call, including its source panel, without HTML writes.
-function sourcePanel(data, source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8")) {
+function sourcePanel(data, source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8"), target = "sources") {
   class Element {
     constructor(tag) { this.tagName = tag; this.children = []; this.value = ""; this.open = false; this.classList = { toggle() {} }; }
     set textContent(value) { this.text = String(value); this.children = []; }
@@ -35,7 +35,7 @@ function sourcePanel(data, source = fs.readFileSync(path.join(__dirname, "../ui/
     bars() {}, showRows() {}, number: (n) => n == null ? "—" : String(n), names: {},
     observationStart: null, displayedScope: "", visibleRows: 25, taskRowsShown: 20, activity: [],
   });
-  return get("sources");
+  return get(target);
 }
 
 function sourceFixture(workers = [], conversations = [], events = [], options = {}) {
@@ -44,6 +44,62 @@ function sourceFixture(workers = [], conversations = [], events = [], options = 
       orca: { available: true, complete: true, loaded: 459, total: 459, scope: "all" },
       codex: { available: true, files: 497, malformed: 4 } } };
 }
+
+test("operations overview keeps independent KPIs and visible worker/source alerts", () => {
+  const data = sourceFixture();
+  Object.assign(data.jobs, { active: 2, failed: 3, succeeded: 19 });
+  data.pending = 4;
+  data.metrics.agyStart = { rate: 0.25, numerator: 1, denominator: 4 };
+  const text = (id) => sourcePanel(data, undefined, id).textContent;
+  assert.equal(text("active-count"), "2");
+  assert.equal(text("failed-count"), "3");
+  assert.equal(text("pending-count"), "4");
+  assert.equal(text("adoption"), "25.0%");
+  assert.equal(text("adoption-detail"), "1 / 4 confirmed snapshots");
+  assert.match(text("attention-list"), /3 failed workers.*operator interruptions/);
+  data.sources.orca.complete = false;
+  assert.match(text("attention-list"), /Coverage · Orca inventory partial/);
+  assert.match(text("notice"), /Orca inventory is partial/);
+  data.sources.orca.available = false;
+  data.sources.log.present = false;
+  data.sources.codex.available = false;
+  for (const id of ["active-count", "failed-count", "pending-count"]) assert.equal(text(id), "—");
+  assert.match(text("attention-list"), /Source · Orca unavailable.*Source · Dely log unavailable.*Source · Codex unavailable/);
+  assert.doesNotMatch(text("attention-list"), /No observed alerts|3 failed workers/);
+});
+
+test("overview preserves unknown, loading, stale and refresh-error evidence", () => {
+  const data = sourceFixture();
+  data.jobs.active = null; data.jobs.failed = undefined; data.pending = null;
+  const text = (id) => sourcePanel(data, undefined, id).textContent;
+  for (const id of ["active-count", "failed-count", "pending-count"]) assert.equal(text(id), "—");
+  data.sources.orca.state = "loading";
+  assert.match(text("attention-list"), /Source · Orca reading/);
+  data.stale = true;
+  assert.match(text("attention-list"), /Stale snapshot/);
+  assert.match(text("notice"), /snapshot is stale/);
+  data.refreshError = "fixture refresh failure";
+  assert.match(text("attention-list"), /Refresh failed; previous snapshot/);
+  assert.match(text("notice"), /fixture refresh failure/);
+  data.repos = ["D:/" + "long-workspace-name-".repeat(30)];
+  assert.equal(text("active-count"), "—");
+});
+
+test("overview detectors reject plausible wrong values and hidden-alert counterexamples", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8");
+  const data = sourceFixture(); data.jobs.active = 7; data.jobs.failed = 2; data.jobs.succeeded = 8;
+  const mutations = [
+    ["wrong worker population", source.replace('number(orca.available ? data.jobs.failed : null)', 'number(orca.available ? data.jobs.succeeded : null)'), "failed-count", (node) => assert.equal(node.textContent, "2")],
+    ["present but healthy attention", source.replace('$("attention-list").replaceChildren(...attention);', '$("attention-list").replaceChildren(element("li", "All healthy"));'), "attention-list", (node) => assert.match(node.textContent, /2 failed workers/)],
+    ["unknown zero-filled", source.replace('number(orca.available ? data.jobs.active : null)', 'number(orca.available ? data.jobs.active : 0)'), "active-count", (node) => assert.equal(node.textContent, "—")],
+  ];
+  for (const [label, wrong, target, detect] of mutations) {
+    assert.notEqual(wrong, source, label);
+    data.sources.orca.available = label !== "unknown zero-filled";
+    detect(sourcePanel(data, source, target));
+    assert.throws(() => detect(sourcePanel(data, wrong, target)), { name: "AssertionError" }, label);
+  }
+});
 
 function assertSourceActivity(panel, workers, sessions, turns) {
   assert.match(panel.children[1].textContent, new RegExp(`${workers} workers`));

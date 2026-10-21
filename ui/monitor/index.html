@@ -13,33 +13,44 @@
     <a class="brand" href="/" aria-label="Dely Monitor home"><span class="brand-mark">d</span><span>dely<span class="brand-sub">MONITOR</span></span></a>
     <p class="nav-label">WORKSPACE</p>
     <a class="nav-item active" href="#overview"><span class="nav-icon">◫</span> Overview</a>
-    <a class="nav-item" href="#models"><span class="nav-icon">▥</span> Model activity</a>
-    <a class="nav-item" href="#measures"><span class="nav-icon">◎</span> Usage measures</a>
-    <a class="nav-item" href="#routing"><span class="nav-icon">↗</span> Routing coverage</a>
+    <a class="nav-item" href="#models"><span class="nav-icon">▥</span> Models</a>
+    <a class="nav-item" href="#measures"><span class="nav-icon">◎</span> Measures</a>
+    <a class="nav-item" href="#routing"><span class="nav-icon">↗</span> Sources & routing</a>
     <a class="nav-item" href="#jev"><span class="nav-icon">◷</span> Jev statistics</a>
     <a class="nav-item" href="#activity"><span class="nav-icon">≡</span> Recent launches</a>
     <div class="sidebar-bottom"><span class="local-dot"></span> Local observation<p>Metadata only. Your prompts<br>stay out of this dashboard.</p></div>
   </aside>
   <main>
     <header id="overview">
-      <div><p class="eyebrow">DELIVERY INTELLIGENCE</p><h1>Usage overview<span class="live-label"><i></i> Local</span></h1><p class="subtitle">See how tasks are routed, which models run, and where evidence is missing.</p></div>
+      <div><p class="eyebrow">LOCAL OPERATIONS</p><h1>Dely Monitor<span class="live-label"><i></i> Local</span></h1></div>
       <button id="refresh" class="button"><span aria-hidden="true">↻</span> Refresh</button>
     </header>
     <section class="toolbar" aria-label="Activity filters">
       <div class="filter"><label for="days">Time window</label><select id="days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select></div>
       <div class="filter workspace-filter"><label for="repo">Workspace</label><select id="repo"><option value="">All workspaces</option></select></div>
       <label class="checkbox"><input id="probes" type="checkbox"> Include probe runs</label>
+      <a id="window-state" class="pill" href="#observation-start">Reading window</a>
       <p id="updated" class="updated">Reading local sources…</p>
     </section>
-    <section class="observation" aria-label="Statistics observation window">
-      <div><p id="observation-start" role="status" aria-live="polite">Using selected rolling window.</p><small>Reset changes this browser's observation window. History is preserved.</small></div>
-      <button id="reset-statistics" class="button" type="button">Reset statistics</button>
-      <button id="resume-window" class="button" type="button" hidden>Resume rolling window</button>
+    <section class="metrics" aria-label="Operations overview">
+      <article class="metric"><p>Active <span class="live-label">OBSERVED</span></p><div id="active-count" class="metric-number">—</div><p id="active-context" class="metric-detail">Reading worker inventory</p><div class="metric-rule blue"></div></article>
+      <article class="metric metric-failed"><p>Failed</p><div id="failed-count" class="metric-number">—</div><p class="metric-detail">Includes operator interruptions</p><div class="metric-rule amber"></div></article>
+      <article class="metric"><p>Pending</p><div id="pending-count" class="metric-number">—</div><p id="pending-context" class="metric-detail">Awaiting implementation start</p><div class="metric-rule violet"></div></article>
+      <article class="metric"><p>AGY share</p><div id="adoption" class="metric-number">N/A</div><p id="adoption-detail" class="metric-detail">First confirmed implementation dispatch</p><div class="metric-rule blue"></div></article>
     </section>
-    <div id="notice" class="notice" role="status" aria-live="polite">Loading activity. Missing data will remain visible.</div>
+    <section class="panel attention-panel" aria-labelledby="attention-title">
+      <div class="panel-heading"><h2 id="attention-title">Needs attention</h2><span id="attention-count" class="pill">Reading sources</span></div>
+      <ul id="attention-list" aria-live="polite"><li>Loading evidence · status unknown</li></ul>
+      <details class="attention-evidence"><summary>Full caveats &amp; evidence</summary><div id="notice" class="notice" role="status">Loading activity. Missing data will remain visible.</div><a href="#routing">Source provenance &amp; routing</a> · <a href="#activity">Worker evidence</a></details>
+    </section>
+    <section id="activity" class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">EXECUTION HISTORY</p><h2>Recent activity</h2></div><span id="activity-count" class="pill">—</span></div><div class="table-scroll"><table><thead><tr><th>Workspace / launch</th><th>Grade</th><th>Model</th><th>Status</th><th>Evidence</th><th>Time</th></tr></thead><tbody id="activity-rows"></tbody></table></div><button id="more" class="text-button" hidden>Show more records</button></section>
+    <section id="models" class="chart-grid">
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">IMPLEMENTATION</p><h2>Implementation models</h2></div><span id="launch-count" class="pill">Dely logs</span></div><p class="panel-caption">Acknowledged Dely launches. Retries and fallback launches are counted separately.</p><div id="implementation-chart" class="bar-chart"></div><details class="compact-details"><summary class="compact-summary">Definition &amp; provenance</summary><p class="footnote">An effective pin is the model recorded by Dely. Missing model evidence is shown as unknown.</p></details></article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSATION ACTIVITY</p><h2>Codex model usage</h2></div><span class="pill">Recorded turns</span></div><p class="panel-caption">Includes Control, review and direct CLI work. These counts are not implementation shares.</p><div id="conversation-chart" class="bar-chart"></div><details class="compact-details"><summary class="compact-summary">Definition &amp; provenance</summary><p class="footnote">Conversation IDs and turn IDs are deduplicated across native and Orca profiles.</p></details></article>
+    </section>
     <section id="projects" class="panel">
       <div class="panel-heading"><div><p class="eyebrow">WORKSPACES</p><h2>Projects</h2></div></div>
-      <p id="project-coverage" class="panel-caption"></p>
+      <details class="compact-details"><summary class="compact-summary">Coverage &amp; definitions</summary><p id="project-coverage" class="panel-caption"></p></details>
       <div id="project-list" class="table-scroll" tabindex="0" role="region" aria-label="Projects overview table">
         <table class="compact-table" id="project-table">
           <thead>
@@ -66,15 +77,16 @@
       <p class="panel-caption">Snapshots, assessment tasks, launch attempts, Orca workers and conversations are separate populations. Snapshot decisions retain their first confirmed evidence; latest assessment information is labelled separately.</p>
       <div id="task-list"></div>
     </section>
-    <section class="metrics" aria-label="Usage metrics">
-      <article class="metric"><p>AGY start share <span class="tag">SNAPSHOTS</span></p><div id="adoption" class="metric-number">N/A</div><p id="adoption-detail" class="metric-detail">First confirmed implementation dispatch</p><div class="metric-rule blue"></div></article>
+    <details class="advanced"><summary>Advanced evidence <span>Measures · routing · sources · Jev</span></summary>
+    <section class="observation" aria-label="Statistics observation window">
+      <div><p id="observation-start" role="status" aria-live="polite">Using selected rolling window.</p><small>Reset changes this browser's observation window. History is preserved.</small></div>
+      <button id="reset-statistics" class="button" type="button">Reset statistics</button>
+      <button id="resume-window" class="button" type="button" hidden>Resume rolling window</button>
+    </section>
+    <section class="metrics secondary-metrics" aria-label="Additional populations">
       <article class="metric"><p>Recorded approvals <span class="tag">COVERAGE</span></p><div id="approvals" class="metric-number">—</div><p id="approval-detail" class="metric-detail">Classification is never inferred</p><div class="metric-rule violet"></div></article>
       <article class="metric"><p>Orca workers <span class="tag">SNAPSHOT</span></p><div id="workers" class="metric-number">—</div><p id="worker-detail" class="metric-detail">Durable outcomes and active work</p><div class="metric-rule emerald"></div></article>
       <article class="metric"><p>Codex conversations <span class="tag">SESSIONS</span></p><div id="sessions" class="metric-number">—</div><p id="session-detail" class="metric-detail">Separate from implementation launches</p><div class="metric-rule amber"></div></article>
-    </section>
-    <section id="models" class="chart-grid">
-      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">IMPLEMENTATION</p><h2>Effective model pins</h2></div><span id="launch-count" class="pill">Dely logs</span></div><p class="panel-caption">Acknowledged Dely launches. Retries and fallback launches are counted separately.</p><div id="implementation-chart" class="bar-chart"></div><p class="footnote">An effective pin is the model recorded by Dely. Missing model evidence is shown as unknown.</p></article>
-      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSATION ACTIVITY</p><h2>Codex model usage</h2></div><span class="pill">Recorded turns</span></div><p class="panel-caption">Includes Control, review and direct CLI work. These counts are not implementation shares.</p><div id="conversation-chart" class="bar-chart"></div><p class="footnote">Conversation IDs and turn IDs are deduplicated across native and Orca profiles.</p></article>
     </section>
     <section id="measures" class="panel measures-panel">
       <div class="panel-heading">
@@ -159,7 +171,7 @@
       <div class="table-scroll"><table class="jev-table"><thead><tr><th>Time / workspace</th><th>Mode / source status</th><th>Jev model</th><th>Proposal / suggested skills</th><th>Recorded result / output</th></tr></thead><tbody id="jev-rows"></tbody></table></div>
       <button id="jev-more" class="text-button" hidden>Show more Jev records</button>
     </section>
-    <section id="activity" class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">EXECUTION HISTORY</p><h2>Recent launches & workers</h2></div><span id="activity-count" class="pill">—</span></div><div class="table-scroll"><table><thead><tr><th>Workspace / launch</th><th>Grade</th><th>Model</th><th>Status</th><th>Evidence</th><th>Time</th></tr></thead><tbody id="activity-rows"></tbody></table></div><button id="more" class="text-button" hidden>Show more records</button></section>
+    </details>
     <footer><span>Dely Monitor · read-only local UI</span><span>Routing compliance depends on recorded assessments; missing approvals are not silently treated as Hard.</span></footer>
   </main>
 </body>

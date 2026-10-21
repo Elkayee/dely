@@ -14,6 +14,8 @@ try {
 
 function observationStatus(data) {
   const active = data ? ` Active start: ${data.window.start}.` : "";
+  $("window-state").textContent = observationStart ? `Since reset · ${new Date(observationStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Rolling window";
+  $("window-state").title = observationStart ? `Observation starts at ${observationStart}. Unknown-time activity excluded; history preserved.` : "Selected rolling window; undated evidence retained.";
   $("observation-start").textContent = (observationStart
     ? `Statistics reset at ${observationStart}.${active} Unknown times excluded; retained source coverage is unchanged.`
     : `Using selected rolling window.${active} Undated source records remain visible.`) + (storageWarning ? ` ${storageWarning}` : "");
@@ -178,7 +180,10 @@ function showRows() {
   for (const row of activity.slice(0, visibleRows)) {
     const tr = element("tr"), workspace = element("td");
     workspace.title = row.repo || "Unknown workspace";
-    workspace.append(element("span", row.repo ? row.repo.replace(/\\/g, "/").split("/").filter(Boolean).pop() : "Unknown workspace", "workspace-name"), element("span", row.id, "mono"));
+    workspace.append(element("span", row.repo ? row.repo.replace(/\\/g, "/").split("/").filter(Boolean).pop() : "Unknown workspace", "workspace-name"));
+    const identity = element("details", null, "compact-details");
+    identity.append(element("summary", "Identity", "compact-summary"), element("span", row.repo || "Unknown workspace", "mono"), element("span", row.id, "mono"));
+    workspace.append(identity);
     tr.append(workspace, element("td", names[row.grade] || "Unclassified", row.grade ? "" : "unknown"), element("td", modelName(row.model), row.model ? "" : "unknown"));
     const state = element("td"); state.append(element("span", row.status, "status " + (row.status === "succeeded" ? "success" : row.status === "failed" ? "failed" : ["running", "starting", "queued"].includes(row.status) ? "active" : "")));
     if (row.diagnosticAvailable && row.id?.length === 16 && /^ctx_[a-f0-9]{12}$/.test(row.id)) state.append(workerDetail(row));
@@ -280,8 +285,12 @@ function render(data) {
   const agyRatioText = hasAgyDen
     ? `${number(agyNum)} / ${number(agyDen)}`
     : (agyDen === 0 ? "N/A" : "—");
-  const pendingText = data.pending != null ? `${number(data.pending)} awaiting start` : "— awaiting start";
-  $("adoption-detail").textContent = `${agyRatioText} confirmed snapshots · ${pendingText}`;
+  $("adoption-detail").textContent = `${agyRatioText} confirmed snapshots`;
+  $("active-count").textContent = number(orca.available ? data.jobs.active : null);
+  $("failed-count").textContent = number(orca.available ? data.jobs.failed : null);
+  $("pending-count").textContent = number(log.present ? data.pending : null);
+  $("active-context").textContent = !orca.available ? "Orca unavailable" : sourceProgress(orca) || (data.stale ? "Retained snapshot" : "Observed workers");
+  $("pending-context").textContent = log.present ? "Awaiting implementation start" : "Dely log unavailable";
   const acceptanceShare = share(m.agyAcceptedWithoutFallback || {});
   $("snapshot-metrics").textContent = `AGY primary: ${share(m.agyPrimary || {})}. Luna fallback: ${share(m.lunaFallback || {})}. Control acceptance: ${acceptanceShare}. Window ${data.window.start} to ${data.window.end}; outcomes as of ${data.window.as_of}.`;
   $("approvals").textContent = number(log.present ? data.tasks.approved : null);
@@ -319,8 +328,31 @@ function render(data) {
   if (data.jobs.unknownModel) gaps.push(`${data.jobs.unknownModel} Orca workers have no recorded model; they are not assigned to a model by guesswork.`);
   if (m.decisionEvidenceCoverage?.missingEffectiveEvents) gaps.push(`${m.decisionEvidenceCoverage.missingEffectiveEvents} approved assessments lack effective review evidence.`);
   if (!orca.complete) gaps.push("Orca inventory is partial or unavailable.");
+  if (!codex.available) gaps.push("Codex conversation source is unavailable.");
+  if (data.stale && !data.refreshing) gaps.push("Retained snapshot is stale.");
   $("notice").textContent = gaps.length ? gaps.join(" ") : "Available source records are loaded. Shares describe the confirmed snapshot cohort.";
   $("notice").classList.toggle("good", !gaps.length);
+  const attention = [];
+  if (orca.available && data.jobs.failed > 0) attention.push(element("li", `${number(data.jobs.failed)} failed workers · includes operator interruptions`, "attention-failed"));
+  if (orca.available && (data.jobs.active == null || data.jobs.failed == null)) attention.push(element("li", "Coverage · Worker counts unknown"));
+  if (log.present && data.pending == null) attention.push(element("li", "Coverage · Pending count unknown"));
+  if (!orca.available) attention.push(element("li", "Source · Orca unavailable"));
+  else if (orca.state === "error") attention.push(element("li", "Source · Orca read error"));
+  else if (sourceProgress(orca)) attention.push(element("li", `Source · Orca ${sourceProgress(orca).toLowerCase()}`));
+  else if (!orca.complete) attention.push(element("li", "Coverage · Orca inventory partial"));
+  if (!log.present) attention.push(element("li", "Source · Dely log unavailable"));
+  if (!codex.available) attention.push(element("li", "Source · Codex unavailable"));
+  else if (["error", "partial"].includes(codex.state)) attention.push(element("li", `Source · Codex ${codex.state}`));
+  else if (sourceProgress(codex)) attention.push(element("li", `Source · Codex ${sourceProgress(codex).toLowerCase()}`));
+  const jevSource = data.sources.jev;
+  if (jevSource && (!jevSource.available || ["error", "partial", "loading", "refreshing"].includes(jevSource.state))) attention.push(element("li", `Source · Jev ${jevSource.state || "unavailable"}`));
+  if (data.refreshError) attention.push(element("li", "Source · Refresh failed; previous snapshot shown"));
+  else if (data.stale) attention.push(element("li", "Source · Stale snapshot"));
+  else if (data.refreshing) attention.push(element("li", "Source · Updating evidence"));
+  if (gaps.length && !attention.some((row) => row.textContent.startsWith("Coverage"))) attention.push(element("li", "Coverage · Evidence gaps; review caveats"));
+  if (!attention.length) attention.push(element("li", "No observed alerts · available records only", "attention-neutral"));
+  $("attention-list").replaceChildren(...attention);
+  $("attention-count").textContent = orca.available && data.jobs.failed > 0 ? "Worker failures observed" : "Source observations";
   const selected = $("repo").value;
   $("repo").replaceChildren(element("option", "All workspaces"), ...data.repos.map((repo) => { const o = element("option", repo); o.value = repo; return o; }));
   if (selected && !data.repos.includes(selected)) {
@@ -635,7 +667,13 @@ async function refresh() {
       render(data);
       if (data.refreshing) loadingTimer = setTimeout(() => { if (requestId === refreshId) refresh(); }, 1000);
     }
-  } catch (e) { if (requestId === refreshId) { $("notice").textContent = e.message; $("updated").textContent = "Refresh failed"; } }
+  } catch (e) { if (requestId === refreshId) {
+    $("notice").textContent = e.message; $("updated").textContent = "Refresh failed";
+    $("attention-count").textContent = "Refresh failed";
+    const retained = Array.from($("attention-list").children).filter((row) => !row.classList.contains("attention-neutral") && !row.textContent.startsWith("Source · Refresh failed"));
+    $("attention-list").replaceChildren(...retained, element("li", "Source · Refresh failed; displayed values may be stale"));
+    $("active-context").textContent = "Unrefreshed observation";
+  } }
   finally { if (requestId === refreshId) $("refresh").disabled = false; }
 }
 $("reset-statistics").addEventListener("click", () => setObservation(new Date().toISOString()));
@@ -647,5 +685,14 @@ $("more").addEventListener("click", () => { visibleRows += 50; showRows(); });
 $("jev-more").addEventListener("click", () => { jevShown += 25; showJevRows(); });
 window.addEventListener("pagehide", () => clearTimeout(loadingTimer));
 window.addEventListener("pageshow", (event) => { if (event.persisted) refresh(); });
+function revealEvidence() {
+  const target = document.getElementById(location.hash.slice(1));
+  if (target?.closest(".advanced")) {
+    target.closest(".advanced").open = true;
+    target.scrollIntoView();
+  }
+}
+window.addEventListener("hashchange", revealEvidence);
+revealEvidence();
 observationStatus();
 refresh();
