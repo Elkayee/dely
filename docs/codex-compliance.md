@@ -106,8 +106,16 @@ or ownership change.
 4. For a delegated grade, create the actual Dely Run before review, include
    its ID with --run, and load the installed delivery skill. Review rejects a
    missing, empty or whitespace-only Run ID and keeps the task PREPARED.
+   Before dispatch, use `apply_patch` to add the exact frozen spec as
+   `<repo>/.dely/local/runs/<run>/spec.md`. This create-only exception checks
+   the current interactive Control review and every frozen binding; changed
+   content, existing files, linked paths and all ordinary edits stay blocked.
    Use the prepared spec/context and reviewed
-   assessment for dispatch. The gate accepts the installed Dely coordination
+   assessment for dispatch. Routing also accepts that exact-byte copy at the
+   canonical `.dely/local/runs/<run>/spec.md` path for the supplied Run. It still
+   reloads the original frozen spec/context and validates the approved route;
+   arbitrary copies, changed bytes and escaping paths remain rejected.
+   The gate accepts the installed Dely coordination
    commands before dispatch, then requires journal evidence with matching
    spec/context hashes before ordinary mutations.
 5. For Hard, implement directly after review. The routing module retains its
@@ -354,6 +362,17 @@ admitted tool does. SessionStart and UserPromptSubmit retain the full preparatio
 procedure. Denials give a concise cause and the installed guide path; compound
 shell commands also suggest separate read tool calls. Workers report admission
 denials to Control and never prepare or review their own task.
+
+For admitted Control work in the registered Dely authoring source, Stop also
+checks source/install freshness through the hash-pinned installed updater.
+Sync records `sync_source`, `sync_homes` and the updater dependency in settings,
+and the same selected homes in source registration. Every recorded home must
+match the full source bundle and bindings. A mismatch blocks once with final
+sync instructions; report `NOT_SYNCED` if review, verification or synchronization
+cannot finish. The hook never publishes changes or executes the source updater.
+This check does not extend to read-only turns, verified workers, unrelated
+repositories or an unregistered candidate worktree. Native task admission and
+the honest limitation-report path still apply.
 
 This is an omission guardrail, not proof that a model understood or followed
 every instruction. Shell classification is conservative, not a security

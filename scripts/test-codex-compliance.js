@@ -72,6 +72,120 @@ function candidateFixture(t) {
   return { ...f, candidate, git };
 }
 
+async function sourceSyncFixture(t) {
+  const f = fixture(t), updater = require("./sync-dely.js");
+  const source = path.resolve(__dirname, "..");
+  for (const file of Object.keys(updater.bundle(source).hashes)) {
+    const destination = path.join(f.repo, file);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, updater.packagedBytes(source, file, true));
+  }
+  const homes = [f.home, path.join(path.dirname(f.home), "other-home")];
+  fs.mkdirSync(homes[1]);
+  installer.install({ routing: routingPath, advisor: f.advisor }, homes[1]);
+  const expected = updater.bundle(f.repo);
+  for (const home of homes) {
+    const catalog = path.join(home, "plugins/cache/dely/dely", expected.version);
+    fs.cpSync(f.repo, catalog, { recursive: true });
+    fs.writeFileSync(path.join(home, "config.toml"), '[plugins."dely@dely"]\nenabled = true\n');
+  }
+  const options = { source: f.repo, homes };
+  assert.equal(updater.sync(options, { expected: expected.sha256, install: installer.install }).status, "COHERENT");
+  await f.prepare();
+  f.review();
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  return { ...f, homes, updater, syncOptions: options };
+}
+
+test("source sync blocks admitted completion when source bytes are newer than the installs", async (t) => {
+  const f = await sourceSyncFixture(t), stop = { ...f.event, hook_event_name: "Stop" };
+  assert.deepEqual(guard.hook(stop, f.home), {});
+  const readme = path.join(f.repo, "README.md"), before = fs.readFileSync(readme);
+  fs.appendFileSync(readme, "\nVerified source update awaiting installation.\n");
+  const result = guard.hook(stop, f.home);
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /Dely sync required.*SOURCE_NOT_PUBLISHED/);
+  assert.equal(f.updater.plan(f.syncOptions).status, "SOURCE_NOT_PUBLISHED");
+  assert.deepEqual(guard.hook(stop, f.home), {}); // An honest blocked report is still possible.
+  fs.writeFileSync(readme, before);
+  assert.deepEqual(guard.hook(f.event, f.home), {});
+  assert.deepEqual(guard.hook(stop, f.home), {});
+});
+
+test("source sync checks the other registered home before completion", async (t) => {
+  const f = await sourceSyncFixture(t);
+  fs.appendFileSync(path.join(f.homes[1], "dely-compliance/guide.md"), "stale installed guide");
+  const result = guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home);
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /Dely sync required.*BINDING_DRIFT/);
+});
+
+test("source sync refuses an updater without an installed dependency pin", async (t) => {
+  const f = await sourceSyncFixture(t), file = guard.settingsFile(f.home);
+  const settings = JSON.parse(fs.readFileSync(file));
+  delete settings.dependencies[settings.updater];
+  fs.writeFileSync(file, JSON.stringify(settings));
+  const result = guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home);
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /Dely sync required.*updater is not pinned/);
+});
+
+test("source sync never executes a source-authored updater at the trusted Stop seam", async (t) => {
+  const f = await sourceSyncFixture(t), file = guard.settingsFile(f.home);
+  const settings = JSON.parse(fs.readFileSync(file));
+  const marker = path.join(f.repo, "updater-executed");
+  settings.updater = path.join(f.repo, "scripts/sync-dely.js");
+  fs.writeFileSync(settings.updater, 'require("fs").writeFileSync(' + JSON.stringify(marker) + ', "unsafe");');
+  settings.dependencies[settings.updater] = require("crypto").createHash("sha256").update(fs.readFileSync(settings.updater)).digest("hex");
+  fs.writeFileSync(file, JSON.stringify(settings));
+  const result = guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home);
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /Dely sync required.*updater is not pinned/);
+  assert.equal(fs.existsSync(marker), false);
+});
+
+for (const kind of ["missing", "invalid", "wrong homes"]) {
+  test("source sync detects " + kind + " source registration", async (t) => {
+    const f = await sourceSyncFixture(t), file = path.join(f.home, "dely-compliance/current-source.json");
+    if (kind === "missing") fs.unlinkSync(file);
+    else if (kind === "invalid") fs.writeFileSync(file, "invalid json");
+    else {
+      const registration = JSON.parse(fs.readFileSync(file));
+      registration.homes = [f.home];
+      fs.writeFileSync(file, JSON.stringify(registration));
+    }
+    const result = guard.hook({ ...f.event, hook_event_name: "Stop" }, f.home);
+    assert.equal(result.decision, "block");
+    assert.match(result.reason, /Dely sync required.*BINDING_DRIFT/);
+  });
+}
+
+test("source sync leaves verified workers and read-only turns available", async (t) => {
+  const f = await sourceSyncFixture(t);
+  fs.appendFileSync(path.join(f.repo, "README.md"), "\nSource still awaiting review and sync.\n");
+  const stop = { ...f.event, hook_event_name: "Stop" };
+  assert.deepEqual(guard.hook(stop, f.home, () => true), {});
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Inspect status only." }, f.home);
+  assert.deepEqual(guard.hook(stop, f.home), {});
+});
+
+test("source sync does not block completion in unrelated consumer repositories", async (t) => {
+  const f = await sourceSyncFixture(t), repo = path.join(path.dirname(f.repo), "consumer");
+  fs.mkdirSync(repo);
+  fs.appendFileSync(path.join(f.repo, "README.md"), "\nUnpublished Dely source.\n");
+  const options = { ...f.options, repo, session: "consumer-session" };
+  await guard.prepare(options, f.home);
+  guard.review({ ...options, difficulty: "hard", skills: '["required"]',
+    reason: "Unrelated consumer change retains its own admission", "skill-reason": "Retain its mandatory skill" }, f.home);
+  const event = { ...f.event, cwd: repo, session_id: options.session };
+  assert.deepEqual(guard.hook(event, f.home), {});
+  assert.deepEqual(guard.hook({ ...event, hook_event_name: "Stop" }, f.home), {});
+  const file = guard.settingsFile(f.home), settings = JSON.parse(fs.readFileSync(file));
+  settings.sync_source = path.join(path.dirname(f.repo), "unavailable-source");
+  fs.writeFileSync(file, JSON.stringify(settings));
+  assert.deepEqual(guard.hook({ ...event, hook_event_name: "Stop" }, f.home), {});
+});
+
 async function correctionFixture(t) {
   const f = fixture(t);
   f.task.context.risks.routing = false;
@@ -126,6 +240,47 @@ test("production-only routing still requires native review and bound Dely dispat
     launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "production_context_dispatch" };
   fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
   assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+test("reviewed Control can stage only its exact new Run spec before dispatch", async (t) => {
+  const f = await correctionFixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Stage the confirmed Run spec" }, f.home);
+  await f.prepare();
+  f.review({ difficulty: "medium_plus", run: "staging_run", skills: '["required","dely:delivery"]' });
+  const target = path.join(f.repo, ".dely/local/runs/staging_run/spec.md");
+  const stage = (file = target, body = f.task.spec) => ({ ...f.event, tool_input:
+    "*** Begin Patch\n*** Add File: " + file + "\n" + body.trimEnd().split("\n").map((line) => "+" + line).join("\n") + "\n*** End Patch" });
+  assert.deepEqual(guard.hook(stage(), f.home), {}, "exact reviewed Run spec must stage before a dispatch exists");
+  const denied = (event) => assert.equal(guard.hook(event, f.home).hookSpecificOutput?.permissionDecision, "deny");
+  denied(f.event);
+  denied(stage(target, "Different executable instructions.\n"));
+  denied(stage(path.join(f.repo, ".dely/local/runs/other/spec.md")));
+  denied(stage(path.join(f.repo, "source.js")));
+  denied({ ...stage(), turn_id: "other" });
+  denied({ ...stage(), session_id: "other" });
+  denied({ ...stage(), model: "different-model" });
+  denied({ ...stage(), tool_input: stage().tool_input.replace("*** End Patch", "*** Add File: extra.md\n+extra\n*** End Patch") });
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, f.task.spec);
+  denied(stage());
+  fs.unlinkSync(target);
+  const runDirectory = path.dirname(target), outside = path.join(path.dirname(f.repo), "outside-run");
+  fs.mkdirSync(outside);
+  fs.rmdirSync(runDirectory);
+  fs.symlinkSync(outside, runDirectory, process.platform === "win32" ? "junction" : "dir");
+  denied(stage());
+  fs.unlinkSync(runDirectory);
+  fs.mkdirSync(runDirectory);
+  const stateFile = guard.stateFile(f.home, "session"), state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  for (const change of [ { status: "PREPARED" }, { worker_claim: { receipts: ["rcpt_0123456789abcdef"] } } ]) {
+    fs.writeFileSync(stateFile, JSON.stringify({ ...state, ...change })); denied(stage());
+  }
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  fs.appendFileSync(f.skill, "Changed selected policy.\n");
+  denied(stage());
+  fs.writeFileSync(f.skill, "Read the actual source before editing.\n");
+  fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed authority.\n");
+  denied(stage());
 });
 
 test("confirmed continuation preserves the dispatch basis and requires fresh Control review", async (t) => {

@@ -56,6 +56,10 @@ workspace installation remains available and is not removed by this change.
   Candidate changes in this checkout take effect for the next delivery, not
   the one shipping them. Plugin caches and any live worker hook wiring are
   refreshed only between plans.
+- After a source change passes review, focused verification and the closure
+  gates, Control must run native Node `scripts/sync-dely.js` before reporting
+  completion. Require `COHERENT` for every selected home; if synchronization
+  fails, report `NOT_SYNCED` with the blocker. Start a fresh session afterward.
 - A delivery that changes anything under `skills/`, `harnesses.json`,
   `extensions/` or `package.json` advances the version in both plugin
   manifests, `package.json`, and the version gate below, within that same
@@ -105,9 +109,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.11
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.11
-test "$(jq -r .version package.json)" = 0.27.11
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.15
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.15
+test "$(jq -r .version package.json)" = 0.27.15
 ```
 
 ```bash

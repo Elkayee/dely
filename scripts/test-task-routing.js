@@ -574,6 +574,54 @@ test("approval cannot be reused for a different repo/spec or a modified route", 
   assert.throws(() => routing.requireApprovedRoute(flags(approved)), /route does not match/);
 });
 
+test("native run-local copy keeps frozen approval and rejects escaped or changed copies", async () => {
+  const initial = task();
+  const snapshot = fs.mkdtempSync(path.join(root, "native-snapshot-"));
+  const original = path.join(snapshot, "spec.md");
+  fs.copyFileSync(initial.spec_file, original);
+  const approved = routing.review(await routing.assess(routing.loadTask(initial.repo, original, initial.context_file), mock(result())), "easy", "Frozen native snapshot and exact Run copy inspected");
+  const run = "run_fixture";
+  const copy = path.join(initial.repo, ".dely", "local", "runs", run, "spec.md");
+  fs.mkdirSync(path.dirname(copy), { recursive: true });
+  fs.copyFileSync(original, copy);
+  const f = { ...flags(approved), run, "spec-file": copy };
+  const frozen = fs.readFileSync(f["assessment-file"], "utf8");
+  assert.deepEqual(routing.requireApprovedRoute(f), approved);
+  assert.equal(fs.readFileSync(f["assessment-file"], "utf8"), frozen);
+  for (const changed of [{ run: undefined }, { run: "run_other" }, { run: "../run_fixture" }, { repo: task().repo }]) {
+    assert.throws(() => routing.requireApprovedRoute({ ...f, ...changed }), /another repo or spec/);
+  }
+  fs.appendFileSync(copy, " ");
+  assert.throws(() => routing.requireApprovedRoute(f), /another repo or spec/);
+  fs.copyFileSync(original, copy);
+  for (const file of [original, initial.context_file]) {
+    const bytes = fs.readFileSync(file);
+    fs.appendFileSync(file, " ");
+    assert.throws(() => routing.requireApprovedRoute(f), /stale/);
+    fs.writeFileSync(file, bytes);
+  }
+  const outside = fs.mkdtempSync(path.join(root, "outside-run-"));
+  fs.copyFileSync(original, path.join(outside, "spec.md"));
+  const escape = path.join(initial.repo, ".dely", "local", "runs", "run_escape");
+  fs.symlinkSync(outside, escape, process.platform === "win32" ? "junction" : "dir");
+  assert.throws(() => routing.requireApprovedRoute({ ...f, run: "run_escape", "spec-file": path.join(escape, "spec.md") }), /another repo or spec/);
+  const originalEscape = path.join(initial.repo, ".dely", "local", "runs", "run_original");
+  fs.symlinkSync(snapshot, originalEscape, process.platform === "win32" ? "junction" : "dir");
+  assert.throws(() => routing.requireApprovedRoute({ ...f, run: "run_original", "spec-file": path.join(originalEscape, "spec.md") }), /another repo or spec/);
+  const fileEscape = path.join(initial.repo, ".dely", "local", "runs", "run_file_link", "spec.md");
+  fs.mkdirSync(path.dirname(fileEscape));
+  fs.symlinkSync(original, fileEscape, "file");
+  assert.throws(() => routing.requireApprovedRoute({ ...f, run: "run_file_link", "spec-file": fileEscape }), /another repo or spec/);
+  const modified = JSON.parse(frozen);
+  modified.route.primary.model = "different-model";
+  fs.writeFileSync(f["assessment-file"], JSON.stringify(modified));
+  assert.throws(() => routing.requireApprovedRoute(f), /route does not match/);
+  fs.writeFileSync(f["assessment-file"], frozen);
+  assert.deepEqual(routing.requireApprovedRoute(f), approved);
+  assert.equal(JSON.stringify(approved.jev), JSON.stringify(JSON.parse(frozen).jev));
+  assert.equal(fs.readFileSync(f["assessment-file"], "utf8"), frozen);
+});
+
 test("quota is the only fallback trigger for low grades; Medium+ has none", async () => {
   for (const difficulty of ["easy", "medium_minus", "medium_plus"]) {
     const approved = routing.review(await routing.assess(task(), mock(result({ scope: difficulty }))), difficulty, "Internal scope and acceptance reviewed");

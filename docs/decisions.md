@@ -1,5 +1,63 @@
 # Decisions
 
+## 2026-10-21 — Bind the frozen native spec to its exact Run copy (0.27.15)
+
+Native preparation keeps the original spec outside the workspace, while delivery
+requires its exact copy inside the Run. The router now accepts that copy only at
+the canonical repository-relative `.dely/local/runs/<run>/spec.md` path for a
+simple supplied Run ID and only when its SHA-256 matches the frozen original.
+Original spec/context freshness, repository identity, Control approval, model,
+correction and fallback checks remain in force. No saved assessment is rewritten.
+An arbitrary identical file is still rejected, as are changed copies, missing or
+wrong Run IDs and symlink/junction escapes. The native-copy regression first
+reproduced the path mismatch and now exercises both acceptance and rejection.
+
+## 2026-10-21 — Require verified source updates to reach installed homes (0.27.14)
+
+Keep the shared-home installation and open a fresh session after each update,
+as the user chose. Final source closeout includes the existing sync command
+after Control review and verification. An admitted Control Stop in the
+registered source checks full source/install coherence through a hash-pinned
+installed updater and the selected homes frozen by the last sync. Source or
+either-home drift prevents quiet completion. Missing source registration also
+counts as drift. Preserve the existing one-block limitation report, read-only
+turns, worker ownership and unrelated repositories. The hook performs no
+publication and never loads the authoring copy of the updater. This is a
+closeout omission guard, not a background watcher or per-session runtime design.
+
+## 2026-10-21 — Preserve pinned caches across native installation (0.27.13)
+
+Codex plugin installation can prune older runtime caches even after marketplace
+replacement succeeds. The earlier native test copied the new plugin itself,
+so it did not detect that pruning. Exercise native installation for both old
+and new releases. Save and verify all existing cache files before publication,
+then restore missing bytes after the native calls on success or failure.
+Preserve conflicting files and report incomplete restoration with the backup;
+refuse links or destinations outside the selected homes. This keeps old
+sessions' frozen skill paths available without changing hook trust or routing.
+
+## 2026-10-21 — Complete automatic sync and preserve original hook bytes (0.27.12)
+
+Default the updater and global setup entry point to real `sync`: plan/hash
+internally, publish missing releases or repair bindings, then verify every
+selected home. Already coherent installations are a read-only no-op. Keep
+explicit plan/check inspection and hash-bound apply/update available. The
+version-immutability rule still prevents overwriting an installed release.
+Include recorded authoring source, catalog and bundle hash in coherence checks
+so stale registration is repaired rather than accepted as synchronized.
+Replace a named older marketplace registration using native list/remove/add
+inside the backed-up transaction. Retain its caches and snapshots; a private
+native CLI regression covers the conflict observed during the first release.
+
+Reject linked package roots/files and managed destinations resolving outside
+the selected canonical homes, including absent destinations under linked
+ancestors. Recheck after native plugin calls and installation, and before
+rollback. Shared plugin catalogs within the selected homes remain supported.
+Refuse an unsafe restoration and report `ROLLBACK_INCOMPLETE` with its backup.
+Compare every home's hooks with the bytes captured before any installation,
+then check them all again before reporting success. Retain the existing CLI,
+immutable-cache version rule, native trust and credential search roots.
+
 ## 2026-10-20 — One authoring source and coherent native Dely bindings
 
 Use this repository as the authoring source and `dely@dely` as the single

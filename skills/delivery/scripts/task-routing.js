@@ -373,7 +373,13 @@ function requireApprovedRoute(f) {
   if (!text(f["assessment-file"])) throw new Error("--assessment-file is required; assess and review the task before dispatch");
   const assessment = JSON.parse(fs.readFileSync(path.resolve(f.repo, f["assessment-file"]), "utf8"));
   const task = currentTask(assessment);
-  if (canonical(f.repo) !== task.repo || canonical(path.resolve(f.repo, f["spec-file"])) !== task.spec_file) throw new Error("Assessment belongs to another repo or spec");
+  const requestedSpec = path.resolve(f.repo, f["spec-file"]);
+  const spec = canonical(requestedSpec);
+  const originalSpec = path.relative(task.spec_file, requestedSpec) === "";
+  const runCopy = text(f.run) && /^[A-Za-z0-9_-]+$/.test(f.run) &&
+    path.relative(task.repo, spec) === path.join(".dely", "local", "runs", f.run, "spec.md") &&
+    hash(fs.readFileSync(spec)) === task.spec_sha256;
+  if (canonical(f.repo) !== task.repo || (!originalSpec && !runCopy)) throw new Error("Assessment belongs to another repo or spec");
   if (knownHard(task).length || assessment.difficulty === "hard") throw new Error("HARD_DIRECT_CODEX: Codex gpt-6.1-sol/xhigh handles this task directly, without Dely or AGY");
   const checked = validateApprovedAssessment(assessment);
   selectedPin(checked, f);

@@ -44,9 +44,15 @@ function members(root, directory) {
 function bundle(root, authoring = true) {
   const roots = ["skills", "extensions", "scripts", "docs", "assets", "probe", ".github",
     ".claude-plugin", ".codex-plugin", ".cursor-plugin"];
+  const topFiles = ["harnesses.json", "package.json", "plugin.json", "README.md", "AGENTS.md", "LICENSE",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md"];
+  for (const name of [...roots, ...topFiles]) {
+    if (fs.lstatSync(path.join(root, name), { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw Error("Bundle links require inspection: " + name);
+    }
+  }
   const files = [...roots.filter((name) => fs.existsSync(path.join(root, name))).flatMap((name) => members(root, name)),
-    ...["harnesses.json", "package.json", "plugin.json", "README.md", "AGENTS.md", "LICENSE",
-      "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md"].filter((name) => fs.existsSync(path.join(root, name)))].sort();
+    ...topFiles.filter((name) => fs.existsSync(path.join(root, name)))].sort();
   const version = json(path.join(root, "package.json")).version;
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version)) throw Error("Invalid release version");
   for (const file of [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]) {
@@ -108,7 +114,10 @@ function pluginEnabled(text, id) {
 function plan({ source, catalog, homes }) {
   source = canonical(source);
   const expected = bundle(source);
-  const targets = [...new Set(homes.map(canonical))].map((home) => {
+  const selectedHomes = [...new Set(homes.map(canonical))];
+  const matchesHomes = (values) => Array.isArray(values) && values.length === selectedHomes.length &&
+    selectedHomes.every((home) => values.some((item) => typeof item === "string" && fs.existsSync(item) && equalPath(item, home)));
+  const targets = selectedHomes.map((home) => {
     home = canonical(home);
     const target = path.resolve(catalog || cache(home, expected.version));
     const installed = fs.existsSync(target) ? bundle(target, false) : null;
@@ -116,11 +125,15 @@ function plan({ source, catalog, homes }) {
       .filter((file) => expected.hashes[file] !== installed.hashes[file]) : ["CATALOG_NOT_INSTALLED"];
     const settings = json(path.join(home, "dely-compliance/settings.json"));
     const bindings = { delivery: "skills/delivery/SKILL.md", routing: "skills/delivery/scripts/task-routing.js",
-      dely: "skills/delivery/scripts/dely.js", advisor_source: "scripts/jev_agent.js" };
+      dely: "skills/delivery/scripts/dely.js", advisor_source: "scripts/jev_agent.js", updater: "scripts/sync-dely.js" };
     const drift = Object.entries(bindings).filter(([key, relative]) =>
       !settings[key] || !fs.existsSync(settings[key]) || !fs.existsSync(path.join(target, relative)) ||
       !equalPath(settings[key], path.join(target, relative)))
       .map(([key]) => key);
+    if (!settings.sync_source || !fs.existsSync(settings.sync_source) || !equalPath(settings.sync_source, source)) drift.push("sync_source");
+    if (!matchesHomes(settings.sync_homes)) drift.push("sync_homes");
+    if (!settings.updater || !settings.dependencies?.[settings.updater] ||
+        settings.dependencies[settings.updater] !== expected.hashes["scripts/sync-dely.js"]) drift.push("updater_pin");
     const config = path.join(home, "config.toml");
     const configText = fs.existsSync(config) ? fs.readFileSync(config, "utf8") : "";
     const legacy_enabled = oldPlugins(configText).enabled;
@@ -137,6 +150,14 @@ function plan({ source, catalog, homes }) {
     if (!fs.existsSync(frozenAdvisor) || sha(fs.readFileSync(frozenAdvisor)) !== sha(advisorText)) drift.push("frozen_advisor");
     for (const [file, hash] of Object.entries(settings.dependencies || {})) {
       if (!fs.existsSync(file) || sha(fs.readFileSync(file)) !== hash) drift.push("dependency:" + path.basename(file));
+    }
+    let registration;
+    try { registration = json(path.join(home, "dely-compliance/current-source.json")); } catch (_) { /* repair missing or invalid source registration */ }
+    if (registration?.bundle_sha256 !== expected.sha256 ||
+        !registration.source || !fs.existsSync(registration.source) || !equalPath(registration.source, source) ||
+        !registration.catalog || !fs.existsSync(registration.catalog) || !fs.existsSync(target) || !equalPath(registration.catalog, target) ||
+        !matchesHomes(registration.homes)) {
+      drift.push("source_registration");
     }
     return { home, catalog: target, different, drift, legacy_enabled, credential_root: settings.credential_root };
   });
@@ -170,16 +191,74 @@ function runCodex(home, args) {
 
 function inside(homes, target) {
   const selected = Array.isArray(homes) ? homes : [homes];
+  const absolute = path.resolve(target);
+  let ancestor = absolute;
+  // lstat notices dangling links; realpath must reject them rather than follow a future write.
+  while (!fs.lstatSync(ancestor, { throwIfNoEntry: false })) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) throw Error("No existing ancestor for target: " + target);
+    ancestor = parent;
+  }
+  const resolved = path.resolve(canonical(ancestor), path.relative(ancestor, absolute));
   if (!selected.some((home) => {
-    const relative = path.relative(canonical(home), canonical(target));
-    return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+    // plan() froze canonical homes; re-resolving a replaced home would change the boundary.
+    const relative = path.relative(home, resolved);
+    return relative && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
   })) throw Error("Target escapes its selected homes");
+}
+
+function checkTarget(target, homes) {
+  inside(homes, target.catalog);
+  for (const relative of PROFILE) inside(homes, path.join(target.home, relative));
+}
+
+function retainCaches(home, homes, backup) {
+  const directory = path.join(home, "plugins/cache/dely/dely");
+  inside(homes, directory);
+  if (!fs.existsSync(directory)) return () => {};
+  const root = canonical(directory), archive = path.join(backup, "plugin-cache");
+  const entries = () => {
+    if (canonical(root) !== root) throw Error("Cache destination changed");
+    return fs.readdirSync(root, { recursive: true, withFileTypes: true }).map((item) => {
+      if (!item.isFile() && !item.isDirectory()) throw Error("Cache links require inspection: " + item.name);
+      const file = path.relative(root, path.join(item.parentPath, item.name));
+      return { file, directory: item.isDirectory() };
+    });
+  };
+  const retained = entries().map((item) => ({ ...item,
+    hash: item.directory ? null : digest(root, item.file) }));
+  inside(home, archive);
+  fs.cpSync(root, archive, { recursive: true, errorOnExist: true, force: false });
+  for (const item of retained) {
+    if (!item.directory && digest(archive, item.file) !== item.hash) throw Error("Cache backup differs: " + item.file);
+  }
+  return () => {
+    inside(homes, root);
+    if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
+    entries(); // Reject replaced roots or nested links before restoring any file.
+    const failed = [];
+    for (const item of retained) {
+      try {
+        const destination = path.join(root, item.file);
+        inside(root, destination);
+        if (item.directory) fs.mkdirSync(destination, { recursive: true });
+        else {
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          if (!fs.existsSync(destination)) fs.copyFileSync(path.join(archive, item.file), destination, fs.constants.COPYFILE_EXCL);
+          if (digest(root, item.file) !== item.hash) throw Error("Existing cache differs");
+        }
+      } catch (_) { failed.push(item.file); }
+    }
+    if (failed.length) throw Error("CACHE_RESTORE_INCOMPLETE: " + failed.join(", ") + "; retained " + archive);
+  };
 }
 
 function sync(options, { publish = false, expected, codex = runCodex, install } = {}) {
   if (options.catalog) throw Error("apply/update uses the canonical plugin cache, not a custom catalog");
   const initial = plan(options);
   if (!expected || initial.bundle_sha256 !== expected) throw Error("Supply the reviewed --expected-sha from plan; source changed or approval missing");
+  const homes = initial.homes.map((target) => target.home);
+  for (const target of initial.homes) checkTarget(target, homes);
   if (!publish && initial.homes.some((target) => target.different.length)) throw Error("Source is not published; update the catalog first");
   const sourceManifest = json(path.join(initial.source, ".claude-plugin/marketplace.json"));
   const selected = sourceManifest.plugins?.filter((item) => item.name === "dely");
@@ -197,7 +276,7 @@ function sync(options, { publish = false, expected, codex = runCodex, install } 
     }
     const originals = [], backups = [];
     for (const target of initial.homes) {
-      if (fs.existsSync(target.catalog)) inside(initial.homes.map((item) => item.home), target.catalog);
+      checkTarget(target, homes);
       // Refuse a same-version overwrite: active plans may still pin these bytes.
       if (publish && fs.existsSync(target.catalog) && target.different.length) {
         throw Error("Runtime bytes changed under an existing version; advance the release version before update");
@@ -212,6 +291,7 @@ function sync(options, { publish = false, expected, codex = runCodex, install } 
       backups.push(destination);
       for (const relative of PROFILE) {
         const file = path.join(target.home, relative);
+        inside(homes, file);
         const bytes = fs.existsSync(file) ? fs.readFileSync(file) : null;
         originals.push({ file, bytes });
         if (bytes !== null) {
@@ -224,33 +304,53 @@ function sync(options, { publish = false, expected, codex = runCodex, install } 
     try {
       const published = publish ? snapshot(initial.source, initial.homes[0].home, expected) : null;
       const proofs = [];
+      const hookFiles = originals.filter(({ file }) => path.basename(file) === "hooks.json");
       install ||= require(path.join(initial.source, "scripts/codex-compliance.js")).install;
-      for (const target of initial.homes) {
-        const hooks = fs.readFileSync(path.join(target.home, "hooks.json"));
+      for (const [index, target] of initial.homes.entries()) {
+        checkTarget(target, homes);
+        const hooks = hookFiles.find(({ file }) => file === path.join(target.home, "hooks.json")).bytes;
         if (publish) {
-          const registration = codex(target.home, ["marketplace", "add", published]);
-          if (!registration?.installedRoot || !equalPath(registration.installedRoot, published)) throw Error("Wrong marketplace source receipt");
-          const installed = codex(target.home, ["add", PLUGIN]);
-          if (installed?.pluginId !== PLUGIN || !installed.installedPath || !equalPath(installed.installedPath, target.catalog)) {
-            throw Error("Wrong installed catalog receipt");
-          }
+          const restoreCaches = retainCaches(target.home, homes, backups[index]);
+          try {
+            const listed = codex(target.home, ["marketplace", "list"]);
+            if (!Array.isArray(listed?.marketplaces)) throw Error("Invalid marketplace list receipt");
+            checkTarget(target, homes);
+            const configured = listed.marketplaces.find((item) => item.name === "dely");
+            if (configured && (!configured.root || !fs.existsSync(configured.root) || !equalPath(configured.root, published))) {
+              const removed = codex(target.home, ["marketplace", "remove", "dely"]);
+              if (removed?.marketplaceName !== "dely" || removed.installedRoot !== null) throw Error("Wrong removed marketplace receipt");
+              checkTarget(target, homes);
+            }
+            const registration = codex(target.home, ["marketplace", "add", published]);
+            if (!registration?.installedRoot || !equalPath(registration.installedRoot, published)) throw Error("Wrong marketplace source receipt");
+            checkTarget(target, homes);
+            const installed = codex(target.home, ["add", PLUGIN]);
+            if (installed?.pluginId !== PLUGIN || !installed.installedPath || !equalPath(installed.installedPath, target.catalog)) {
+              throw Error("Wrong installed catalog receipt");
+            }
+          } finally { restoreCaches(); }
         }
-        inside(initial.homes.map((item) => item.home), target.catalog);
+        checkTarget(target, homes);
         if (bundle(target.catalog, false).sha256 !== expected || bundle(initial.source).sha256 !== expected) {
           throw Error("Source or published catalog changed during synchronization");
         }
         const config = path.join(target.home, "config.toml");
         if (fs.existsSync(config)) fs.writeFileSync(config, oldPlugins(fs.readFileSync(config, "utf8"), true).text);
         install({ routing: path.join(target.catalog, "skills/delivery/scripts/task-routing.js"),
-          advisor: path.join(target.catalog, "scripts/jev_agent.js"), "preserve-hooks": true }, target.home);
+          advisor: path.join(target.catalog, "scripts/jev_agent.js"), source: initial.source, homes, "preserve-hooks": true }, target.home);
+        checkTarget(target, homes);
         if (!fs.readFileSync(path.join(target.home, "hooks.json")).equals(hooks)) throw Error("Native hooks changed");
         const settings = json(path.join(target.home, "dely-compliance/settings.json"));
         if (settings.credential_root !== target.credential_root) throw Error("Credential search root changed");
         proofs.push({ home: target.home, hooks_sha256: sha(hooks), hooks_preserved: true,
           disabled_legacy_plugins: target.legacy_enabled });
         fs.writeFileSync(path.join(target.home, "dely-compliance/current-source.json"), JSON.stringify({
-          source: initial.source, snapshot: published, catalog: canonical(target.catalog), bundle_sha256: expected,
+          source: initial.source, homes, snapshot: published, catalog: canonical(target.catalog), bundle_sha256: expected,
         }, null, 2) + "\n");
+      }
+      for (const { file, bytes } of hookFiles) {
+        inside(homes, file);
+        if (!fs.readFileSync(file).equals(bytes)) throw Error("Native hooks changed");
       }
       const result = plan(options);
       if (result.status !== "COHERENT") throw Error("Postflight bindings remain inconsistent");
@@ -263,8 +363,12 @@ function sync(options, { publish = false, expected, codex = runCodex, install } 
       const failed = [];
       for (const { file, bytes } of originals.reverse()) {
         try {
+          inside(homes, file);
           if (bytes === null) { if (fs.existsSync(file)) fs.unlinkSync(file); }
-          else fs.writeFileSync(file, bytes);
+          else {
+            fs.writeFileSync(file, bytes);
+            if (!fs.readFileSync(file).equals(bytes)) throw Error("Restored bytes differ");
+          }
         } catch (_) { failed.push(file); }
       }
       throw Error("Sync failed; " + (failed.length ? "ROLLBACK_INCOMPLETE: " + failed.join(", ") : "profile files restored") +
@@ -272,9 +376,21 @@ function sync(options, { publish = false, expected, codex = runCodex, install } 
     }
   } finally {
     for (const { file, token } of locks.reverse()) {
+      inside(homes, file);
       if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === token) fs.unlinkSync(file);
     }
   }
+}
+
+function synchronize(options, adapters = {}) {
+  if (options.catalog) throw Error("sync uses the canonical plugin cache, not a custom catalog");
+  const current = plan(options);
+  if (adapters.expected && adapters.expected !== current.bundle_sha256) {
+    throw Error("Supplied --expected-sha differs from the current source");
+  }
+  if (current.status === "COHERENT") return current;
+  return sync(options, { ...adapters, expected: current.bundle_sha256,
+    publish: current.status === "SOURCE_NOT_PUBLISHED" });
 }
 
 function defaults(values) {
@@ -293,18 +409,19 @@ function main() {
     source: { type: "string" }, catalog: { type: "string" }, home: { type: "string", multiple: true },
     "expected-sha": { type: "string" },
   } });
-  const command = positionals[0] || "plan";
-  if (positionals.length > 1 || !["plan", "check", "apply", "update"].includes(command)) {
-    throw Error("Usage: sync-dely.js plan|check|apply|update [--source PATH] [--catalog PATH] [--home PATH] [--expected-sha SHA256]");
+  const command = positionals[0] || "sync";
+  if (positionals.length > 1 || !["sync", "plan", "check", "apply", "update"].includes(command)) {
+    throw Error("Usage: sync-dely.js [sync|plan|check|apply|update] [--source PATH] [--catalog PATH] [--home PATH] [--expected-sha SHA256]");
   }
   const options = defaults(values);
-  const result = ["apply", "update"].includes(command) ? sync(options,
-    { publish: command === "update", expected: values["expected-sha"] }) : plan(options);
+  const result = command === "sync" ? synchronize(options, { expected: values["expected-sha"] }) :
+    ["apply", "update"].includes(command) ? sync(options,
+      { publish: command === "update", expected: values["expected-sha"] }) : plan(options);
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   if (command === "check" && result.status !== "COHERENT") process.exitCode = 1;
 }
 
-module.exports = { bundle, plan, defaults, sync, oldPlugins, packagedBytes, windowsCodexEntry };
+module.exports = { bundle, plan, defaults, sync, synchronize, oldPlugins, packagedBytes, windowsCodexEntry };
 if (require.main === module) {
   try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

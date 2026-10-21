@@ -1,6 +1,6 @@
 param(
-    [ValidateSet("plan", "check", "apply", "update")]
-    [string]$Action = "plan",
+    [ValidateSet("sync", "plan", "check", "apply", "update")]
+    [string]$Action = "sync",
     [string]$ExpectedSha
 )
 

@@ -548,12 +548,10 @@ The patched Dely resolver checks the current workspace `AGENTS.md` first, then t
 The Antigravity adapter also calls `orca repo add --path <workspace>` before launching a worker, so a normal new repository does not need a manual Orca registration step.
 
 Update existing global installations from the checked and reviewed source.
-Use the bundle hash printed by the read-only plan:
+The default action plans, publishes or repairs bindings, then checks both homes:
 
 ```powershell
-node.exe scripts/sync-dely.js plan
-node.exe scripts/sync-dely.js update --expected-sha <bundle_sha256-from-plan>
-node.exe scripts/sync-dely.js check
+node.exe scripts/sync-dely.js
 ```
 
 Successful postflight reports `COHERENT`. See the [update contract](docs/dely-updates.md)

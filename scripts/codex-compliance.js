@@ -84,6 +84,34 @@ function taskInputWrite(event, state, home) {
   } catch (_) { return false; }
 }
 
+function runSpecWrite(event, state, home) {
+  if (event.tool_name !== "apply_patch" || !/^[A-Za-z0-9_-]+$/.test(state.run || "") ||
+      state.assessment?.route?.workflow !== "dely" || event.model !== state.native_model || state.worker_claim?.spec_sha256 ||
+      state.worker_claim?.receipts?.length) return false;
+  try {
+    validate(state, event, home, false);
+    const payload = event.tool_input;
+    const patch = typeof payload === "string" ? payload :
+      payload && Object.keys(payload).length === 1 ? payload.input ?? payload.patch ?? payload.command : null;
+    if (typeof patch !== "string" || Buffer.byteLength(patch, "utf8") > 256 * 1024) return false;
+    const lines = patch.trimEnd().replace(/\r\n/g, "\n").split("\n");
+    if (lines[0] !== "*** Begin Patch" || !lines[1]?.startsWith("*** Add File: ") ||
+        lines.at(-1) !== "*** End Patch" || !lines.slice(2, -1).every((line) => line.startsWith("+"))) return false;
+    const file = path.resolve(state.repo, lines[1].slice("*** Add File: ".length));
+    const expected = path.join(state.repo, ".dely", "local", "runs", state.run, "spec.md");
+    const normalize = (value) => process.platform === "win32" ? value.toLowerCase() : value;
+    if (normalize(file) !== normalize(expected)) return false;
+    for (let entry = file; ; entry = path.dirname(entry)) {
+      const stat = fs.lstatSync(entry, { throwIfNoEntry: false });
+      if (stat && (entry === file || stat.isSymbolicLink() || !stat.isDirectory())) return false;
+      if (normalize(entry) === normalize(state.repo)) break;
+      if (entry === path.dirname(entry)) return false;
+    }
+    const body = lines.slice(2, -1).map((line) => line.slice(1)).join("\n") + "\n";
+    return digest(body) === state.assessment.task.spec_sha256;
+  } catch (_) { return false; }
+}
+
 function checkPrompt(state, home) {
   const file = promptFile(home, state.session);
   if (!fs.existsSync(file)) return;
@@ -203,6 +231,8 @@ function context(event, home, state = {}) {
     "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
     "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
     "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
+    "When changing the registered Dely authoring source, finish review and required verification, then run native Node scripts/sync-dely.js " +
+    "and require COHERENT for every selected installation before claiming completion. Report NOT_SYNCED if blocked; open a fresh session after updating. " +
     (state.continuation_checkpoint ? "For an unchanged confirmed task, prepare may add --continue and its original --run for delegated work. This retains frozen evidence, not permission; current-turn input and explicit Control review remain required. " : "") +
     "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
     "Read-only inspection and Orca coordination remain available.";
@@ -426,6 +456,27 @@ function validate(state, event, home, requireDispatch = true) {
   return state;
 }
 
+function requireSourceSync(state, home) {
+  const settings = checkedSettings(home), repo = state.execution_repo || state.repo;
+  if (!settings.sync_source || !fs.existsSync(settings.sync_source) || !samePath(repo, settings.sync_source)) return;
+  try {
+    const updater = path.resolve(path.dirname(settings.routing), "../../../scripts/sync-dely.js");
+    if (!settings.updater || !settings.dependencies[settings.updater] || !samePath(settings.updater, updater)) {
+      throw Error("installed updater is not pinned alongside the routing module");
+    }
+    if (!Array.isArray(settings.sync_homes) || !settings.sync_homes.length ||
+        !settings.sync_homes.some((item) => typeof item === "string" && fs.existsSync(item) && samePath(item, home))) {
+      throw Error("selected installation homes are missing or invalid");
+    }
+    const result = require(settings.updater).plan({ source: settings.sync_source, homes: settings.sync_homes });
+    if (result.status !== "COHERENT") throw Error(result.status);
+  } catch (error) {
+    throw Error("Dely sync required: " + error.message + ". Finish review and verification, run native Node scripts/sync-dely.js " +
+      "from the registered source, and require COHERENT for every selected home before claiming completion. " +
+      "If synchronization fails, report NOT_SYNCED and the blocker; use a fresh session after updating.");
+  }
+}
+
 function hook(event, home, workerCheck = verifiedWorker) {
   if (!event.session_id || !event.cwd) throw Error("Hook requires a session and working directory.");
   const file = stateFile(home, event.session_id);
@@ -458,6 +509,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
   // Legacy attempted evidence is ambiguous; retain its Stop check until the next prompt.
   const admitted = state.mutation_admitted ?? !!state.attempted;
   if (type === "PreToolUse" && taskInputWrite(event, state, home)) return {};
+  if (type === "PreToolUse" && runSpecWrite(event, state, home)) return {};
   try {
     checkPrompt(state, home);
     if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) {
@@ -484,6 +536,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
         [undefined, "pins", "preflight", "dispatch", "wait", "wait-bg", "cleanup", "notify"].includes(words[2]);
     }
     validate(state, event, home, !coordinating);
+    if (type === "Stop") requireSourceSync(state, home);
     if (type === "PreToolUse" && !coordinating && (state.mutation_admitted !== true || state.stop_reported)) {
       write(file, { ...state, mutation_admitted: true, stop_reported: false });
     }
@@ -796,6 +849,10 @@ function install(options, home) {
   const frozenAdvisor = path.join(directory, "jev-advisor.js");
   const advisorSource = fs.readFileSync(advisor, "utf8");
   const previous = fs.existsSync(settingsFile(home)) ? read(settingsFile(home)) : null;
+  const updaterFile = path.join(path.dirname(advisor), "sync-dely.js");
+  const updater = fs.existsSync(updaterFile) ? canonical(updaterFile) : undefined;
+  const syncSource = options.source ? canonical(options.source) : previous?.sync_source;
+  const syncHomes = options.homes ? options.homes.map(canonical) : previous?.sync_homes;
   const credentialRoot = previous?.credential_root || path.dirname(path.dirname(previous?.advisor_source || advisor));
   const rootDeclaration = 'const ROOT = path.resolve(__dirname, "..");';
   if (!advisorSource.includes(rootDeclaration)) throw Error("Unrecognized advisor root; installation was not changed.");
@@ -838,7 +895,8 @@ function install(options, home) {
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
   write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely,
-    dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely,
+    updater, sync_source: syncSource, sync_homes: syncHomes,
+    dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely, ...[updater].filter(Boolean),
       ...[path.join(path.dirname(routing), "network-fallback.js")].filter((file) => fs.existsSync(file))]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
   if (!preserveHooks) write(manifestFile, manifest);
   return { home, script, script_sha256: hashFile(script), configured_events: 4,
