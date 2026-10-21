@@ -396,11 +396,22 @@ function synchronize(options, adapters = {}) {
 function defaults(values) {
   const primary = path.join(os.homedir(), ".codex");
   const pointer = path.join(primary, "dely-compliance/current-source.json");
-  const source = path.resolve(values.source || (fs.existsSync(pointer) ? json(pointer).source : path.join(__dirname, "..")));
-  const homes = values.home || [primary,
+  const registration = fs.existsSync(pointer) ? json(pointer) : null;
+  const registered = registration && Object.hasOwn(registration, "homes");
+  if (!values.home && registered && (!Array.isArray(registration.homes) || !registration.homes.length ||
+      registration.homes.some((home) => typeof home !== "string" || !path.isAbsolute(home)))) {
+    throw Error("Invalid registered sync homes; inspect current-source.json or select explicit --home paths");
+  }
+  const source = path.resolve(values.source || registration?.source || path.join(__dirname, ".."));
+  const homes = values.home || (registered ? registration.homes : [primary,
     path.join(process.env.APPDATA || path.join(os.homedir(), "AppData/Roaming"), "orca/codex-runtime-home/home")]
-    .filter((home) => fs.existsSync(path.join(home, "dely-compliance/settings.json")));
+    .filter((home) => fs.existsSync(path.join(home, "dely-compliance/settings.json"))));
   if (!homes.length) throw Error("No existing compliance installation; use initial setup first");
+  for (const home of homes) {
+    if (!fs.existsSync(path.join(home, "dely-compliance/settings.json"))) {
+      throw Error("Registered installation settings missing: " + home + "; repair it or select explicit --home paths");
+    }
+  }
   return { source, homes, ...(values.catalog ? { catalog: path.resolve(values.catalog) } : {}) };
 }
 

@@ -97,14 +97,15 @@ function runSpecWrite(event, state, home) {
     const lines = patch.trimEnd().replace(/\r\n/g, "\n").split("\n");
     if (lines[0] !== "*** Begin Patch" || !lines[1]?.startsWith("*** Add File: ") ||
         lines.at(-1) !== "*** End Patch" || !lines.slice(2, -1).every((line) => line.startsWith("+"))) return false;
+    const repo = state.execution_repo || state.repo;
     const file = path.resolve(state.repo, lines[1].slice("*** Add File: ".length));
-    const expected = path.join(state.repo, ".dely", "local", "runs", state.run, "spec.md");
+    const expected = path.join(repo, ".dely", "local", "runs", state.run, "spec.md");
     const normalize = (value) => process.platform === "win32" ? value.toLowerCase() : value;
     if (normalize(file) !== normalize(expected)) return false;
     for (let entry = file; ; entry = path.dirname(entry)) {
       const stat = fs.lstatSync(entry, { throwIfNoEntry: false });
       if (stat && (entry === file || stat.isSymbolicLink() || !stat.isDirectory())) return false;
-      if (normalize(entry) === normalize(state.repo)) break;
+      if (normalize(entry) === normalize(repo)) break;
       if (entry === path.dirname(entry)) return false;
     }
     const body = lines.slice(2, -1).map((line) => line.slice(1)).join("\n") + "\n";
@@ -647,6 +648,10 @@ async function prepare(options, home) {
   if (Object.hasOwn(task, "native_continuation")) throw Error("Task input cannot supply native continuation metadata.");
   if (!["implement", "advice"].includes(task.mode) || !task.request || !Array.isArray(task.skills)) {
     throw Error("Task JSON needs mode, request and the current session skills array.");
+  }
+  if (task.mode === "implement" && typeof task.spec === "string") {
+    task.spec = task.spec.replace(/\r\n/g, "\n");
+    if (!task.spec.endsWith("\n")) task.spec += "\n";
   }
   const repo = canonical(options.repo);
   const target = executionRepo(task, repo);

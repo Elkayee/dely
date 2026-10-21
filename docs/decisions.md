@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-10-21 — Keep Run staging and sync targets complete (0.27.16)
+
+The create-only Run spec exception uses the reviewed execution repository,
+while resolving relative patch paths from the Control workspace. Keep the
+existing session, owner, hash and link checks. Canonicalize new specs to LF
+with a terminal newline before freezing and assessment, preserving trailing
+blank lines. Continuation uses that same canonical spec; reviewed and
+historical hashes are never rewritten or compared loosely.
+
+Default synchronization uses the registered home set. Missing settings in a
+registered home and malformed home lists stop before profile mutation. Explicit
+home selection and discovery without a registered set remain available.
+
 ## 2026-10-21 — Bind the frozen native spec to its exact Run copy (0.27.15)
 
 Native preparation keeps the original spec outside the workspace, while delivery

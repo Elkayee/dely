@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
-const { bundle, plan, sync, synchronize, oldPlugins, windowsCodexEntry } = require("./sync-dely.js");
+const { bundle, plan, defaults, sync, synchronize, oldPlugins, windowsCodexEntry } = require("./sync-dely.js");
 const { install } = require("./codex-compliance.js");
 
 function put(root, name, value) {
@@ -53,6 +53,53 @@ function fixture(t, count = 1) {
   const options = { source, homes };
   return { root, source, homes, options, expected: bundle(source).sha256 };
 }
+
+function defaultsFixture(t) {
+  const f = fixture(t, 2);
+  t.mock.method(os, "homedir", () => f.root);
+  const appdata = process.env.APPDATA;
+  process.env.APPDATA = path.join(f.root, "roaming");
+  t.after(() => {
+    if (appdata === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = appdata;
+  });
+  const registration = ".codex/dely-compliance/current-source.json";
+  put(f.root, registration, { source: f.source, homes: f.homes });
+  return { ...f, registration };
+}
+
+test("default sync retains the registered homes instead of rediscovering a smaller set", (t) => {
+  const f = defaultsFixture(t);
+  assert.deepEqual(defaults({}).homes, f.homes);
+  assert.equal(defaults({}).source, f.source);
+});
+
+test("default sync refuses a registered home with missing settings before profile changes", (t) => {
+  const f = defaultsFixture(t);
+  const profile = path.join(f.homes[0], "dely-compliance/settings.json");
+  const before = fs.readFileSync(profile), registration = fs.readFileSync(path.join(f.root, f.registration));
+  fs.unlinkSync(path.join(f.homes[1], "dely-compliance/settings.json"));
+  assert.throws(() => synchronize(defaults({}), { install }), /registered.*settings/i);
+  assert.deepEqual(fs.readFileSync(profile), before);
+  assert.deepEqual(fs.readFileSync(path.join(f.root, f.registration)), registration);
+  assert.equal(fs.existsSync(path.join(f.homes[0], "dely-compliance/backups")), false);
+  assert.deepEqual(defaults({ home: [f.homes[0]] }).homes, [f.homes[0]]);
+});
+
+test("default sync rejects malformed registered homes and retains explicit and legacy selection", (t) => {
+  const f = defaultsFixture(t);
+  for (const homes of [null, [], "home", [null], [""], ["relative/home"]]) {
+    put(f.root, f.registration, { source: f.source, homes });
+    assert.throws(() => defaults({}), /registered.*homes/i);
+    assert.deepEqual(defaults({ home: [f.homes[0]] }).homes, [f.homes[0]]);
+  }
+  put(f.root, f.registration, { source: f.source });
+  const primary = path.join(f.root, ".codex");
+  put(primary, "dely-compliance/settings.json", {});
+  assert.deepEqual(defaults({}).homes, [primary]);
+  fs.unlinkSync(path.join(f.root, f.registration));
+  assert.deepEqual(defaults({ source: f.source }).homes, [primary]);
+});
 
 test("plan detects canonical path drift without writing or treating equal bytes as equal paths", (t) => {
   const f = fixture(t);

@@ -92,7 +92,10 @@ or ownership change.
    installed script's prepare command with --session,
    --turn, --repo, the explicit --home from the hook's guidance, and --task-file
    <path>. It freezes the native roster and task inputs and runs the existing
-   task assessment. It neither scans the home catalog nor calls skill advice.
+   task assessment. New implementation specs use LF and a terminal newline
+   before freezing and assessment; trailing blank lines remain intact. Review,
+   staging and dispatch then require those exact canonical bytes. Historical
+   snapshots are unchanged. It neither scans the home catalog nor calls skill advice.
 3. Inspect the assessment and choose skills from the actual native session
    roster. Invoke review with the same IDs, --difficulty,
    --reason, --skills and --skill-reason. The skills argument is a JSON array
@@ -107,7 +110,9 @@ or ownership change.
    its ID with --run, and load the installed delivery skill. Review rejects a
    missing, empty or whitespace-only Run ID and keeps the task PREPARED.
    Before dispatch, use `apply_patch` to add the exact frozen spec as
-   `<repo>/.dely/local/runs/<run>/spec.md`. This create-only exception checks
+   `<execution-repo>/.dely/local/runs/<run>/spec.md` (the Control repo when no
+   `execution_repo` was supplied). Relative patch paths resolve from the Control
+   workspace, as they do in `apply_patch`. This create-only exception checks
    the current interactive Control review and every frozen binding; changed
    content, existing files, linked paths and all ordinary edits stay blocked.
    Use the prepared spec/context and reviewed

@@ -72,8 +72,12 @@ remains supported. Destinations are checked again after native plugin calls
 and installation. Hook bytes for all homes are compared with their original
 pre-installation bytes, including after the last home is installed.
 
-The default homes are the native `~/.codex` and Orca's existing runtime home.
-Use repeated `--home` arguments to select existing installations explicitly.
+The default homes are the set recorded in `current-source.json`. A registered
+home with missing settings stops synchronization before profile changes; it
+does not silently shrink that set. Invalid registered home lists also stop.
+Without a registered set, discovery uses native `~/.codex` and Orca's existing
+runtime home. Use repeated `--home` arguments to select existing installations
+explicitly.
 Initial hook installation and native trust review still follow
 [Codex compliance setup](codex-compliance.md#install-and-activate).
 

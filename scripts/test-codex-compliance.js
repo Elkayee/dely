@@ -55,8 +55,7 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
-function candidateFixture(t) {
-  const f = fixture(t);
+function candidateFixture(t, f = fixture(t)) {
   const git = (...args) => {
     const result = spawnSync("git", args, { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -281,6 +280,61 @@ test("reviewed Control can stage only its exact new Run spec before dispatch", a
   fs.writeFileSync(f.skill, "Read the actual source before editing.\n");
   fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed authority.\n");
   denied(stage());
+});
+
+test("reviewed Run spec staging uses the candidate execution repository", async (t) => {
+  const f = candidateFixture(t, await correctionFixture(t));
+  await f.prepare();
+  f.review({ difficulty: "medium_plus", run: "candidate_stage", skills: '["required","dely:delivery"]' });
+  const stage = (file) => ({ ...f.event, tool_input: "*** Begin Patch\n*** Add File: " + file + "\n" +
+    f.task.spec.trimEnd().split("\n").map((line) => "+" + line).join("\n") + "\n*** End Patch" });
+  const relative = ".dely/local/runs/candidate_stage/spec.md";
+  const target = path.join(f.candidate, relative);
+  assert.deepEqual(guard.hook(stage(target), f.home), {});
+  assert.deepEqual(guard.hook(stage(path.relative(f.repo, target)), f.home), {});
+  for (const file of [path.join(f.repo, relative), relative]) {
+    assert.equal(guard.hook(stage(file), f.home).hookSpecificOutput?.permissionDecision, "deny");
+  }
+});
+
+for (const [label, input, expected] of [
+  ["missing terminal LF", "Apply the scoped change.", "Apply the scoped change.\n"],
+  ["CRLF", "Apply the scoped change.\r\nKeep the checks.\r\n", "Apply the scoped change.\nKeep the checks.\n"],
+  ["trailing blank lines", "Apply the scoped change.\r\n\r\n", "Apply the scoped change.\n\n"],
+]) {
+  test("prepared Run specs canonicalize " + label + " before assessment and stage exactly", async (t) => {
+    const f = await correctionFixture(t);
+    f.task.spec = input;
+    guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Stage the confirmed canonical spec" }, f.home);
+    const prepared = await f.prepare();
+    assert.equal(prepared.assessment.task.spec, expected);
+    assert.equal(fs.readFileSync(prepared.assessment.task.spec_file, "utf8"), expected);
+    f.review({ difficulty: "medium_plus", run: "canonical_stage", skills: '["required","dely:delivery"]' });
+    const stage = (body) => ({ ...f.event, tool_input: "*** Begin Patch\n*** Add File: " +
+      path.join(f.repo, ".dely/local/runs/canonical_stage/spec.md") + "\n" +
+      body.slice(0, -1).split("\n").map((line) => "+" + line).join("\n") + "\n*** End Patch" });
+    assert.deepEqual(guard.hook(stage(expected), f.home), {});
+    assert.equal(guard.hook(stage(expected + "Unreviewed instructions.\n"), f.home)
+      .hookSpecificOutput?.permissionDecision, "deny");
+  });
+}
+
+test("canonical prepared specs retain unchanged-task continuation for the original input", async (t) => {
+  const f = fixture(t);
+  f.task.spec = "Apply the scoped change.\r\nKeep the checks.";
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Prepare the confirmed canonical spec" }, f.home);
+  const prepared = await f.prepare();
+  assert.equal(prepared.assessment.task.spec, "Apply the scoped change.\nKeep the checks.\n");
+  f.review();
+  const prior = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session")));
+  const original = fs.readFileSync(prior.original_assessment);
+  guard.hook({ ...f.event, turn_id: "canonical_next", hook_event_name: "UserPromptSubmit", prompt: "Continue" }, f.home);
+  const continued = await guard.prepare({ ...f.options, turn: "canonical_next", continue: true,
+    "task-json": JSON.stringify(f.task) }, f.home);
+  assert.equal(continued.continuation, true);
+  assert.equal(continued.assessment.task.spec_sha256, prepared.assessment.task.spec_sha256);
+  assert.deepEqual(fs.readFileSync(prior.original_assessment), original);
+  f.review({ turn: "canonical_next" });
 });
 
 test("confirmed continuation preserves the dispatch basis and requires fresh Control review", async (t) => {
