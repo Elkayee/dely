@@ -37,7 +37,7 @@ function failure(reason) {
     "Jev requires additional evidence": "ADDITIONAL_EVIDENCE_REQUIRED",
     TYPESAFE_API_KEY_MISSING: "TYPESAFE_API_KEY_MISSING", CREDENTIALS_UNAVAILABLE: "CREDENTIALS_UNAVAILABLE",
     SNAPSHOT_TOO_LARGE: "SNAPSHOT_TOO_LARGE", SKILL_REQUEST_TOO_LARGE: "SKILL_REQUEST_TOO_LARGE",
-    NO_ELIGIBLE_SKILLS: "NO_ELIGIBLE_SKILLS",
+    NO_ELIGIBLE_SKILLS: "NO_ELIGIBLE_SKILLS", SKILL_DETAILS_UNAVAILABLE: "SKILL_DETAILS_UNAVAILABLE",
     NO_SKILLS: "NO_SKILLS", SKILL_SHORTLIST_TOO_LARGE: "SKILL_SHORTLIST_TOO_LARGE",
   };
   if (typeof reason === "string" && /^(?:Jev HTTP |JEV_HTTP_)[1-5][0-9]{2}$/.test(reason)) {
@@ -136,6 +136,30 @@ function incompleteProgress(value, inputHash) {
     completed_batches: value.completed_batches, completed_evaluations: value.completed_evaluations, evaluations, requests };
 }
 
+function skillPasses(passes) {
+  if (!Array.isArray(passes) || !passes.length || passes.length > 1024) return null;
+  const output = [];
+  for (const pass of passes) {
+    if (!object(pass) || !["rank", "rerank"].includes(pass.stage) || !Array.isArray(pass.ids) ||
+        !pass.ids.length || pass.ids.length > 255 || new Set(pass.ids).size !== pass.ids.length ||
+        pass.ids.some((id) => typeof id !== "string" || !/^s(?:0|[1-9][0-9]{0,5})$/.test(id)) ||
+        !object(pass.answers) || requestDiagnostics(pass.request_diagnostics)?.stage !== "complete") return null;
+    const choice = answer(pass.answers.which, pass.ids), nouls = {};
+    if (!choice) return null;
+    const gates = ["gate::acts_on_user_system", "gate::would_follow_documented_procedure", "gate::prose_suffices"];
+    const expected = pass.stage === "rerank" ? pass.ids.map((id) => "fits::" + id) :
+      (Object.hasOwn(pass.answers, gates[0]) ? gates : []);
+    if (Object.keys(pass.answers).length !== expected.length + 1) return null;
+    for (const id of expected) {
+      const value = pass.answers[id];
+      if (!object(value) || value.type !== "noul" || !unit(value.noul)) return null;
+      nouls[id] = value.noul;
+    }
+    output.push({ stage: pass.stage, ...choice, nouls });
+  }
+  return output;
+}
+
 function project(value, file) {
   if (!object(value)) return null;
   const taskMode = file === "assessment.json" || file === "reviewed.json";
@@ -170,7 +194,10 @@ function project(value, file) {
     }
   } else if (!taskMode) {
     const values = mode === "skill" ? value.evaluations : value.ranked_context;
-    if (Array.isArray(values) && values.length > 0 && values.length <= 1024) {
+    if (mode === "skill" && Object.hasOwn(value, "passes") && status === "REVIEW_REQUIRED") {
+      const output = skillPasses(value.passes);
+      if (output) { row.output = output; row.category = "valid"; }
+    } else if (Array.isArray(values) && values.length > 0 && values.length <= 1024) {
       const output = values.map((v, i) => {
         if (!object(v)) return null;
         // Candidate content, ids, paths and skill descriptions are not result fields.

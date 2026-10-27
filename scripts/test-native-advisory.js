@@ -216,3 +216,164 @@ test("native advise CLI writes only managed evidence with no reviewed task", t =
     ...Object.entries({ ...f.options, home: f.home }).flatMap(([key, value]) => ["--" + key, value])], { encoding: "utf8" });
   assert.equal(cli.status, 2); assert.equal(f.calls(), 0);
 });
+
+async function evidenceFixture(t) {
+  const f = fixture(t), routing = require("../skills/delivery/scripts/task-routing.js");
+  const target = path.join(f.home, "dely-compliance/tasks", "d".repeat(24));
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, "spec.md"), "Verify the private helper's empty result.\n");
+  fs.writeFileSync(path.join(target, "context.json"), JSON.stringify({ scope: "Private helper", coupling: "Known caller",
+    acceptance: "node --test helper.test.js; empty input returns []; null must fail", evidence: "helper.js, caller.js and helper.test.js inspected",
+    requirements_confirmed: true, risks: Object.fromEntries(routing.RISK_KEYS.map(key => [key, false])) }));
+  const assessment = await routing.assess(routing.loadTask(f.repo, path.join(target, "spec.md"), path.join(target, "context.json")), {
+    apiKey: "test", fetch: async () => ({ ok: true, status: 200, json: async () => ({ model: routing.MODEL,
+      answers: Object.fromEntries(Object.keys(routing.questions()).map(field => {
+        const choice = field === "verification" ? "insufficient_evidence" : "easy";
+        return [field, { type: "choice", choice, confidence: 1,
+          probabilities: Object.fromEntries(["easy", "medium_minus", "medium_plus", "hard", "insufficient_evidence"].map(label => [label, Number(label === choice)])) }];
+      })) }) }) });
+  fs.writeFileSync(path.join(target, "assessment.json"), JSON.stringify(assessment));
+  f.task.advisory = { mode: "evidence", input: { request: f.task.request, task_id: path.basename(target) } }; f.save();
+  let calls = 0;
+  f.advisor.advise = (input, mode) => require("./jev_agent.js").advise(input, mode, { apiKey: "test", fetch: async (_url, init) => {
+    calls++;
+    const sent = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0", answers: Object.fromEntries(Object.entries(sent.questions).map(([field, question]) =>
+      [field, { type: "choice", choice: "present", confidence: 1, probabilities: Object.fromEntries(Object.keys(question.criteria).map(label => [label, Number(label === "present")])) }])) }) };
+  } });
+  return { ...f, target, assessment, routing, calls: () => calls };
+}
+
+test("evidence advice binds the frozen target without changing historical records, current state or admission", async t => {
+  const f = await evidenceFixture(t);
+  const files = [guard.stateFile(f.home, f.options.session), ...["spec.md", "context.json", "assessment.json"].map(name => path.join(f.target, name))];
+  const before = files.map(file => fs.readFileSync(file));
+  assert.notEqual(f.shell().hookSpecificOutput?.permissionDecision, "deny");
+  const result = await guard.advisory(f.options, f.home);
+  assert.equal(result.status, "REVIEW_REQUIRED");
+  const proof = JSON.parse(fs.readFileSync(result.output_file));
+  assert.equal(proof.result.authority, "NONE");
+  assert.deepEqual(proof.result.gaps, []);
+  assert.deepEqual(proof.result.binding, { spec_sha256: guard.digest(before[1]), context_sha256: guard.digest(before[2]), assessment_sha256: guard.digest(before[3]) });
+  assert.deepEqual(proof.binding.input_sha256, proof.result.input_sha256);
+  files.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), before[index]));
+  for (const difficulty of ["easy", "medium_minus", "medium_plus"]) {
+    assert.throws(() => f.routing.review(f.assessment, difficulty, "Diagnostic claims complete"), /missing evidence/i);
+  }
+  const denied = guard.hook({ ...f.event, hook_event_name: "PreToolUse", tool_name: "apply_patch",
+    tool_input: { command: "*** Begin Patch\n*** Add File: source.js\n+changed\n*** End Patch" } }, f.home);
+  assert.equal(denied.hookSpecificOutput.permissionDecision, "deny");
+  assert.equal((await guard.advisory(f.options, f.home)).reused, true);
+  assert.equal(f.calls(), 1);
+});
+
+test("evidence rejects changed spec, context, raw assessment, target identity and foreign repository before transport", async t => {
+  for (const kind of ["spec", "context", "assessment", "path", "repo", "id", "fields", "bounded"]) await t.test(kind, async t => {
+    const f = await evidenceFixture(t), file = path.join(f.target, "assessment.json");
+    if (kind === "spec" || kind === "context") fs.appendFileSync(path.join(f.target, kind === "spec" ? "spec.md" : "context.json"), " ");
+    if (["assessment", "path", "repo"].includes(kind)) {
+      const value = JSON.parse(fs.readFileSync(file));
+      if (kind === "assessment") value.jev.answers.verification.choice = "easy";
+      if (kind === "path") value.task.spec_file = path.join(f.directory, "foreign.md");
+      if (kind === "repo") value.task.repo = f.home;
+      fs.writeFileSync(file, JSON.stringify(value));
+    }
+    if (kind === "id") f.task.advisory.input.task_id = "../escape";
+    if (kind === "fields") f.task.advisory.input.assessment = f.assessment;
+    if (kind === "bounded") fs.writeFileSync(path.join(f.target, "spec.md"), "x".repeat(256 * 1024 + 1));
+    f.save();
+    await assert.rejects(guard.advisory(f.options, f.home));
+    assert.equal(f.calls(), 0);
+    assert.equal(f.shell().hookSpecificOutput?.permissionDecision, "deny");
+  });
+});
+
+test("evidence retains current owner, prompt and worker checks", async t => {
+  for (const kind of ["owner", "turn", "nonce", "worker", "prompt"]) await t.test(kind, async t => {
+    const f = await evidenceFixture(t), file = guard.stateFile(f.home, f.options.session);
+    const state = JSON.parse(fs.readFileSync(file));
+    if (kind === "owner") f.options.session = "foreign";
+    if (kind === "turn") f.options.turn = "foreign";
+    if (kind === "nonce") state.input_nonce = "0".repeat(24);
+    if (kind === "worker") state.worker_claim = { spec_sha256: "a".repeat(64) };
+    fs.writeFileSync(file, JSON.stringify(state));
+    if (kind === "prompt") guard.hook({ ...f.event, turn_id: "new-prompt", hook_event_name: "UserPromptSubmit", prompt: "changed diagnostic request" }, f.home);
+    await assert.rejects(guard.advisory(f.options, f.home));
+    assert.equal(f.calls(), 0);
+  });
+});
+
+test("evidence detects target changes during a request and on cached replay", async t => {
+  for (const kind of ["spec.md", "context.json", "assessment.json"]) await t.test(kind, async t => {
+    const f = await evidenceFixture(t), first = await guard.advisory(f.options, f.home);
+    fs.appendFileSync(path.join(f.target, kind), " ");
+    await assert.rejects(guard.advisory(f.options, f.home), /binding|stale|snapshot/i);
+    assert.equal(f.calls(), 1);
+    assert.ok(fs.existsSync(first.output_file));
+  });
+  const f = await evidenceFixture(t), original = f.advisor.advise;
+  f.advisor.advise = async (...args) => {
+    const result = await original(...args);
+    fs.appendFileSync(path.join(f.target, "assessment.json"), " ");
+    return result;
+  };
+  await assert.rejects(guard.advisory(f.options, f.home), /binding changed/i);
+  const directory = path.join(f.home, "dely-compliance/tasks", "advisory-" + guard.digest(f.options.session + "\0" + f.options.turn + "\0" + f.state.input_nonce).slice(0, 24));
+  assert.equal(fs.existsSync(path.join(directory, "result.json")), false);
+  assert.ok(fs.existsSync(path.join(directory, "request.json")));
+});
+
+test("evidence rejects linked historical targets", async t => {
+  const f = await evidenceFixture(t), moved = path.join(f.directory, "linked-target");
+  fs.renameSync(f.target, moved);
+  fs.symlinkSync(moved, f.target, process.platform === "win32" ? "junction" : "dir");
+  await assert.rejects(guard.advisory(f.options, f.home), /link/i);
+  assert.equal(f.calls(), 0);
+});
+
+test("native evidence unknown, malformed and unavailable replies remain unevaluated without changing the target", async t => {
+  for (const kind of ["unknown", "malformed", "unavailable"]) await t.test(kind, async t => {
+    const f = await evidenceFixture(t), file = path.join(f.target, "assessment.json"), before = fs.readFileSync(file);
+    let calls = 0;
+    f.advisor.advise = (input, mode) => require("./jev_agent.js").advise(input, mode, { apiKey: "test", fetch: async (_url, init) => {
+      calls++;
+      if (kind === "unavailable") throw Error("provider timeout");
+      const sent = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0", answers: Object.fromEntries(Object.entries(sent.questions).map(([field, question]) => {
+        const choice = field === "method" ? kind : "present";
+        return [field, { type: "choice", choice, confidence: 1,
+          probabilities: Object.fromEntries(Object.keys(question.criteria).map(label => [label, Number(label === choice)])) }];
+      })) }) };
+    } });
+    const result = await guard.advisory(f.options, f.home);
+    assert.equal(result.status, "NOT_EVALUATED");
+    assert.equal((await guard.advisory(f.options, f.home)).reused, true);
+    assert.equal(calls, 1);
+    assert.deepEqual(fs.readFileSync(file), before);
+  });
+});
+
+test("installed native evidence CLI produces bound typed advice and reuses it without another provider call", async t => {
+  const f = await evidenceFixture(t), preload = path.join(f.directory, "transport.cjs"), calls = path.join(f.directory, "calls.txt");
+  fs.writeFileSync(preload, `globalThis.fetch = async (_url, init) => {
+    require("fs").appendFileSync(${JSON.stringify(calls)}, "call\\n");
+    const sent = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ model: "jev-1.13.0",
+      answers: Object.fromEntries(Object.entries(sent.questions).map(([field, q]) => [field,
+        { type: "choice", choice: "present", confidence: 1,
+          probabilities: Object.fromEntries(Object.keys(q.criteria).map(label => [label, Number(label === "present")])) }])) }) };
+  };`);
+  const args = ["--require", preload, path.join(f.home, "dely-compliance/codex-compliance.js"), "advise",
+    ...Object.entries({ ...f.options, home: f.home }).flatMap(([key, value]) => ["--" + key, value])];
+  for (const reused of [false, true]) {
+    const cli = spawnSync(process.execPath, args, { encoding: "utf8", env: { ...process.env, TYPESAFE_API_KEY: "fixture-key" } });
+    assert.equal(cli.status, 0, cli.stderr);
+    const result = JSON.parse(cli.stdout), proof = JSON.parse(fs.readFileSync(result.output_file));
+    assert.equal(result.reused, reused);
+    assert.equal(proof.result.status, "REVIEW_REQUIRED");
+    assert.equal(proof.result.checks.detector.choice, "present");
+    assert.equal(proof.result.binding.spec_sha256, f.assessment.task.spec_sha256);
+  }
+  assert.equal(fs.readFileSync(calls, "utf8"), "call\n");
+  assert.equal(JSON.parse(fs.readFileSync(guard.stateFile(f.home, f.options.session))).status, "PENDING");
+});

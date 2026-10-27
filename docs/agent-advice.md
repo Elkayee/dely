@@ -9,6 +9,35 @@ The Orca CLI accepts `--repo` to select a target workspace. It defaults to the
 current working directory. Relative input and output paths belong to that
 workspace, not to the directory containing this script.
 
+## Missing-evidence diagnostic advice
+
+After an assessment returns raw `verification=insufficient_evidence`, the
+optional native `advise` envelope supports `mode: "evidence"`. See the
+[fresh-prompt procedure](codex-compliance.md#diagnose-a-frozen-insufficient-evidence-assessment).
+It resolves a same-repository frozen native task by ID; it does not retry
+assessment or amend the original answers, review or route.
+
+The self-contained advisor also accepts `evidence --input FILE --out FILE`.
+That JSON input has exactly four strings: `request`, `spec`, `context`, and
+`assessment`, with the latter three containing the original files' exact UTF-8
+text. The advisor validates the embedded spec/context hashes and insufficient
+verification answer. The native adapter additionally validates the full original
+assessment, target repository, managed paths, current owner and prompt. Direct
+CLI advice grants no native admission exception or implementation authority.
+
+Eight fixed choice questions inspect method, fixture, procedure, expected result,
+counterexample, and source/caller/detector provenance across the supplied spec
+and context. Each returns `present`, `missing`, `contradictory`, or `unknown`,
+with validated confidence/probabilities. Results retain exact snapshot hashes,
+per-element checks and a list of missing/contradictory elements. Unknown remains
+`NOT_EVALUATED`; valid known advice remains `REVIEW_REQUIRED`. Provider/schema
+failures stay unevaluated. No confidence threshold is assumed calibrated.
+
+This fresh untrusted advice may help locate a gap, but cannot reveal a definitive
+reason for the earlier model's answer. All-present results still require Control
+review and grant no authority. Planned detectors are assessed as plans; the
+diagnostic does not demand executed acceptance for an unimplemented change.
+
 ## Task plans before difficulty assessment
 
 Codex translates the original free-form request into candidate tasks with
@@ -185,14 +214,24 @@ plugin skills; only the supplied roster can be selected.
 rtk proxy node scripts/jev_agent.js skill --repo D:/project --input skills.json --out skill_advice.json
 ```
 
-Read every direct/supporting item in `suggestions[]`; `suggestion` is a legacy
-leading-item alias. Operational callers supply only task-relevant candidates,
+Skill advice follows the [two-pass suggestion recipe](https://docs.typesafe.ai/cookbooks/skill_suggestion):
+rank the supplied roster with a Choice and three request Noul gates, then
+rerank the top three with full descriptions, 700-character instruction excerpts
+and independent fit Nouls. The oriented gate mean and maximum fit each require
+0.30. These are recipe defaults, not calibrated task-admission thresholds.
+`suggestions[]` contains at most one original record; `suggestion` is its alias
+or null. `suggestion_block` is an optional prompt hint, including an explicit
+no-fit sentence, appended after the unchanged roster. Mandatory and explicit
+skills retain precedence. See [the detailed contract](jev-skill-advice.md).
+
+Operational callers supply only task-relevant candidates,
 excluding disabled and unrequested explicit-only sources after local policy
 checks. Keep applicable required/explicit records and their unchanged policy.
 An explicit request to inspect a full catalog may still supply every enabled
-record. The public advisor evaluates all enabled supplied records, with no top-k
-cut. Explicit and mandatory skills retain precedence. Control reviews every
-suggestion; independent native admission still checks policy and execution
+record. Every enabled supplied record enters wide ranking; only the final three
+are read in detail. Catalogs exceeding the Choice or byte limits use bounded
+ranking chunks and shrinking survivor rounds. Control reviews the suggestion;
+independent native admission still checks policy and execution
 evidence. An empty roster needs no model call. A failed optional call stays
 `NOT_EVALUATED` without invalidating a correctly reviewed native task.
 
@@ -206,9 +245,11 @@ refused; use a fresh run directory.
 Advice remains REVIEW_REQUIRED. Missing keys, HTTP failures, invalid replies,
 timeouts and oversized snapshots remain NOT_EVALUATED (exit 3). Invalid
 arguments/input return exit 2. No automatic retries or confidence threshold
-are assumed. Context requests retain the 64 KB and 32-candidate guards. Skill
+are assumed for task or context advice. Skill suggestion alone uses the recipe's
+two Noul thresholds. Context requests retain the 64 KB and 32-candidate guards. Skill
 packets use 60,000-byte total and 30,000-byte shared-State-plus-question guards;
-these measure UTF-8 transport bytes, not tokens. There is no skill-count cutoff.
+these measure UTF-8 transport bytes, not tokens. Each skill Choice has at most
+255 options; larger catalogs are chunked rather than truncated.
 
 New requests record `request_diagnostics`: fixed `stage` / `code` pairs
 (`transport` / `TRANSPORT_ERROR`, `timeout` / `REQUEST_TIMEOUT`, `http` /

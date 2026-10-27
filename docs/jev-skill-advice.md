@@ -1,130 +1,115 @@
 # Native skills and optional Jev advice for Codex
 
-Codex's native session roster and Control selection are the default. Compliance
-`prepare` does not call the skill advisor or merge the whole home catalog.
-It records `native-session` provenance and `NOT_REQUESTED` advice status while
-preserving independent task assessment and reviewed execution requirements.
-Missing optional advice is not missing execution evidence. Native discovery's
-explicit and implicit invocation behavior is described in OpenAI's
-[Build skills](https://learn.chatgpt.com/docs/build-skills) documentation.
+Codex's native session roster and Control selection are the default.
+Compliance `prepare` performs no skill-advice call or home catalog scan.
+It preserves the exact supplied roster, mandatory and explicit selections,
+selected-source fingerprints, alias policies and independent execution gates.
+Optional advice never grants skill invocation, routing or implementation authority.
 
-The exact supplied session roster remains in `session-skills.json` for mandatory
-and explicit Control selections. `skill-sources.json` retains every original
-native name, path, description and source. `skills.json` preserves supplied
-metadata without sending it to a provider. Required sources are frozen at
-prepare and selected sources at review. Unrelated skill bodies are not read
-for selection or added to admission fingerprints.
-Aliases retain the most restrictive supplied, source and configuration policy,
-including YAML at both the supplied path and the canonical target directory.
-Skill instruction bodies are never sent to Jev.
+Use `jev_agent.js skill --repo ... --input ... --out ...` when requested,
+when relevant candidates compete, or when targeted native discovery misses a
+needed workflow. Operational callers use the existing `combineSkills` policy
+helper on relevant supplied records and exclude disabled and unrequested
+explicit-only sources. Full-catalog inspection may use the existing discovery
+helpers; the advisor itself does not scan directories.
 
-The task/native metadata snapshots, selected and required sources, policies and active
-configuration are fingerprinted, including both alias and canonical YAML paths
-even when either policy file is absent. Original path bindings are checked separately,
-so retargeting any supplied roster alias invalidates admission even with identical
-source bytes. This also catches a previously unrelated restrictive alias joining
-a selected policy group, without hashing that unrelated skill's body.
-Absent policy/configuration files are recorded explicitly; creating one or
-changing a protected source during assessment or local loading requires fresh preparation and review.
-Each Control selector must identify exactly one original record.
+The input contains `request` and `skills`. Each skill retains `name`, `path`,
+`description`, and its optional `enabled` and `allow_implicit_invocation` flags.
+For a self-contained cookbook roster, optional string fields
+`description_full` and `body` supply detailed evidence. Otherwise only the
+shortlisted SKILL.md paths are opened, relative to `--repo` when not absolute.
+Their frontmatter description and opening body supply the second pass.
+A missing shortlisted source returns `SKILL_DETAILS_UNAVAILABLE`, never an
+invented description. Input records and their snapshot hash remain unchanged.
 
-Optional skill advice uses the existing `jev_agent.js skill --repo ... --input
-... --out ...` command when requested, when relevant candidates compete, or
-when targeted native discovery misses a needed workflow. Operational callers
-choose relevant metadata first, use the existing `combineSkills` policy helper
-on those supplied records, and exclude disabled and unrequested explicit-only
-sources. An explicit full-catalog inspection can still use `discoverSkills`
-and `combineSkills`; nested folders and links retain their existing behavior.
-No automatic home scan, policy rewrite or top-k limit is introduced.
+## Two-pass selection
 
-Every enabled supplied skill enters public advisory evaluation, including explicit-only
-records. Useful explicit-only suggestions retain their policy and include
-`requires_explicit_invocation: true`. Their suitability does not authorize
-automatic invocation. Disabled records remain local with a `NOT_EVALUATED`
-evaluation and reason `DISABLED`; they are not sent or suggested. Jev's
-suggestion cannot waive mandatory skills or authorize an implementation.
+1. Wide ranking sends one Choice over the enabled supplied skills, with their
+   names and index descriptions. Three companion Nouls ask whether the request
+   acts on the user's system, calls for a documented procedure, or can be
+   satisfied in prose. Invert `prose_suffices` and take the mean. A mean below
+   0.30 yields no suggestion and skips all instruction reads and reranking.
+2. Reranking sends a Choice over the top three, each with its full description
+   and at most 700 Unicode characters from the opening instructions. Each
+   candidate also gets an independent fit Noul. If their maximum is below
+   0.30, return no suggestion. Otherwise return the Choice winner, even when
+   another candidate has the highest fit Noul: Choice decides which, and
+   the Nouls decide whether to suggest anything.
 
-## Requests and selection
+These thresholds reproduce the supplied recipe; they are not a calibrated
+accuracy or admission guarantee. A similar but unsupported service can still
+receive an incorrect suggestion. The agent reviews the result against the
+actual request and retains its own full roster and mandatory workflows.
 
-Each packet uses `state: { request, selection_rules, rubric }`. Common rules and
-the four relation definitions appear once per packet. Every enabled skill gets
-its own Choice containing its name and complete description once, under an ID
-tied to its original catalog index. Question instructions refer to the shared
-rules and rubric; criteria use short self-contained descriptions to distinguish
-the four options. Full applicability rules are shared rather than repeated.
-The possible relations are `direct`,
-`supporting`, `unrelated` and `unknown`. Skills are judged independently against
-the actual requested actions; several complementary workflows can fit one task.
-Paths and full instruction bodies stay local.
+When the roster fits one bounded Choice, this uses two provider requests, or
+one when the request gate rejects it. Each Choice has at most 255 options.
+Larger rosters use bounded ranking chunks, retaining up to three candidates
+per chunk, then compare the survivors in shrinking ranking rounds before the
+single detailed rerank. Probabilities from separate chunks are never compared
+as if they shared one distribution. Every enabled record enters the initial
+ranking unless the request gate rejects the task. No description is silently
+truncated. A non-shrinking reduction or oversized question returns
+`SKILL_REQUEST_TOO_LARGE`.
 
-Every enabled skill is evaluated once, packed into a conservative 60,000-byte
-transport budget. Shared State plus an individual question must separately fit
-30,000 bytes, including JSON overhead; an oversized pair stops before any API
-call. HTTP packets remain sequential; questions inside each packet are evaluated
-in parallel by Jev. There is no catalog-size or top-k recommendation limit. Each
-Choice has four options, so the provider's 255-option limit does not restrict
-the number of skills across packets. These byte budgets are conservative guards
-for the provider's distinct 64k total and 32k State-plus-longest-question token
-limits, not tokenizer measurements. An individually oversized request/description is
-reported as `NOT_EVALUATED`; it is never truncated.
+Packets retain the existing conservative 60,000-byte total and 30,000-byte
+State-plus-question guards. These are UTF-8 transport budgets, not token
+counts. Paths remain local; skill names, descriptions and shortlisted
+instruction excerpts are the provider evidence. Metadata and excerpts are
+treated as data, never instructions to the advisor.
 
-Read `suggestions[]` for all records classified as direct or supporting. Direct
-records precede supporting records, preserving catalog order within each group.
-This order is not a confidence ranking. `suggestion` is only the leading-record
-legacy alias. `evaluations[]` retains each skill ID, relation, probability
-distribution and provider confidence, including unknown judgments for Control.
-Unknown and unrelated entries are not automatically suggested. A valid empty
-recommendation list has `REVIEW_REQUIRED` status. Provider/validation failures
-have `NOT_EVALUATED` status and an empty list, without partial recommendations.
+## Results and policy
 
-Live provider probabilities can be rounded to two decimals and sum to 0.99 or
-1.01. Skill replies normalize only small errors within the four-value rounding
-bound and retain `raw_probabilities` when normalization occurs. Arbitrary mass
-loss, invalid values and mismatched chosen labels still fail validation.
-Provider confidence is retained unchanged and has no approval cutoff. Context
-advice retains its existing strict validation and behavior.
+`suggestions[]` contains zero or one original record. `suggestion` remains its
+leading-record alias, or null. This intentionally replaces the earlier
+independent direct/supporting multi-suggestion behavior. An explicit-only
+winner retains `requires_explicit_invocation: true`; this does not authorize
+its invocation. Disabled skills are excluded from provider packets and retain
+local `NOT_EVALUATED` / `DISABLED` records.
 
-The standalone advisor prints every suggested name/path, explicit-invocation
-flags and the complete advice file path. Full metadata/evaluations remain in
-that file. Control reviews all optional recommendations against
-the actual task, combines accepted records with mandatory/user-selected skills,
-and passes all chosen names or unambiguous paths to `review --skills`. Review
-rejects disabled records and unrequired explicit-only records before reading
-their instruction bodies. To use an explicit-only skill, the actual session
-roster must contain that exact name/path and `required_skills` must record the
-user's explicit request or an applicable mandatory workflow. Merely accepting
-a Jev suggestion in `--skills` is insufficient. Review loads admitted instruction
-bodies; recommendations alone grant no authority. Native preparation creates no
-advice file and reports local selection provenance. Failed optional HTTP calls,
-timeouts or invalid responses remain `NOT_EVALUATED`, and a changed or missing
-optional advice file adds no denial to independently valid admission.
+`suggestion_block` provides an optional `<skill_relevance>` prompt block.
+Append it after the unchanged roster to preserve the roster's prefix cache.
+A winner is explicitly advisory and may be ignored. A valid no-fit result says
+that no skill in the roster appears relevant. Failed calls produce no block
+claiming that nothing fits.
 
-For optional advice, `selection.catalog_count` counts supplied records; `eligible_count` counts
-enabled records sent for evaluation; `explicit_count` counts their explicit-only
-subset; `disabled_count` counts excluded records. `evaluated_count` records actual
-provider coverage, and `requests` records the HTTP call count.
+`passes[]` retains validated Choice/Noul answers and request diagnostics for
+each rank or rerank call. `selection` retains catalog, policy, coverage, request
+and round counts plus the gate, shortlist and fit results. `evaluations[]`
+records initial within-packet probabilities and disabled entries; it no longer
+represents independent direct/supporting classifications. Rounded Choice
+probabilities retain `raw_probabilities` when narrowly normalized. Confidence
+is recorded without a cutoff. Noul values must be finite numbers in [0, 1].
+
+A valid winner or empty result remains `REVIEW_REQUIRED`. Missing credentials,
+invalid replies, HTTP failures, timeouts, unreadable details and oversized
+packets remain `NOT_EVALUATED`, with no partial recommendation or retry.
+Validated earlier passes remain evidence when a later call fails. The usage
+monitor reads both historical results and the new typed passes, projecting
+only validated numeric outputs and suggestion names, never instruction text.
+
+Control combines an accepted optional suggestion with mandatory/user-selected
+skills. Native review still rejects disabled or unrequired explicit-only
+sources and loads only admitted instructions. Optional advice does not alter
+task assessment, model selection, dispatch requirements or worker ownership.
 
 ## Verification and installation
 
-Run `node --test scripts/test-jev-agent.js scripts/test-jev-skills.js
-scripts/test-jev-multi.js scripts/test-codex-compliance.js` from this checkout.
-Tests cover complete 106, 500 and 1,000-entry catalogs, 30 late recommendations
-without a top-k cut, complementary workflows, uncertainty, provider rounding,
-policy restrictions, home discovery, session-only policy enforcement, aliases,
-failures, mandatory Control selections and immutable snapshots. An integration
-check combines native session skill selection with independent eligible route assessment
-and verifies that mutation still requires a matching dispatch. CLI routing tests resolve the existing installed
-routing/usage modules when an isolated checkout lacks those machine-local files.
+Run the advisor suites `scripts/test-jev-agent.js`,
+`scripts/test-jev-skills.js`, `scripts/test-jev-multi.js` and
+`scripts/test-jev-suggestion.js` with Node's test runner. The deterministic
+fixtures cover both gates, changed winners, top-three-only reads, excerpt
+bounds, duplicate names, explicit-only/disabled policy, provider failures,
+rounding and complete 106/500/1000-record ranking coverage.
+`scripts/test-dely-monitor-jev.js` checks compatible sanitized monitoring.
+The native advisory and compliance suites verify unchanged mandatory skill
+selection and independent admission.
 
-Install the adapter with the existing compliance installer and this checkout's
-`scripts/jev_agent.js` as its advisor source in both Codex homes. Reinstallation
-retains the existing credential search root and copies no API key. Preserve
-trusted hook wiring, then prepare and explicitly review the current task again
-under the new frozen fingerprints. Existing records are not silently migrated.
-Final acceptance checks zero default skill-advice calls, mandatory skill loading,
-selected-policy/alias integrity, and unchanged direct/Dely/worker admission.
-Deployment follows the plan's comparative and native-session release gates.
+Synchronize the registered source through native Node `scripts/sync-dely.js`
+after review and closure checks. A runtime change requires a new release
+version because the synchronizer preserves installed version snapshots.
+Require `COHERENT` for every selected home and start a fresh session.
 
 Provider references: [Choice](https://docs.typesafe.ai/primitives/choice),
+[Noul](https://docs.typesafe.ai/primitives/noul),
 [models and context limits](https://docs.typesafe.ai/models), and
 [skill suggestion cookbook](https://docs.typesafe.ai/cookbooks/skill_suggestion).

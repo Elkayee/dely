@@ -55,6 +55,39 @@ function fixture(t) {
   return { home, repo, skill, advisor, settings, task, options, event, prepare, review };
 }
 
+test("explicit resume keeps the approved task without new input, assessment or review", async (t) => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the confirmed task" }, f.home);
+  await f.prepare();
+  f.review();
+  const before = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  const files = fs.readdirSync(path.dirname(before.skill_input));
+  const next = { ...f.event, turn_id: "resume_turn" };
+  guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same confirmed task" }, f.home);
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  const resumed = guard.resume({ session: "session", turn: next.turn_id, repo: f.repo }, f.home);
+  assert.equal(resumed.status, "REVIEWED");
+  const after = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(after.assessment.review.reviewed_at, before.assessment.review.reviewed_at);
+  assert.equal(after.original_assessment, before.original_assessment);
+  assert.deepEqual(fs.readdirSync(path.dirname(before.skill_input)), files);
+  assert.deepEqual(guard.hook(next, f.home), {});
+  assert.throws(() => guard.resume({ session: "session", turn: next.turn_id, repo: f.repo, "task-json": JSON.stringify(f.task) }, f.home), /changed inputs/);
+  fs.appendFileSync(f.skill, "Changed selected instructions\n");
+  guard.hook({ ...next, turn_id: "changed", hook_event_name: "UserPromptSubmit" }, f.home);
+  assert.throws(() => guard.resume({ session: "session", turn: "changed", repo: f.repo }, f.home), /changed/i);
+});
+
+test("only concrete read-only git remote forms bypass task admission", () => {
+  const check = (command) => guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename);
+  for (const command of ["git remote", "git remote -v", "git remote --verbose", "rtk git remote -v", "git remote get-url origin"]) {
+    assert.equal(check(command), false, command);
+  }
+  for (const command of ["git remote add origin example", "git remote set-url origin example", "git remote remove origin", "git remote rename old new", "git remote update", "git remote show origin", "git remote -v; git push", "git remote --output=file", "git remote get-url origin --ext-diff"]) {
+    assert.equal(check(command), true, command);
+  }
+});
+
 function candidateFixture(t, f = fixture(t)) {
   const git = (...args) => {
     const result = spawnSync("git", args, { encoding: "utf8" });
@@ -239,6 +272,19 @@ test("production-only routing still requires native review and bound Dely dispat
     launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "production_context_dispatch" };
   fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
   assert.deepEqual(guard.hook(f.event, f.home), {});
+  const receipts = require("../skills/delivery/scripts/dispatch-receipts.js");
+  const receiptFile = receipts.record(f.repo, state.run, route, dispatch);
+  fs.unlinkSync(f.settings.journal);
+  assert.deepEqual(guard.hook(f.event, f.home), {}, "valid receipt must not require optional logging");
+  fs.mkdirSync(f.settings.journal);
+  assert.deepEqual(guard.hook(f.event, f.home), {}, "unwritable journal must not block receipt admission");
+  const next = { ...f.event, turn_id: "receipt_resume" };
+  guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue this Run" }, f.home);
+  assert.equal(guard.resume({ session: "session", turn: next.turn_id, repo: f.repo, run: state.run }, f.home).status, "REVIEWED");
+  const tampered = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
+  tampered.dispatch.contextSha256 = "wrong";
+  fs.writeFileSync(receiptFile, JSON.stringify(tampered));
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
 test("reviewed Control can stage only its exact new Run spec before dispatch", async (t) => {
@@ -465,7 +511,7 @@ test("native continuation CLI retains direct Hard evidence and normal prepare st
   const original = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const next = { ...f.event, turn_id: "next" };
   const guidance = guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the task" }, f.home);
-  assert.match(guidance.hookSpecificOutput.additionalContext, /--continue/);
+  assert.match(guidance.hookSpecificOutput.additionalContext, /resume/);
   const result = spawnSync(process.execPath, [path.join(f.home, "dely-compliance/codex-compliance.js"), "prepare",
     "--home", f.home, "--repo", f.repo, "--session", "session", "--turn", "next", "--continue",
     "--task-json", JSON.stringify(f.task)], { encoding: "utf8" });
@@ -543,7 +589,7 @@ test("case32/case33 native CLI persists proof through preflight, dispatch, Contr
   assert.ok(marker > 0);
   const exit = {}, starts = [];
   const context = vm.createContext({ require: createRequire(helper), __dirname: path.dirname(helper), __filename: helper,
-    Buffer, TextDecoder, console: { log: () => {} }, process: { platform: "win32", env: { DELY_POLL_S: "0.001" }, exit: (code) => { exit.code = code; throw exit; } } });
+    Buffer, TextDecoder, console: { log: () => {} }, process: { platform: "win32", env: { CODEX_HOME: f.home, DELY_POLL_S: "0.001" }, exit: (code) => { exit.code = code; throw exit; } } });
   vm.runInContext(source.slice(0, marker), context, { filename: helper });
   context.requireHandle = () => {};
   context.restoreControlFocus = () => {};
@@ -556,13 +602,27 @@ test("case32/case33 native CLI persists proof through preflight, dispatch, Contr
     const staged = spec.match(/Read the full task spec from (\S+)/);
     const delivered = staged ? fs.readFileSync(path.join(f.repo, staged[1]), "utf8") : spec;
     receipt = delivered.match(/rcpt_[a-f0-9]{16}/)?.[0] || "ack";
-    return { id: "ctx_native_v4", terminalHandle: "term_native_v4", launch: { modelEvidence: {
+    return { id: "ctx_native_v4", taskId: "task_native_v4", terminalHandle: "term_native_v4", launch: { modelEvidence: {
       session: "worker-v4", turn: "worker-turn", model: pin.model, effort: pin.effort } } };
   };
-  context.logEvent = (event, fields) => fs.appendFileSync(f.settings.journal, JSON.stringify({ event, ...fields }) + "\n");
-  context.orca = () => ({ result: { deliveryId: "fixture-delivery", messages: [
-    { type: "heartbeat", subject: receipt, dispatchId: "ctx_native_v4", from_handle: "term_native_v4" },
-    { type: "worker_done", dispatchId: "ctx_native_v4", payload: { outcome: "succeeded" } } ] } });
+  const replies = [];
+  context.logEvent = (event, fields) => { fs.appendFileSync(f.settings.journal, JSON.stringify({ event, ...fields }) + "\n", { flush: event === "dispatch" }); return true; };
+  context.orca = (args) => {
+    if (args[1] === "reply") {
+      assert.equal(args[args.indexOf("--id") + 1], "question_native_v4");
+      assert.equal(args[args.indexOf("--body") + 1], "dely-admitted " + receipt);
+      assert.ok(guard.logRecords(f.settings.journal).some(row => row.event === "dispatch" && row.dispatchId === "ctx_native_v4"));
+      replies.push(args);
+    }
+    return { ok: true, result: { deliveryId: "fixture-delivery", messages: [
+      { type: "heartbeat", subject: receipt, from_handle: "term_native_v4",
+        payload: JSON.stringify({ taskId: "task_native_v4", dispatchId: "ctx_native_v4", phase: "waiting" }) },
+      { type: "question", id: "foreign_question", subject: "Question", body: "dely-admission " + receipt, from_handle: "dispatch:ctx_other",
+        payload: JSON.stringify({ taskId: "task_native_v4", dispatchId: "ctx_native_v4", question: "dely-admission " + receipt, options: [] }) },
+      { type: "question", id: "question_native_v4", subject: "Question", body: "dely-admission " + receipt, from_handle: "dispatch:ctx_native_v4",
+        payload: JSON.stringify({ taskId: "task_native_v4", dispatchId: "ctx_native_v4", question: "dely-admission " + receipt, options: [] }) },
+      { type: "worker_done", dispatchId: "ctx_native_v4", payload: { outcome: "succeeded" } } ] } };
+  };
   context.releaseWorker = () => ({ state: "released" });
   assert.throws(() => context.preflight(flags), (e) => e === exit);
   assert.equal(exit.code, 0);
@@ -570,6 +630,7 @@ test("case32/case33 native CLI persists proof through preflight, dispatch, Contr
   assert.throws(() => context.dispatch({ ...flags, phase: "implement", fallback: "quota" }), (e) => e === exit);
   assert.equal(exit.code, 0);
   assert.equal(starts[1].model, "gpt-6-luna");
+  assert.equal(replies.length, 1);
   const inventory = path.join(os.tmpdir(), "dely-run-" + run + ".jsonl");
   assert.equal(fs.existsSync(inventory), false);
   fs.writeFileSync(inventory, JSON.stringify({ owned: true, terminalHandle: "term_native_v4", dispatchId: "ctx_native_v4" }) + "\n");
@@ -1068,6 +1129,10 @@ test("native preparation retains the exact session roster without expanding it f
   assert.equal(prepared.skill_selection.advice_status, "NOT_REQUESTED");
   const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   assert.deepEqual(JSON.parse(fs.readFileSync(state.session_roster, "utf8")).skills, f.task.skills);
+  assert.equal(state.session_roster, state.skill_input);
+  assert.equal(state.source_roster, state.skill_input);
+  assert.equal(fs.existsSync(path.join(path.dirname(state.skill_input), "session-skills.json")), false);
+  assert.equal(fs.existsSync(path.join(path.dirname(state.skill_input), "skill-sources.json")), false);
   assert.deepEqual(JSON.parse(fs.readFileSync(state.skill_input, "utf8")).skills.map((skill) => skill.name),
     ["required", "dely:delivery"]);
   assert.throws(() => f.review({ skills: '["required","home-skill"]' }), /supplied skills/);
@@ -1551,6 +1616,15 @@ test("worker exception needs actual dispatch, model and owned terminal evidence"
   assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false);
   fs.writeFileSync(f.settings.journal, [dispatch, { ...route, specSha256: dispatch.snapshotSha256 }].map(JSON.stringify).join("\n") + "\n");
   assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false);
+  const receipts = require("../skills/delivery/scripts/dispatch-receipts.js");
+  const file = receipts.record(f.repo, dispatch.run, route, dispatch);
+  fs.unlinkSync(f.settings.journal);
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), true);
+  assert.equal(guard.verifiedWorker({ ...event, turn_id: "foreign" }, f.settings, handle, stagedClaim), false);
+  assert.equal(guard.verifiedWorker(event, f.settings, "foreign", stagedClaim), false);
+  fs.writeFileSync(f.settings.journal, [dispatch, route].map(JSON.stringify).join("\n") + "\n");
+  fs.writeFileSync(file, "{partial");
+  assert.equal(guard.verifiedWorker(event, f.settings, handle, stagedClaim), false, "invalid new receipts must not fall back to journal authority");
 });
 
 test("preparation retains a dispatched worker's current prompt claim", async (t) => {

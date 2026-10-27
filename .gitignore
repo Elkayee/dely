@@ -3,3 +3,8 @@
 .env
 .env.*
 !.env.example
+
+orca-app/
+.cache/
+.dely/
+

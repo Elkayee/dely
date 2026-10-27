@@ -191,6 +191,20 @@ test("safe telemetry and incomplete observations stay distinct from evaluated ad
   assert.match(view.model, /Requested.*jev-1.13.0.*Provider.*not recorded/i);
   assert.match(view.proposal, /No valid reply/);
 });
+test("two-pass skill advice remains evaluated in the monitor without exposing instruction excerpts", async (t) => {
+  const { homes, put } = fixture(t), advisor = require("./jev_agent.js");
+  const input = { request: "Fix the documented export bug.", skills: [
+    { name: "diagnosing-bugs", path: "private/SKILL.md", description: "Diagnose bugs", body: "PRIVATE_INSTRUCTION_EXCERPT" },
+  ] };
+  const fetch = async (_, options) => ({ ok: true, status: 200, json: async () => ({ model: advisor.MODEL,
+    answers: require("./fixtures/jev-skill-reply.js")(JSON.parse(options.body)) }) });
+  put(homes[0], "two-pass", "skill-advice.json", await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch }));
+  const result = await createJevReader({ homes })(), row = result.rows[0];
+  assert.equal(row.category, "valid");
+  assert.equal(row.suggestions[0].name, "diagnosing-bugs");
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_INSTRUCTION_EXCERPT|private\/SKILL/);
+});
+
 test("legacy generic errors and unevaluated records retain their populations without inferred telemetry", async (t) => {
   const { homes, put } = fixture(t);
   for (let i = 0; i < 42; i++) put(homes[0], "old-task-" + i, "assessment.json", {

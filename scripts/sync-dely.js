@@ -125,7 +125,8 @@ function plan({ source, catalog, homes }) {
       .filter((file) => expected.hashes[file] !== installed.hashes[file]) : ["CATALOG_NOT_INSTALLED"];
     const settings = json(path.join(home, "dely-compliance/settings.json"));
     const bindings = { delivery: "skills/delivery/SKILL.md", routing: "skills/delivery/scripts/task-routing.js",
-      dely: "skills/delivery/scripts/dely.js", advisor_source: "scripts/jev_agent.js", updater: "scripts/sync-dely.js" };
+      dely: "skills/delivery/scripts/dely.js", receipts: "skills/delivery/scripts/dispatch-receipts.js",
+      advisor_source: "scripts/jev_agent.js", updater: "scripts/sync-dely.js" };
     const drift = Object.entries(bindings).filter(([key, relative]) =>
       !settings[key] || !fs.existsSync(settings[key]) || !fs.existsSync(path.join(target, relative)) ||
       !equalPath(settings[key], path.join(target, relative)))
@@ -134,6 +135,8 @@ function plan({ source, catalog, homes }) {
     if (!matchesHomes(settings.sync_homes)) drift.push("sync_homes");
     if (!settings.updater || !settings.dependencies?.[settings.updater] ||
         settings.dependencies[settings.updater] !== expected.hashes["scripts/sync-dely.js"]) drift.push("updater_pin");
+    if (!settings.receipts || !settings.dependencies?.[settings.receipts] ||
+        settings.dependencies[settings.receipts] !== expected.hashes["skills/delivery/scripts/dispatch-receipts.js"]) drift.push("receipts_pin");
     const config = path.join(home, "config.toml");
     const configText = fs.existsSync(config) ? fs.readFileSync(config, "utf8") : "";
     const legacy_enabled = oldPlugins(configText).enabled;

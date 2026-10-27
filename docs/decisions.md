@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-10-23 — Keep missing-evidence diagnostics separate from admission (0.27.17)
+
+Add operator-invoked `evidence` advice to the existing native advisory envelope.
+Resolve a same-repository frozen native task, validate the original assessment,
+and bind its exact spec/context/assessment bytes to the current owner and prompt.
+Reuse the existing exclusive reservation, dependency checks and replay behavior.
+No old assessment, raw answer or review is rewritten; classification is never
+automatically retried.
+
+Use fixed typed choices to identify missing or contradictory verification
+components, with unknown remaining unevaluated. These are fresh untrusted
+judgments, not the original model's hidden reason. Even all-present diagnostics
+require review and grant no implementation authority. Keep all existing raw
+insufficient-evidence vetoes, routing, correction and fallback rules intact.
+Advance the release version for immutable-cache synchronization; preserve the
+previous installed releases and native hook definitions.
+
 ## 2026-10-21 — Keep Run staging and sync targets complete (0.27.16)
 
 The create-only Run spec exception uses the reviewed execution repository,
@@ -5745,3 +5762,81 @@ production exclusion as historical instead of inferring it from a true context
 flag. Focused routing tests cover every Jev grade, mixed exclusions, missing
 context and provider failures; native admission still requires reviewed Dely
 dispatch evidence for an eligible production-only task.
+
+## 2026-10-25 — Keep workflow approval with the task
+
+Version 0.27.21 adds explicit `resume` for an unchanged confirmed task. It
+retains the reviewed checkpoint after validating owner, model, instructions,
+software, target, policies, task hashes and delegated dispatch evidence. New
+scope uses fresh preparation. Legacy `prepare --continue` remains available.
+New preparations store one roster rather than duplicate roster files.
+
+Dispatch and native worker admission use per-Run immutable receipts; journal
+logging remains optional. Historical Runs without receipts retain their old
+journal check, while invalid new receipts never fall back to that journal.
+Worker identity, receipt acknowledgement, fallback and reconciliation checks
+remain required. The sync check pins the receipt module in each installation.
+
+The delivery skill now states the effective local review owner: Codex Control
+reviews directly and workers implement only. Acceptance uses focused checks
+matched to risk; additional invalid-input/counterexample checks remain required
+for consequential admission, security, data-loss and compatibility changes.
+Concrete read-only remote inspection is allowed before task admission; remote
+mutation and compound commands still require review.
+
+## 2026-10-25 — Classify supplied pre-implementation evidence (0.27.22)
+
+Configure the shared Jev difficulty questions with dimension-specific missing
+facts and one pre-implementation evidence rule. Read the full spec and context
+together. An available method, fixture, procedure, expected result, plausible
+failure and inspected provenance can establish planned verification; passing
+execution belongs to subsequent acceptance. A specified temporary artifact can
+be a fixture, and verification-only work does not imply new implementation in
+every component it tests.
+
+Keep all five labels, raw answers, Max Rank, Hard exclusions, correction and
+fallback rules. Necessary absent or contradictory evidence still blocks a
+grade; uncertainty between supported ranks alone is not an evidence gap.
+Do not force a rank or retry an unchanged snapshot until it passes.
+
+One real Jev 1.13 assessment of the unchanged earlier smoke fixture returned
+Medium+ with no insufficient-evidence answers. A separate fixture lacking an
+acceptance oracle remained NOT_EVALUATED. These are focused question checks,
+not completion of the pending live worker workflow or full portable checklist.
+Preserve the original assessments and use the existing versioned two-home sync.
+
+## 2026-10-26 — Suggest one skill after ranking and detailed verification (0.27.23)
+
+The owner requested the TypeSafe skill-suggestion cookbook's two-pass behavior.
+Replace independent direct/supporting classifications with a wide Choice and
+three request Nouls, followed by a detailed Choice and candidate-fit Nouls over
+the top three. The oriented request-gate mean and maximum fit use the recipe's
+0.30 thresholds. Choice selects the optional winner; the fit scores determine
+whether to suggest anything. These defaults are not an accuracy guarantee.
+
+This intentionally changes the standalone advice contract: `suggestions[]`
+contains at most one original record, with `suggestion` as its alias, and valid
+empty results carry an explicit advisory prompt block. Mandatory/explicit
+selection, disabled and explicit-only policy, native preparation, admission,
+model routing and worker ownership retain their existing authority. The plan
+review suggested splitting; Control retained one outcome because the ranking,
+verification, consumer result and installation share one acceptance contract.
+
+Only shortlisted instruction excerpts, capped at 700 Unicode characters, leave
+the machine alongside descriptions; paths remain local. Supplied full
+descriptions/bodies support self-contained rosters. Provider option and byte
+limits use bounded ranking chunks with shrinking survivor comparisons rather
+than discarding late candidates. Validated passes retain numeric evidence on
+later failure without yielding a partial recommendation or retry. The monitor
+supports these passes alongside historical results and excludes instruction
+text from its projection.
+
+The discriminating advisor regression observed one request instead of the
+required two before the fix. The monitor regression separately observed a
+valid new result classified as unknown. Both pass after their respective
+fixes, along with focused advisor, monitoring and native admission checks.
+Live Jev 1.13 selected the authoring skill for a new deck after two calls and
+rejected a prose-only request after one call. These are focused live checks,
+not a reproduction of the cookbook's 488-request quality benchmark. Existing
+worktree changes are preserved. Release synchronization uses a new version to
+retain the prior installed runtime snapshot.

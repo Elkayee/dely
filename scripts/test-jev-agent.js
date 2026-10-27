@@ -27,8 +27,8 @@ const context = { request: "Review the weekly cost report code.",
     { id: "rule", path: "AGENTS.md", source: "Keep provenance.", required: true },
   ] };
 const skills = { request: "Diagnose the export bug.", skills: [
-  { name: "diagnosing-bugs", path: "skills/diagnosing-bugs/SKILL.md", description: "Diagnosis loop for failing code." },
-  { name: "slides", path: "skills/slides/SKILL.md", description: "Build slide presentations." },
+  { name: "diagnosing-bugs", path: "skills/diagnosing-bugs/SKILL.md", description: "Diagnosis loop for failing code.", body: "Diagnose the cause." },
+  { name: "slides", path: "skills/slides/SKILL.md", description: "Build slide presentations.", body: "Author a slide deck." },
 ] };
 
 function answer(options, choice) {
@@ -41,8 +41,9 @@ function transport(choices, change = () => {}) {
     assert.equal(options.redirect, "error");
     assert.equal(options.headers.Authorization, "Bearer TEST_KEY");
     const sent = JSON.parse(options.body);
-    const reply = { model: advisor.MODEL, answers: Object.fromEntries(Object.entries(sent.questions)
-      .map(([id, q]) => [id, answer(Object.keys(q.criteria), choices[id])])) };
+    const reply = { model: advisor.MODEL, answers: sent.questions.which ?
+      require("./fixtures/jev-skill-reply.js")(sent, { fits: choices.s0 === "unrelated" ? 0.1 : 0.8 }) :
+      Object.fromEntries(Object.entries(sent.questions).map(([id, q]) => [id, answer(Object.keys(q.criteria), choices[id])])) };
     change(reply, sent);
     return { ok: true, json: async () => reply };
   };
@@ -102,26 +103,17 @@ test("frozen installed advisor preserves safe stages and incomplete skill batche
     })) };
     for (const [stage, code, fail] of failures) {
       let calls = 0;
-      const result = await call(many, "skill", async (...args) => ++calls === 2 ? fail(...args) : transport({}, (reply) => {
-        for (const answer of Object.values(reply.answers)) {
-          answer.choice = "direct";
-          for (const key of Object.keys(answer.probabilities)) answer.probabilities[key] = Number(key === "direct");
-        }
-      })(...args));
+      const result = await call(many, "skill", async (...args) => ++calls === 2 ? fail(...args) : transport({})(...args));
       assert.equal(calls, 2);
       assert.equal(result.status, "NOT_EVALUATED");
       assert.deepEqual(result.suggestions, []); assert.equal(result.suggestion, null);
       assert.deepEqual(result.evaluations, []);
-      const progress = result.incomplete_batch_progress;
-      assert.equal(progress.input_sha256, result.input_sha256);
-      assert.equal(progress.batch_index, 1); assert.equal(progress.completed_batches, 1);
-      assert.ok(progress.completed_evaluations > 0);
-      assert.equal(progress.evaluations.length, progress.completed_evaluations);
-      assert.ok(progress.batch_count > 1);
-      assert.equal(progress.requests.length, 2);
-      assert.equal(progress.requests[0].stage, "complete");
-      assert.equal(progress.requests[1].stage, stage); assert.equal(progress.requests[1].code, code);
-      assert.equal(progress.requests[1].provider_model, null);
+      assert.equal(result.passes.length, 2);
+      assert.ok(result.passes[0].answers.which);
+      assert.equal(result.passes[0].request_diagnostics.stage, "complete");
+      assert.equal(result.passes[1].request_diagnostics.stage, stage);
+      assert.equal(result.passes[1].request_diagnostics.code, code);
+      assert.equal(result.passes[1].request_diagnostics.provider_model, null);
       assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
     }
   }
@@ -143,8 +135,8 @@ test("both advice modes record bounded request failure stages and no raw provide
       assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
       if (mode === "skill") {
         assert.deepEqual(result.suggestions, []); assert.equal(result.suggestion, null);
-        assert.equal(result.incomplete_batch_progress.completed_batches, 0);
-        assert.deepEqual(result.incomplete_batch_progress.evaluations, []);
+        assert.equal(result.passes.length, 1);
+        assert.ok(!result.passes[0].answers);
       }
     }
   }
@@ -230,7 +222,7 @@ test("invalid replies cannot turn into useful advice", async () => {
     assert.equal(result.status, "NOT_EVALUATED");
     assert.deepEqual(result.ranked_context, context.candidates);
   }
-  const skill = await run(skills, "skill", transport({ s0: "direct", s1: "unrelated" }, (r) => { r.answers.s0.choice = "injected"; }));
+  const skill = await run(skills, "skill", transport({ s0: "direct", s1: "unrelated" }, (r) => { r.answers.which.choice = "injected"; }));
   assert.equal(skill.status, "NOT_EVALUATED");
   assert.equal(skill.suggestion, null);
 });

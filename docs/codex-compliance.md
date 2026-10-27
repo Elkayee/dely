@@ -48,6 +48,9 @@ pipelines, redirects and wrappers remain subject to review. A denied tool stays
 blocked and permits an honest limitation report at Stop. A preflight healthcheck performs only
 read-only instruction loading and Orca lifecycle calls, then stops without
 implementation or a separate Jev review.
+Simple `git remote`, `git remote -v`, `git remote --verbose` and
+`git remote get-url <name>` are read-only conveniences. Mutating remote
+subcommands and `remote show` (which may contact the remote) still require review.
 After Context Engine returns multiple optional candidates, use the existing
 Jev context command and preserve every candidate and its provenance.
 
@@ -121,7 +124,7 @@ or ownership change.
    reloads the original frozen spec/context and validates the approved route;
    arbitrary copies, changed bytes and escaping paths remain rejected.
    The gate accepts the installed Dely coordination
-   commands before dispatch, then requires journal evidence with matching
+   commands before dispatch, then requires dispatch receipts with matching
    spec/context hashes before ordinary mutations.
 5. For Hard, implement directly after review. The routing module retains its
    existing risk exclusions and model selection; the hook checks the active
@@ -184,26 +187,73 @@ software between completed plans with `--preserve-hooks`; do not replace the
 advisor during an admitted implementation. Advice grants no skill, model,
 difficulty, dispatch or fallback authority.
 
+### Diagnose a frozen insufficient-evidence assessment
+
+In a fresh interactive prompt in the assessed repository, keep the actual native
+skill roster and mandatory skills in the current nonce-bound task input. Use
+`mode: "advice"`, give the task a diagnostic request, and add this envelope
+(replace the example ID with the existing native task directory name):
+
+```json
+"advisory": {
+  "mode": "evidence",
+  "input": {
+    "request": "Diagnose the frozen verification evidence",
+    "task_id": "0123456789abcdef01234567"
+  }
+}
+```
+
+The inner request must exactly match the enclosing task's request. Add only the
+new input file printed by this prompt's hook, using `apply_patch`. Run the hook's
+absolute native Node command with `advise` in place of `prepare`, retaining its
+five arguments: `--session`, `--turn`, `--repo`, `--home`, and `--task-file`.
+Read the reported `output_file` and explicitly review the advice. No classification
+is retried and no implementation is authorized by this operation.
+
+The target must be under this home's `dely-compliance/tasks/`, belong to the
+current repository, and retain its original `spec.md`, `context.json` and
+`assessment.json`. Its raw verification answer must be `insufficient_evidence`.
+The adapter validates the original assessment and exact source paths, rejects
+links, and binds all three files' bytes to the current owner, prompt, task and
+frozen software. It rechecks the binding before writing a result and on replay.
+Existing records are never rewritten. A lost or incomplete reservation stops;
+a complete result is reused without another provider call.
+
+`result.checks` contains typed `present`, `missing`, `contradictory`, or `unknown`
+judgments for method, fixture, procedure, expected result, counterexample, and
+source/caller/detector provenance. `gaps` names missing or contradictory elements.
+Unknown checks and any result containing them remain `NOT_EVALUATED`; known
+partial diagnostics are retained. Malformed replies and provider failures also
+remain unevaluated. `binding` records the exact spec/context/assessment hashes.
+
+All-present advice remains `REVIEW_REQUIRED` with `authority: "NONE"`. An empty
+gap list means the diagnostic identified no specific gap. This is a fresh,
+untrusted judgment, not access to the original model's hidden reason. Planned
+detectors are valid before implementation; executed acceptance belongs after it.
+Control must inspect any proposed gap, gather real new evidence if needed, and
+prepare a fresh snapshot for subsequent work. Raw insufficient-evidence vetoes,
+ordinary review/dispatch/edit gates, grades, corrections and fallbacks remain
+unchanged, even when every diagnostic check says `present`.
+
 ## Continue the same confirmed task
 
-An implementation review saves a private immutable `continuation.json` checkpoint.
-After a wake, native state remains `PENDING`; the checkpoint grants no permission.
-Stage the new current-turn input from the actual session roster, retaining the same
-specification, context, target and mandatory skills. Add `--continue` to the printed
-`prepare` command and supply the original `--run` for delegated work. Direct Hard
-work omits `--run`. Build the input normally; `native_continuation` is reserved
-adapter metadata and must not be supplied by the caller.
+An implementation review saves an immutable `continuation.json` checkpoint.
+After a new prompt, native state is `PENDING` until Control explicitly resumes
+the same confirmed task. Run the installed script's `resume` command with
+the current `--session`, `--turn`, `--repo` and `--home`, plus the original
+`--run` for delegated work. Direct Hard work omits `--run`.
 
-Continuation reuses the original paths and raw assessment without another Jev
-request. It validates the owner session, native model, thread/terminal, instructions,
-selected policies, software, target and artifact fingerprints. A delegated task
-also needs its original matching dispatch. The preparation event uses operation
-`continue`, rather than suggesting a new assessment occurred.
+Resume validates owner session, native model, thread/terminal, instructions,
+selected skill policies, software, target, immutable checkpoint and all task
+fingerprints. Delegated work also needs its original matching dispatch.
+It reuses the original approval, selected skills, raw assessment and correction
+proof. It creates no new task input, roster, assessment or review, and makes no
+Jev request. New task inputs and skill selections are rejected by resume.
+Workers cannot resume a Control approval through a staged receipt claim.
 
-Explicit current-turn Control review remains required. Keep the original difficulty,
-Run, selected skill set and any correction proof. A fresh reviewed artifact is
-written for the current turn; the original assessment and review stay unchanged.
-Workers cannot consume a Control continuation through a staged receipt claim.
+The earlier `prepare --continue` form remains accepted for existing callers;
+that form still stages an input and requires explicit current-turn review.
 
 For a changed task, instructions, model, roster, target, dependency or software,
 use normal preparation and the required new dispatch. Older states without a
@@ -217,6 +267,26 @@ Optional skill advice and valid Hard exclusions do not require backfill. Keep
 supplemental results separate, linked by original input/result hashes; they do
 not rewrite an approved assessment or dispatch. A later changed snapshot is a
 matching candidate until Control confirms its relationship to the original.
+
+## Dispatch evidence and optional logging
+
+New dispatches write one immutable receipt per dispatch under the Run's
+`receipts/` directory before acknowledging native admission. The receipt binds
+the route and actual launch to the repository, Run, original spec/context,
+assessment/correction hashes, dispatch and terminal identity. Native worker
+admission also validates the current session/turn/model/effort, delivered
+prompt claim and owned inventory. A missing, partial or mismatched receipt
+grants no admission. Linked receipt paths are rejected.
+
+The journal is optional telemetry. Missing, unwritable or oversized journal
+files do not block valid receipt-based admission. Historical Runs without a
+receipt directory retain their legacy journal check; once a Run has receipt
+evidence, invalid receipts cannot fall back to journal authority. Older native
+adapters still require their legacy journal until reinstalled between tasks.
+
+New task preparation stores one authoritative `skills.json` roster; the
+state's skill-input, session-roster and source-roster references share it.
+Historical snapshots are read without rewriting their original files.
 
 File input keeps a large session skill catalog out of the Windows process
 command line. Relative paths resolve from the current working directory;

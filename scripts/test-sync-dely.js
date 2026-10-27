@@ -31,6 +31,7 @@ function fixture(t, count = 1) {
   for (const file of ["harnesses.json", "plugin.json", ".cursor-plugin/plugin.json"]) put(source, file, {});
   for (const file of ["skills/delivery/SKILL.md", "skills/delivery/scripts/task-routing.js",
     "skills/delivery/scripts/dely.js", "skills/delivery/scripts/usage.js", "extensions/pin.ts"]) put(source, file, "fixture");
+  put(source, "skills/delivery/scripts/dispatch-receipts.js", fs.readFileSync(path.join(__dirname, "../skills/delivery/scripts/dispatch-receipts.js")));
   put(source, "scripts/jev_agent.js", 'const ROOT = path.resolve(__dirname, "..");');
   put(source, "scripts/codex-compliance.js", fs.readFileSync(path.join(__dirname, "codex-compliance.js")));
   for (const name of ["codex-compliance", "task-risk-policy", "jev-skill-advice"]) {
@@ -107,7 +108,7 @@ test("plan detects canonical path drift without writing or treating equal bytes 
   const result = plan(f.options);
   assert.equal(result.status, "BINDING_DRIFT");
   assert.deepEqual(result.homes[0].different, []);
-  assert.deepEqual(result.homes[0].drift.slice(0, 4), ["delivery", "routing", "dely", "advisor_source"]);
+  assert.deepEqual(result.homes[0].drift.slice(0, 5), ["delivery", "routing", "dely", "receipts", "advisor_source"]);
   assert.ok(fs.readFileSync(path.join(f.homes[0], "dely-compliance/settings.json")).equals(before));
   assert.equal(fs.existsSync(path.join(f.homes[0], "dely-compliance/backups")), false);
 });

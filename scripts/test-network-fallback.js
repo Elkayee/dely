@@ -52,7 +52,7 @@ function fixture(t, state) {
   const nativeRequire = createRequire(helper), exit = {}, calls = [], events = [];
   const c = vm.createContext({ require: (p) => p === "./task-routing.js" ? { ...routing, requireApprovedRoute: () => decision } : nativeRequire(p),
     __dirname: path.dirname(helper), __filename: helper, Buffer, TextDecoder,
-    process: { platform: "win32", env: {}, exit: (code) => { exit.code = code; throw exit; } }, console: { log: () => {} } });
+    process: { platform: "win32", env: { CODEX_HOME: path.join(repo, "no-native-adapter") }, exit: (code) => { exit.code = code; throw exit; } }, console: { log: () => {} } });
   vm.runInContext(source.slice(0, source.indexOf("const [cmd, ...rest] = process.argv.slice(2);")), c);
   c.pin = (_, phase) => phase === "implement_backup_2" ? { agent: "codex", model: "gpt-6-luna", effort: "max" } :
     { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" };

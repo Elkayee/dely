@@ -19,7 +19,7 @@ test("two real processes cannot replace the winner's pending fallback or launch 
   fs.writeFileSync(path.join(folder, "pending-start.json"), JSON.stringify({ repo, run, phase: "implement",
     sourceSha256: sha(spec), contextSha256: sha("context"), assessmentBasisSha256: sha("basis"),
     pin: { agent: "antigravity", model: "gemini-3.8-flash-medium", effort: "default" },
-    submissionAttempted: false, failed: true, transportFailure: { source: "orca_adapter", code: "ECONNRESET", operation: "repo add" } }));
+    nativeAdmission: false, admissionConfig: null, submissionAttempted: false, failed: true, transportFailure: { source: "orca_adapter", code: "ECONNRESET", operation: "repo add" } }));
   const program = path.join(repo, "child.cjs");
   fs.writeFileSync(program, `
 const fs=require('fs'),path=require('path'),vm=require('vm'),crypto=require('crypto'),{createRequire}=require('module');
@@ -27,7 +27,7 @@ const [helper,repo]=process.argv.slice(2),r=createRequire(helper),routing=r('./t
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const decision={difficulty:'medium_minus',route:routing.route('medium_minus'),task:{spec_sha256:sha(fs.readFileSync(path.join(repo,'spec.md'))),context_sha256:sha('context')},assessment_basis_sha256:sha('basis'),review:{source:'control-evidence'}};
 const source=fs.readFileSync(helper,'utf8');
-const c=vm.createContext({require:p=>p==='./task-routing.js'?{...routing,requireApprovedRoute:()=>decision}:r(p),__dirname:path.dirname(helper),__filename:helper,Buffer,TextDecoder,process:{platform:'win32',pid:process.pid,env:{},once:process.once.bind(process),removeListener:process.removeListener.bind(process),exit:process.exit.bind(process)},console});
+const c=vm.createContext({require:p=>p==='./task-routing.js'?{...routing,requireApprovedRoute:()=>decision}:r(p),__dirname:path.dirname(helper),__filename:helper,Buffer,TextDecoder,process:{platform:'win32',pid:process.pid,env:{CODEX_HOME:path.join(repo,'no-native-adapter')},once:process.once.bind(process),removeListener:process.removeListener.bind(process),exit:process.exit.bind(process)},console});
 vm.runInContext(source.slice(0,source.indexOf('const [cmd, ...rest] = process.argv.slice(2);')),c);
 c.pin=()=>({agent:'codex',model:'gpt-6-luna',effort:'max'});c.requireHandle=c.restoreControlFocus=c.recordOwnedSnapshot=c.logEvent=()=>{};
 let marker;

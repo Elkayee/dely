@@ -6,11 +6,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const advisor = require("./jev_agent.js");
+const skillReply = require("./fixtures/jev-skill-reply.js");
 
 function catalog(count, descriptionSize = 200) {
   return { request: "Diagnose a failing export and trace the cause.", skills: Array.from({ length: count }, (_, i) => ({
     name: "skill-" + i, path: "skills/skill-" + i + "/SKILL.md",
     description: "Capability " + i + ": " + "documented procedure ".repeat(descriptionSize / 20),
+    body: "Documented test instructions.",
   })) };
 }
 
@@ -22,23 +24,20 @@ function provider(input, target, calls, chooseNone = false) {
     const sent = JSON.parse(options.body);
     assert.equal(sent.state.request, input.request);
     assert.ok(!sent.state.skills, "catalog metadata is never duplicated in state");
-    const ids = Object.keys(sent.questions);
+    const ids = Object.keys(sent.questions.which.criteria);
     for (const id of ids) {
       const skill = input.skills[Number(id.slice(1))];
-      assert.deepEqual(sent.questions[id].instructions.skill, { name: skill.name, description: skill.description });
-      assert.deepEqual(Object.keys(sent.questions[id].criteria), ["direct", "supporting", "unrelated", "unknown"]);
+      const detail = sent.questions.which.criteria[id];
+      assert.equal(detail.name, skill.name);
+      assert.equal(detail.description, skill.description);
     }
     calls.push(ids);
-    return { ok: true, json: async () => ({ model: advisor.MODEL, answers: Object.fromEntries(ids.map((id) => {
-      const choice = !chooseNone && id === target ? "direct" : "unrelated";
-      return [id, { type: "choice", choice, confidence: 1,
-        probabilities: Object.fromEntries(Object.keys(sent.questions[id].criteria).map((key) => [key, Number(key === choice)])) }];
-    })) }) };
+    return { ok: true, json: async () => ({ model: advisor.MODEL, answers: skillReply(sent, { target, fits: chooseNone ? 0.1 : 0.8 }) }) };
   };
 }
 
 for (const [count, size] of [[106, 400], [500, 200], [1000, 200]]) {
-  test("full " + count + "-skill catalog is independently evaluated with late candidates selectable", async () => {
+  test("full " + count + "-skill catalog is ranked with late candidates selectable", async () => {
     const input = catalog(count, size);
     const before = JSON.stringify(input);
     const calls = [];
@@ -75,7 +74,7 @@ test("enabled explicit-only metadata is evaluated while disabled skills stay une
   const result = await advisor.advise(input, "skill", { apiKey: "TEST_KEY", fetch: provider(input, "s2", calls) });
   assert.equal(result.status, "REVIEW_REQUIRED");
   assert.deepEqual(result.suggestion, input.skills[2]);
-  assert.deepEqual(calls, [["s0", "s2"]]);
+    assert.deepEqual(calls, [["s0", "s2"], ["s2", "s0"]]);
   assert.equal(input.skills.length, 3);
   assert.equal(result.selection.catalog_count, 3);
   assert.equal(result.selection.eligible_count, 2);
@@ -108,7 +107,7 @@ test("home discovery reads metadata, nested skills and policies without returnin
   assert.throws(() => advisor.discoverSkills(root, home), /Invalid skill invocation policy/);
 });
 
-test("oversized single metadata fails closed while large independent questions remain evaluable", async () => {
+test("oversized metadata and non-shrinking ranking chunks fail closed", async () => {
   const huge = catalog(1);
   huge.skills[0].description = "x".repeat(32000);
   const oversized = await advisor.advise(huge, "skill", { apiKey: "TEST_KEY", fetch: () => assert.fail("must not call") });
@@ -118,10 +117,11 @@ test("oversized single metadata fails closed while large independent questions r
   bulky.skills.forEach((skill) => { skill.description = "x".repeat(16000); });
   const calls = [];
   const result = await advisor.advise(bulky, "skill", { apiKey: "TEST_KEY", fetch: provider(bulky, "s3", calls) });
-  assert.equal(result.status, "REVIEW_REQUIRED");
-  assert.deepEqual(result.suggestions, [bulky.skills[3]]);
+  assert.equal(result.status, "NOT_EVALUATED");
+  assert.equal(result.reason, "SKILL_REQUEST_TOO_LARGE");
+  assert.deepEqual(result.suggestions, []);
   assert.equal(result.selection.evaluated_count, 4);
-  assert.equal(calls.length, 2, "separate question bounds still permit several descriptions per packet");
+  assert.equal(calls.length, 4, "the bounded Choices cannot compare these oversized descriptions");
 });
 
 test("later batch failures and malformed answers invalidate the entire skill decision without exposing secrets", async () => {

@@ -291,7 +291,8 @@ function orcaVersion() {
 }
 
 // Append one JSON object to ~/.dely/log.jsonl when that directory already
-// exists. Never mkdir. A write failure must not change exit, print, or flow.
+// exists. Never mkdir or throw. Ordinary logging remains optional; the native
+// admission adapter already requires its dispatch evidence before guarded tools.
 function logEvent(event, extra) {
   extra = extra || {};
   try {
@@ -309,7 +310,8 @@ function logEvent(event, extra) {
       if (k in rec) continue;
       rec[k] = extra[k];
     }
-    fs.appendFileSync(path.join(os.homedir(), ".dely", "log.jsonl"), JSON.stringify(rec) + "\n");
+    fs.appendFileSync(path.join(os.homedir(), ".dely", "log.jsonl"), JSON.stringify(rec) + "\n", { flush: event === "dispatch" });
+    return true;
   } catch (_) {
     /* observer */
   }
@@ -442,7 +444,7 @@ function isProvenDead(dispatchId, handle = null, run = null) {
   return false;
 }
 
-function startAgyWindows(repo, run, p, spec, title) {
+function startAgyWindows(repo, run, p, spec, title, trackPending = false) {
   const adapterError = (response, operation, fields = {}) => ({ ...fields,
     error: (response.error && response.error.message) || operation + " failed",
     transportFailure: require("./network-fallback.js").classify(response, operation) });
@@ -491,7 +493,7 @@ function startAgyWindows(repo, run, p, spec, title) {
     return adapterError(termRes, "terminal create", { state: "outcome_unknown" });
   }
   recordOwnedTerminal(run, handle);
-  updatePendingStart(repo, run, { terminalHandle: handle });
+  if (trackPending) updatePendingStart(repo, run, { terminalHandle: handle });
 
   const switched = orca(["terminal", "switch", "--terminal", handle]);
   if (switched.ok === false) {
@@ -562,7 +564,7 @@ function startAgyWindows(repo, run, p, spec, title) {
     return { error: "AGY_MODEL_NOT_APPLIED: expected " + p.model + "; live footer does not confirm the requested model/level; no prompt dispatched", terminalHandle: handle };
   }
 
-  updatePendingStart(repo, run, { submissionAttempted: true, modelConfirmed: true });
+  if (trackPending) updatePendingStart(repo, run, { submissionAttempted: true, modelConfirmed: true });
   const started = orca([
     "orchestration", "worker-start",
     "--spec", spec,
@@ -616,6 +618,11 @@ function observedTurn(value, expected) {
   const stage = projection.stage || {};
   const liveness = projection.liveness || {};
   const evidence = projection.evidence || {};
+  // Native proof can identify a started turn that Orca's startup observer missed.
+  const inputAccepted =
+    (stage.worker === "ready" && stage.dispatch === "dispatched" && stage.detail === "input_accepted") ||
+    (dispatch.status === "pending" && worker.state === "start_unknown" &&
+      stage.worker === "start_unknown" && stage.dispatch === "pending" && stage.detail === "turn_start_unobserved");
   if (
     evidence.durable === true &&
     dispatch.status === "completed" && worker.state === "succeeded" &&
@@ -627,9 +634,7 @@ function observedTurn(value, expected) {
   if (
     observation.status === "live" &&
     provider.id === "codex" &&
-    stage.worker === "ready" &&
-    stage.dispatch === "dispatched" &&
-    stage.detail === "input_accepted" &&
+    inputAccepted &&
     (stage.activity === "working" || result.turnStart === "observed" || projection.turnStart === "observed" || stages.includes("turn_started")) &&
     liveness.verdict === "live" &&
     liveness.source === "agent_status" &&
@@ -641,7 +646,7 @@ function observedTurn(value, expected) {
   return null;
 }
 
-function startCodexQuotaTerminal(repo, run, p, spec, title) {
+function startCodexQuotaTerminal(repo, run, p, spec, title, trackPending = false) {
   const launchedAt = Date.now();
   if (process.platform !== "win32") {
     return { error: "Codex quota backup launch is verified only on Windows" };
@@ -665,7 +670,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   }
   recordOwnedTerminal(run, handle);
 
-  updatePendingStart(repo, run, { terminalHandle: handle, launchedAt, launch: {
+  if (trackPending) updatePendingStart(repo, run, { terminalHandle: handle, launchedAt, launch: {
     requested: { agent: p.agent, model: p.model, effort: p.effort },
     effective: { agent: p.agent, model: p.model, effort: p.effort },
     source: "native_terminal_command", command,
@@ -694,7 +699,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   if (!["ready", "outcome_unknown"].includes(result.state) || !id) {
     if (id) {
       recordOwnedTerminal(run, handle, id);
-      updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null });
+      if (trackPending) updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null });
     }
     return {
       error: "Codex quota backup worker-start " +
@@ -707,7 +712,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   }
   // An uncertain receipt with a Dispatch is inspected in place, never relaunched.
   recordOwnedTerminal(run, handle, id);
-  updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
+  if (trackPending) updatePendingStart(repo, run, { id, taskId: result.taskId || result.task_id || null, terminalHandle: handle });
   const expected = { repo, run, id, terminalHandle: handle, pin: p, launchedAt,
     receiptMarker: (spec.match(/rcpt_[a-f0-9]{16}/g) || []).at(-1), spec };
   let startEvidence = observedTurn(result, expected);
@@ -784,7 +789,7 @@ function startCodexQuotaTerminal(repo, run, p, spec, title) {
   };
 }
 
-function start(repo, run, p, spec, title) {
+function start(repo, run, p, spec, title, trackPending = false) {
   const wantsModel = p.modelFlag && p.model !== "default";
   const joinsEffort = wantsModel && p.effortInModel && p.effort !== "default";
   const wantsEffort = p.effortFlag && p.effort !== "default";
@@ -801,11 +806,11 @@ function start(repo, run, p, spec, title) {
   if (specModel) spec += "\ndely-pin: " + p.model + (specEffort ? " " + p.effort : "");
 
   if (process.platform === "win32" && p.agent === "antigravity") {
-    return startAgyWindows(repo, run, p, spec, title);
+    return startAgyWindows(repo, run, p, spec, title, trackPending);
   }
 
   if ((process.platform === "win32" && p.agent === "codex" && p.model === "gpt-6.1-sol" && p.effort === "medium") || ["quota", "network", "model_unavailable"].includes(p.fallbackReason)) {
-    return startCodexQuotaTerminal(repo, run, p, spec, title);
+    return startCodexQuotaTerminal(repo, run, p, spec, title, trackPending);
   }
 
   const args = [
@@ -904,6 +909,52 @@ function isDispatchReceipt(m, dispatchId, receiptMarker, terminalHandle = null, 
 
 function settling(m) {
   return !isRejected(m) && ["worker_done", "escalation", "question"].includes(m.type);
+}
+
+function admissionQuestion(m, s, receiptMarker) {
+  if (!m || m.type !== "question" || !m.id || isRejected(m) || !namesDispatch(m, s.id)) return false;
+  const p = payloadOf(m);
+  const question = "dely-admission " + receiptMarker;
+  return !!s.terminalHandle && m.from_handle === "dispatch:" + s.id &&
+    p.dispatchId === s.id && !!s.taskId && p.taskId === s.taskId &&
+    m.body === question && p.question === question;
+}
+
+function nativeAdmissionConfig() {
+  const home = path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
+  const directory = path.join(home, "dely-compliance"), file = path.join(directory, "settings.json");
+  let bytes, settings;
+  const invalid = () => { throw Error("native admission configuration invalid; inspect the installed adapter before dispatch"); };
+  try { if (!fs.statSync(directory).isDirectory()) invalid(); }
+  catch (e) { if (e.code === "ENOENT") return null; invalid(); }
+  try { bytes = fs.readFileSync(file); settings = JSON.parse(bytes.toString("utf8")); }
+  catch (_) { invalid(); }
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) invalid();
+  const optionalUpdater = settings.updater === undefined ? [] : ["updater"];
+  for (const field of ["routing", "advisor", "delivery", "dely", "journal", ...optionalUpdater]) {
+    if (typeof settings[field] !== "string" || !path.isAbsolute(settings[field])) invalid();
+    if (field !== "journal") {
+      try { if (!fs.statSync(settings[field]).isFile()) invalid(); } catch (_) { invalid(); }
+    }
+  }
+  try { if (!fs.statSync(path.join(directory, "codex-compliance.js")).isFile()) invalid(); } catch (_) { invalid(); }
+  const deps = settings.dependencies;
+  if (!deps || typeof deps !== "object" || Array.isArray(deps) || !Object.keys(deps).length) invalid();
+  const required = [settings.routing, settings.advisor, settings.dely, path.join(path.dirname(settings.routing), "usage.js"),
+    ...optionalUpdater.map(field => settings[field])];
+  const network = path.join(path.dirname(settings.routing), "network-fallback.js");
+  if (fs.existsSync(network)) required.push(network);
+  for (const dependency of required) if (!Object.hasOwn(deps, dependency)) invalid();
+  for (const [dependency, expected] of Object.entries(deps)) {
+    if (!path.isAbsolute(dependency) || typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) invalid();
+    let actual;
+    try { actual = crypto.createHash("sha256").update(fs.readFileSync(dependency)).digest("hex"); } catch (_) { invalid(); }
+    if (actual !== expected) throw Error("native admission configuration stale; reinstall between tasks before dispatch");
+  }
+  let canonicalHome;
+  try { canonicalHome = fs.realpathSync(home); } catch (_) { invalid(); }
+  const receiptAware = typeof settings.receipts === "string" && Object.hasOwn(deps, settings.receipts);
+  return { home: canonicalHome, receiptAware, settings_sha256: crypto.createHash("sha256").update(bytes).digest("hex") };
 }
 
 // Records what Orca printed for one release and never a state it did not. A
@@ -1309,11 +1360,12 @@ function dispatchLocked(f) {
   }
   try { taskRouting.verifyPin(taskDecision, p, f); }
   catch (e) { out("ERROR " + e.message, 2); }
-  logEvent("task_route", { run: f.run, repo: f.repo, difficulty: taskDecision.difficulty,
+  const routeReceipt = { event: "task_route", run: f.run, repo: f.repo, difficulty: taskDecision.difficulty,
     specSha256: taskDecision.task.spec_sha256, contextSha256: taskDecision.task.context_sha256,
     policy: taskDecision.policy, assessmentBasisSha256: taskDecision.assessment_basis_sha256,
     jevDifficulty: taskDecision.jev_difficulty, correctionSha256: taskDecision.review.correction_sha256 || null,
-    jevModel: taskDecision.jev ? taskDecision.jev.model : "NOT_EVALUATED", reviewSource: taskDecision.review.source });
+    jevModel: taskDecision.jev ? taskDecision.jev.model : "NOT_EVALUATED", reviewSource: taskDecision.review.source };
+  logEvent("task_route", routeReceipt);
 
   requireHandle({ run: f.run, repo: f.repo });
 
@@ -1356,6 +1408,19 @@ function dispatchLocked(f) {
   const pendingFile = pendingStartPath(f.repo, f.run);
   const requestKey = JSON.stringify([p.agent, p.model, p.effort, p.pinPhase, p.fallbackReason, p.fallbackStage]);
   let pending = fs.existsSync(pendingFile) ? JSON.parse(fs.readFileSync(pendingFile, "utf8")) : null;
+  // Configuration selects coordination only; the native tool gate remains authority.
+  let admissionConfig;
+  try { admissionConfig = nativeAdmissionConfig(); }
+  catch (e) { if (pending) unknownStart(f, pending, e.message); out("ERROR " + e.message, 2); }
+  if (pending) {
+    if (typeof pending.nativeAdmission !== "boolean" || !Object.hasOwn(pending, "admissionConfig")) {
+      unknownStart(f, pending, "legacy native admission mode is unknown");
+    }
+    if (pending.nativeAdmission !== !!admissionConfig || JSON.stringify(pending.admissionConfig) !== JSON.stringify(admissionConfig)) {
+      unknownStart(f, pending, "native admission mode or configuration changed");
+    }
+  }
+  const nativeAdmission = pending ? pending.nativeAdmission : !!admissionConfig;
   const binding = { specSha256: sourceSha256, contextSha256: taskDecision.task.context_sha256,
     assessmentBasisSha256: taskDecision.assessment_basis_sha256 };
   const fallbackClaim = path.join(runFolder(f.repo, f.run), "fallback-stage-1-" +
@@ -1483,9 +1548,13 @@ function dispatchLocked(f) {
       fs.writeFileSync(pendingFile, JSON.stringify({ repo: f.repo, phase: f.phase, requestKey, pin: p,
         run: f.run, sourceSha256, contextSha256: taskDecision.task.context_sha256,
         assessmentBasisSha256: taskDecision.assessment_basis_sha256, submissionAttempted: false, networkEvidence, receiptMarker,
-        snapshotPath, snapshotBytes, snapshotSha256 }), { flag: "wx" });
+        snapshotPath, snapshotBytes, snapshotSha256, nativeAdmission, admissionConfig }), { flag: "wx" });
     }
-    const result = start(f.repo, f.run, p, dispatchSpec, f.phase);
+    const workerSpec = dispatchSpec + (p.agent === "codex" && nativeAdmission ?
+      "\nAfter the heartbeat, before any task tool or ordinary read, block using the preamble's Orca orchestration ask with --question \"dely-admission " + receiptMarker + "\" --timeout-ms 60000 --json. " +
+      "Continue only when its coordinator reply text is exactly \"dely-admitted " + receiptMarker + "\". On timeout, missing or different reply, report the blocker and do no task work. " +
+      "This acknowledgement is not tool authority: the native admission hook must still validate every guarded tool.\n" : "");
+    const result = start(f.repo, f.run, p, workerSpec, f.phase, true);
     if (["codex", "antigravity"].includes(p.agent)) {
       updatePendingStart(f.repo, f.run, { id: result.id, taskId: result.taskId, terminalHandle: result.terminalHandle, launch: result.launch,
         transportFailure: result.transportFailure, failed: !!result.error && result.state !== "outcome_unknown" });
@@ -1540,10 +1609,11 @@ function dispatchLocked(f) {
   const interval = Math.max(20, Math.min(5000, Math.floor(POLL_S * 1000)));
   const t0 = Date.now();
   for (; Date.now() - t0 < ACK_S * 1000; sleep(interval)) {
-    const peek = orca(["orchestration", "check", "--peek", "--run", f.run]);
+    const peek = orca(["orchestration", "check", "--all", "--run", f.run]);
     const msgs = (peek.result || {}).messages || [];
     const verifiedReceipt = msgs.some((m) => isDispatchReceipt(m, s.id, receiptMarker, s.terminalHandle, s.taskId));
-    if (verifiedReceipt) {
+    const question = p.agent === "codex" && nativeAdmission ? msgs.find((m) => admissionQuestion(m, s, receiptMarker)) : null;
+    if (verifiedReceipt && (!(p.agent === "codex" && nativeAdmission) || question)) {
       if (snapshotPath) {
         let currentSnapshotSha = null;
         let currentSnapshotBytes = null;
@@ -1582,7 +1652,8 @@ function dispatchLocked(f) {
         }
       }
 
-      logEvent("dispatch", {
+      const dispatchReceipt = {
+        event: "dispatch",
         run: f.run,
         repo: f.repo,
         phase: p.phase,
@@ -1603,7 +1674,15 @@ function dispatchLocked(f) {
         snapshotSha256,
         receiptMarker,
         seconds: Math.round((Date.now() - t0) / 1000),
-      });
+      };
+      try { require("./dispatch-receipts.js").record(f.repo, f.run, routeReceipt, dispatchReceipt); }
+      catch (_) { unknownStart(f, s, "dispatch receipt was not durably written; admission acknowledgement withheld"); }
+      const journaled = logEvent("dispatch", dispatchReceipt);
+      if (p.agent === "codex" && nativeAdmission) {
+        if (!admissionConfig.receiptAware && !journaled) unknownStart(f, s, "legacy adapter requires a durable dispatch journal; reinstall between tasks");
+        const reply = orca(["orchestration", "reply", "--id", question.id, "--body", "dely-admitted " + receiptMarker]);
+        if (reply.ok !== true) unknownStart(f, s, "admission acknowledgement outcome is unverified");
+      }
       if (fs.existsSync(pendingFile)) fs.unlinkSync(pendingFile);
       restoreControlFocus(f.run);
       console.log("receipt confirmed for " + s.id + " [" + receiptMarker + "]");

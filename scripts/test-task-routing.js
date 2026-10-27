@@ -39,6 +39,34 @@ function result(changes = {}) {
     usage: { input_tokens: 500, output_tokens: 0 } };
 }
 const mock = (body) => ({ apiKey: "test-key", fetch: async () => ({ ok: true, json: async () => body }) });
+test("pre-implementation assessment sends dimension-specific evidence criteria", async () => {
+  const fixture = task({
+    scope: "Verify the installed helper using one disposable marker file; change no source or configuration",
+    coupling: "One known helper and its existing caller; their behavior is only observed",
+    acceptance: "Planned check: run the existing helper with fixture marker.txt, read its bytes, and compare to OK plus newline; fails on missing or wrong bytes",
+    evidence: "Inspected helper.js writeMarker and caller.js readMarker; the byte comparison is the available detector; results are not executed before dispatch",
+  });
+  let sent;
+  const record = await routing.assess(fixture, { apiKey: "test-key", fetch: async (_url, options) => {
+    sent = JSON.parse(options.body);
+    return { ok: true, json: async () => result() };
+  } });
+  assert.equal(record.status, "REVIEW_REQUIRED");
+  assert.deepEqual(sent.state, { spec: fixture.spec, context: fixture.context });
+  const questions = Object.values(sent.questions);
+  assert.equal(new Set(questions.map((q) => q.criteria.insufficient_evidence)).size, 5,
+    "Missing evidence must mean the facts required by the particular dimension");
+  for (const question of questions) {
+    assert.deepEqual(Object.keys(question.criteria).sort(), ["easy", "hard", "insufficient_evidence", "medium_minus", "medium_plus"]);
+    assert.match(question.instructions, /spec.*context|context.*spec/i);
+    assert.match(question.instructions, /before implementation|pre-implementation/i);
+  }
+  assert.match(sent.questions.verification.instructions, /planned verification.*(valid|sufficient)/i);
+  for (const element of [/method|command/i, /fixture|test input/i, /procedure|steps/i, /expected/i, /fail/i, /provenance|inspected/i]) {
+    assert.match(sent.questions.verification.instructions, element);
+  }
+  assert.match(sent.questions.scope.instructions, /verification-only/i);
+});
 test("request diagnostics distinguish safe failure stages without retaining provider secrets", async () => {
   const secret = "PRIVATE_SENTINEL_BODY_TOKEN";
   const cases = [

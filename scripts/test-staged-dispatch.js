@@ -30,7 +30,7 @@ for (const command of ["preflight", "dispatch"]) {
     const raw = await routing.assess(routing.loadTask(repo, "spec.md", "context.json"), { apiKey: "" });
     const file = path.join(repo, "approved.json"), rejected = {}, starts = [];
     const context = vm.createContext({ require: createRequire(helper), __dirname: path.dirname(helper), __filename: helper,
-      Buffer, TextDecoder, process: { platform: "win32", env: {}, exit: (code) => { rejected.code = code; throw rejected; } }, console: { log: () => {} } });
+      Buffer, TextDecoder, process: { platform: "win32", env: { CODEX_HOME: path.join(repo, "no-native-adapter") }, exit: (code) => { rejected.code = code; throw rejected; } }, console: { log: () => {} } });
     vm.runInContext(source.slice(0, cli), context, { filename: helper });
     context.requireHandle = () => {};
     context.restoreControlFocus = () => {};
@@ -76,7 +76,7 @@ function dispatchFixture(t, mode) {
   const nativeRequire = createRequire(helper);
   const context = vm.createContext({ require: (name) => name === "./task-routing.js" ? route : nativeRequire(name),
     __dirname: path.dirname(helper), __filename: helper, Buffer, TextDecoder,
-    process: { platform: "win32", env: { DELY_ACK_S: "1", DELY_POLL_S: "0.001" } },
+    process: { platform: "win32", env: { CODEX_HOME: path.join(repo, "no-native-adapter"), DELY_ACK_S: "1", DELY_POLL_S: "0.001" } },
     console: { log: () => {} } });
   vm.runInContext(source.slice(0, cli), context, { filename: helper });
   const launches = [], events = [], snapshots = [];

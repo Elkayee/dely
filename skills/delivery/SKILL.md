@@ -1,6 +1,6 @@
 ---
 name: delivery
-description: Deliver a change through an approved design contract, sequential implementation, independent review and exact-HEAD release. Use for any Bounded or Architectural change — including a small, one-line behavioral fix, which is the canonical Bounded case — so it gets design approval and independent review. Not for a Spike, which investigates and recommends without starting a delivery run; a Spike that dispatches workers still opens its own Run and keeps their files in its folder.
+description: Deliver a change through an approved design contract, sequential implementation, Codex Control review and exact-HEAD release. Use for Bounded or Architectural delivery, including a one-line behavioral fix. A Spike investigates and recommends without delivering a candidate; a Spike that dispatches workers opens a Run and keeps their files there.
 ---
 
 # Delivery
@@ -91,7 +91,7 @@ coordination calls and may read mandatory instructions outside the repository.
 They do no implementation and need no separate Jev task review.
 
 Dely accepts a request that may still be vague, brings it to an approved
-design contract, then automates sequential implementation, independent
+design contract, then automates sequential implementation, Codex Control
 review, and pull-request preparation. It is a thin control protocol, not an
 orchestrator, SDLC framework, or second source of Git state.
 
@@ -146,17 +146,13 @@ commit is the review baseline.
 
 ### Acceptance
 
-One table: each requirement, the instrument that proves it, the plausible
-wrong implementation that instrument rejects, and where that rejection was
-observed.
-
-**An acceptance row is invalid until its instrument discriminates.** A row
-that passes both before and after the change proves nothing and will be
-found at review. Baseline-red is not enough: red only because the feature
-is absent says nothing about catching an implementation that is present,
-runs, returns a pass, and is wrong. Each row names such a wrong
-implementation. "The feature is absent" does not satisfy Counterexample.
-Where none exists, the row says so and a human reads the diff.
+For each requirement, name the simplest available check, its expected result,
+and the failure it detects. Runtime changes need a discriminating executable
+check when one is available. Admission, data-loss, security and compatibility
+changes also exercise a plausible incorrect implementation or invalid input.
+Small documentation and configuration edits may use focused diff inspection
+and the relevant structural check; mutation testing is not a universal gate.
+Record executed results separately from planned acceptance.
 
 Record what the instruments cannot observe. Prefer the simplest instrument
 that proves the contract. Any claim about extent — a scope, a count, a set
@@ -335,16 +331,17 @@ changing behaviour. A shell probe, parser fixture, or diff inspection may
 be the correct instrument for configuration, documentation, generated
 files, or environment-bound integration.
 
-The counterexample named in each acceptance row is observed red and cited.
-That observation is not the behaviour's own absence: one is the feature
-absent, the other is an implementation that is present, runs, returns a
-pass, and is wrong.
+Observe the intended failure before changing runtime behaviour and cite the
+focused check's result. Use the additional counterexample checks required by
+the acceptance contract for consequential risks.
 
 Implement the whole task before handing back. Stop and return `BLOCKED` or
 `NEEDS_REPLAN` instead of a partial solution when the record contradicts
 the code, the contract is ambiguous, work outside the task becomes
 necessary, an existing test disproves an assumption, or the task no longer
-fits one session. A task needing continuation is a decomposition failure.
+fits one implementer session. An implementer needing another worker session
+requires decomposition; Control resuming an unchanged approved task after a
+new prompt uses the native `resume` procedure.
 
 ### Handoff
 
@@ -374,26 +371,17 @@ and say so.
 
 ## Review
 
-Review independence is role independence: a fresh session that did not
-implement and does not edit the candidate. It gets the decision record (or
-Bounded design), the baseline, and the diff. The phase adds no sandbox by
-default; a project may pin one for a concrete risk in `AGENTS.md`. Review depth is
-adaptive: Bounded work gets one independent whole-change review. Each
-Architectural task gets an independent task review. After all tasks are
-accepted, a different fresh reviewer performs one integration review of
-task interactions, complete-contract coverage, deferred findings, candidate
-identity, and release readiness. Only that final review is release-binding
-for Architectural work; Bounded work has no earlier task review and no
-duplicate integration review. No worker runs while a review of the same
-working tree runs. The working tree and its gate surface are shared mutable
-state, and a review reproduces gates in that tree, so a concurrent edit
-makes another task's work look like this one's result.
+Codex Control owns review in this deployment. Workers implement only; review
+and re-review run directly in Control, without a review dispatch. Control
+reads the design, baseline and complete candidate diff, and reproduces the
+focused acceptance checks and applicable gates. Worker claims alone are not
+verification. State any checks that could not be reproduced.
 
-**Reproduce, do not accept.** Run the gates yourself. A claim you did not
-reproduce is not evidence. The reviewer observes the counterexample
-discriminate for itself — an implementation that is present, runs, returns
-a pass, and is wrong. An instrument red only because the behaviour was
-absent is not that observation.
+Bounded work gets one whole-change review. Architectural work gets task
+reviews and one final integration review of interactions, complete-contract
+coverage, deferred findings, candidate identity and release readiness. Only
+the final review is release-binding. Keep the candidate stable during review;
+no implementation worker edits the same tree while Control verifies it.
 
 Classify findings: **Blocking** — contract failure, regression, data or
 security risk. **Important** — missing required behaviour, test, or
@@ -408,8 +396,8 @@ deterministic checks already prove the contract.
 
 One pass is one remediation pass per finding, not per review. The original
 parties are defined by pin and briefing, not by session: the helper releases
-every worker at settlement, so remediation and re-review are fresh
-dispatches briefed from the Run's folder.
+every worker at settlement, so remediation uses a fresh implement dispatch
+briefed from the Run's folder. Control performs re-review directly.
 
 For an in-contract `CHANGES_REQUESTED` finding, remediation is a fresh
 dispatch on the implement pin whose prompt names the original task prompt,
@@ -420,17 +408,13 @@ writes a separate remediation commit. Control owns the plan and the decision
 record for the whole run, including remediating findings inside them;
 amending them is not implementing the candidate.
 
-The scoped re-review is a fresh dispatch on the review pin whose prompt
-names the original review prompt, the raised finding's handoff unedited, the
-fix-only diff, and the full candidate diff for context; a re-review not
-briefed with that handoff is not the scoped re-review. It checks the
-finding's reproduction, the fix, and any defect the fix introduced, and
-scope-checks a Control amendment the same way. If it does not accept,
+For scoped re-review, Control reads the original finding, the fix-only diff
+and the full candidate diff. It checks the reproduction, the fix, any defect
+introduced by the fix, and the scope of a Control amendment. If it does not accept,
 Control routes to `REPLAN_OR_SPLIT` — it does not start another repair loop.
 `BLOCKED` preserves the candidate and escalates the unresolved dependency or
 authority question to Control separately from a failed worker process; it is
-not remediated. The Architectural integration review is always a fresh
-reviewer.
+not remediated. Control also performs the final Architectural integration review.
 
 ## Release
 

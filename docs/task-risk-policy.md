@@ -155,6 +155,15 @@ available detector for a plausible wrong implementation; run feature
 acceptance after implementation. A missing test runner alone does not make
 verification complex, while unresolved race/state oracles can require Sol.
 
+Difficulty questions read the spec and all context fields together. Before
+implementation, a planned check is sufficient when it identifies an available
+method, fixture, procedure, expected result, plausible failure and inspected
+source/caller/detector provenance; passing execution is later acceptance.
+For verification-only work, count the procedure and temporary artifacts rather
+than treating tested components as new implementation. Each dimension names
+its own necessary missing facts. Rank supplied facts using the existing rubric;
+retain `insufficient_evidence` for necessary absent or contradictory facts.
+
 ## Evidence and migration
 
 Keep raw answers, confidence and probabilities in `assessment.jev`.
