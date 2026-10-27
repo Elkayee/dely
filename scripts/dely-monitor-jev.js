@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
+const { createWorkflowReader } = require("./dely-monitor-workflow.js");
 
 const HOMES = [path.join(os.homedir(), ".codex"),
   path.join(process.env.APPDATA || "", "orca", "codex-runtime-home", "home")];
@@ -13,6 +14,7 @@ const RISKS = ["security", "data", "public_contract", "architecture", "productio
 const GRADES = ["easy", "medium_minus", "medium_plus", "hard"];
 const LABELS = [...GRADES, "insufficient_evidence"];
 const RELEVANCE = ["direct", "supporting", "unknown", "unrelated"];
+const MODES = ["task", "skill", "context", "guardrails", "workflow_context", "citations"];
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const text = (v) => typeof v === "string" && v.length > 0 && v.length <= 512 ? v : null;
 const token = (v) => typeof v === "string" && /^[A-Za-z0-9_.-]{1,80}$/.test(v) ? v : null;
@@ -256,6 +258,7 @@ function project(value, file) {
 
 function createJevReader(options = {}) {
   const homes = [...new Set(options.homes || HOMES)], cache = new Map();
+  const readWorkflow = createWorkflowReader(homes);
   return async () => {
     const rows = new Map(), coverage = [], seen = new Set(), metrics = { hits: 0, parsed: 0 };
     for (const home of homes) {
@@ -335,6 +338,18 @@ function createJevReader(options = {}) {
       if (source.malformed || source.unreadable || source.oversized || source.excluded || source.missing || source.truncated) source.state = "partial";
     }
     for (const key of cache.keys()) if (!seen.has(key)) cache.delete(key);
+    const workflow = await readWorkflow();
+    for (const source of coverage) {
+      source.taskState = source.state;
+      source.workflow = workflow.coverage.find(item => item.home === source.home);
+      if (["ready", "partial"].includes(source.workflow.state)) {
+        if (source.state === "missing") source.state = source.workflow.state;
+        else if (source.state === "unreadable" || source.workflow.state === "partial") source.state = "partial";
+      } else if (source.workflow.state !== "missing") source.state = "partial";
+      source.modes = { ...source.modes, ...source.workflow.modes };
+    }
+    for (const row of workflow.rows) rows.set(row.id, row);
+    metrics.hits += workflow.cache.hits; metrics.parsed += workflow.cache.parsed;
     return { rows: [...rows.values()], coverage, cache: metrics };
   };
 }
@@ -349,11 +364,58 @@ function summarizeJev(rows = [], options = {}) {
     (!options.mode || r.mode === options.mode));
   const visible = scoped.filter((r) => time(r) == null ? !options.explicitReset : time(r) >= since && time(r) <= end);
   const count = (category) => visible.filter((r) => r.category === category).length;
+  const phases = MODES.map(mode => {
+    const records = visible.filter(row => row.mode === mode);
+    const counts = Object.fromEntries(["valid", "error", "not_evaluated", "skipped", "not_applicable", "unknown"]
+      .map(category => [category, records.filter(row => row.category === category).length]));
+    const evaluated = counts.valid + counts.error;
+    const latency = records.map(row => row.request_diagnostics?.duration_ms).filter(value => Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
+    const n = latency.length;
+    return { mode, recorded: records.length, ...counts, evaluated,
+      validReplyRate: { numerator: counts.valid, denominator: evaluated, rate: evaluated ? counts.valid / evaluated : null },
+      latency: { samples: n, records: records.length, medianMs: n ? (latency[Math.floor((n - 1) / 2)] + latency[Math.floor(n / 2)]) / 2 : null,
+        p95Ms: n ? latency[Math.ceil(n * 0.95) - 1] : null } };
+  });
+  const proposed = visible.filter(row => row.mode === "task" && row.category === "valid" && GRADES.includes(row.proposal));
+  const agreement = { proposed: proposed.length, paired: 0, agreed: 0, disagreed: 0, missingReview: 0, ambiguousReview: 0 };
+  for (const row of proposed) {
+    const reviews = (row.control || []).filter(review => review.status === "APPROVED" && GRADES.includes(review.difficulty) &&
+      (!stamp(review.reviewedAt) || Date.parse(review.reviewedAt) <= end));
+    if (!reviews.length) { agreement.missingReview++; continue; }
+    // A final decision requires ordered review times, or one unambiguous saved grade.
+    const grades = [...new Set(reviews.map(review => review.difficulty))];
+    const timed = reviews.every(review => stamp(review.reviewedAt));
+    const latest = timed ? reviews.filter(review => Date.parse(review.reviewedAt) === Math.max(...reviews.map(r => Date.parse(r.reviewedAt)))) : reviews;
+    const finals = [...new Set(latest.map(review => review.difficulty))];
+    const decision = grades.length === 1 ? grades[0] : timed && finals.length === 1 ? finals[0] : null;
+    if (!decision) { agreement.ambiguousReview++; continue; }
+    agreement.paired++;
+    if (decision === row.proposal) agreement.agreed++; else agreement.disagreed++;
+  }
+  const distributions = [];
+  for (const mode of ["guardrails", "workflow_context", "citations"]) {
+    const records = visible.filter(row => row.mode === mode && Array.isArray(row.output));
+    const items = records.flatMap(row => row.output);
+    if (mode === "guardrails" || mode === "workflow_context") {
+      const field = mode === "guardrails" ? "hazards" : "passage_signals";
+      const keys = mode === "guardrails" ? ["destructive_effects", "sensitive_data_access", "exfiltration", "elevated_privileges", "scope_mismatch"] : ["evidence", "conflict", "injection"];
+      for (const key of keys) {
+        const values = items.map(item => item[field]?.[key]);
+        const samples = values.filter(value => unit(value?.probability)).length;
+        distributions.push({ mode, signal: key, samples, items: items.length,
+          notEvaluated: values.filter(value => value?.status === "NOT_EVALUATED").length, missing: values.filter(value => !value).length });
+      }
+    }
+    if (mode !== "guardrails") for (const choice of mode === "citations" ? ["supported", "unsupported", "contradicted", "fabricated", "NOT_EVALUATED"] : RELEVANCE) {
+      distributions.push({ mode, signal: choice, count: items.filter(item => item.choice === choice).length, items: items.length });
+    }
+  }
   return { recorded: visible.length, evaluations: count("valid") + count("error"), valid: count("valid"),
     errors: count("error"), notEvaluated: count("not_evaluated"), skipped: count("skipped"), notApplicable: count("not_applicable"), unknown: count("unknown"),
     excludedUnknownTime: options.explicitReset ? scoped.filter((r) => time(r) == null).length : 0,
     unknownTime: visible.filter((r) => time(r) == null).length, unknownWorkspace: visible.filter((r) => !r.repo).length,
-    modes: Object.fromEntries(["task", "skill", "context"].map((mode) => [mode, visible.filter((r) => r.mode === mode).length])),
+    modes: Object.fromEntries(MODES.map((mode) => [mode, visible.filter((r) => r.mode === mode).length])),
+    effectiveness: { phases, agreement, distributions, outcomeEvidence: "NOT_MEASURED" },
     reasons: [...visible.reduce((groups, row) => {
       const reason = row.reason === "NOT_RECORDED" && row.category === "valid" ? "VALID_RECORDED_OUTPUT" : row.reason;
       const key = JSON.stringify([row.mode, row.category, reason]);

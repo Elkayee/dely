@@ -91,7 +91,7 @@ function createMonitor(options = {}) {
       const since = sinceTimestamp(url.searchParams.get("since"));
       const progressive = url.searchParams.get("progressive") === "true";
       const mode = url.searchParams.get("jevMode") || "";
-      if (!["", "task", "skill", "context"].includes(mode)) { res.writeHead(400).end(); return; }
+      if (!["", "task", "skill", "context", "guardrails", "workflow_context", "citations"].includes(mode)) { res.writeHead(400).end(); return; }
       if (![1, 7, 30].includes(days) || Number.isNaN(since)) { res.writeHead(400).end(); return; }
       try {
         let data = await load(false, progressive);

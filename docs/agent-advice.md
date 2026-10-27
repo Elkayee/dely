@@ -9,6 +9,80 @@ The Orca CLI accepts `--repo` to select a target workspace. It defaults to the
 current working directory. Relative input and output paths belong to that
 workspace, not to the directory containing this script.
 
+## Automatic Orca workflow
+
+`scripts/jev-workflow.js` connects the existing advisor to native Codex,
+Claude and Antigravity lifecycle hooks. After operator installation, ordinary
+Orca prompts initialize a private turn automatically. Eligible terminal tools
+receive command hazard advice; observed source reads receive context relevance
+and passage checks; local Markdown citations receive a final source check.
+Users do not prepare JSON, run Jev commands or add special prompt text.
+
+Codex reuses its four existing compliance definitions without changing native
+trust. Claude uses UserPromptSubmit, PreToolUse, PostToolUse and Stop.
+Antigravity uses its installed native contract: PreInvocation injectSteps with
+ephemeralMessage, native toolCall args, PostToolUse queued feedback and advisory
+Stop feedback. Queued advice reaches its next model invocation. Native
+denials win; advice grants no execution permission and has no probability cutoff.
+
+The versioned Dely sync installs and fingerprints the shared runtime in every
+registered Codex home. Install the other providers against their actual active
+configuration paths once, preserving existing settings and status hooks:
+
+```powershell
+node scripts/jev-workflow-install.js --home C:/Users/NAME/.codex --claude-config C:/Users/NAME/.claude/settings.json --antigravity-config C:/Users/NAME/.gemini/config/hooks.json
+```
+
+Start a new provider session after installation. A different Claude profile or
+remote host needs installation into that profile/host; this local installer
+does not claim to manage profiles it has not inspected. Existing sessions and
+provider-native trust remain under their existing lifecycle rules.
+
+Automation activates only with Orca session markers. It rereads bounded code
+and documentation snapshots within the active workspace, retaining file,
+line and SHA identity. Codex can recover source path headers from bounded
+current-turn tool outputs when no PostToolUse callback is available. Raw
+transcripts are never advisor inputs. Private paths, credentials, datasets,
+unsupported formats, linked paths and oversized inputs remain NOT_EVALUATED.
+Citation extraction covers local Markdown links, line/heading anchors and explicit
+inline or Markdown block quotations. A small safe document can be checked in full;
+a larger document needs a resolvable section. Long code sections are located only
+at recognized top-level JavaScript declarations; other unresolved contexts remain
+NOT_EVALUATED. Path-only references never default to the first line. Compound
+references on one claim are left for Control to split. External URLs and
+notebook/data files remain outside this local-source adapter.
+
+For Codex, the native adapter supplies a bounded task objective, scope, acceptance
+and exact spec/context hashes only after the existing immutable current-task
+validator succeeds. This does not grant permission. Event-supplied scope is ignored.
+Without verified scope, `scope_mismatch` and scope-dependent `exfiltration` remain
+NOT_EVALUATED; independent command hazards still receive advice. Private or oversized
+task context is not exported. Other providers retain unconfirmed scope until they
+have an equivalent validated integration.
+
+Private local state is under `dely-compliance/jev-workflow` in the selected
+home. It contains the safe prompt, source identities and cached result summaries,
+with per-turn request/count limits and replay locks. Feedback carries validated
+labels, probabilities and provenance rather than command/source text. A failed
+check stays NOT_EVALUATED. The uncalibrated advisory policy never creates a Stop
+block/continue decision, including for low-confidence citation findings. Shared
+feedback explicitly distinguishes citation-evaluation status from task completion:
+agents continue outstanding authorized work and required checks without waiting
+for the user to type continue, review accessible unsupported claims, split compound
+claims as needed, disclose unavailable sources without presenting NOT_EVALUATED
+as verification, identify the unfinished requirement and blocker if mandatory
+evidence is unavailable, and otherwise finish with a self-contained result,
+verification performed and remaining limitations without investigating hook
+runtime as a detour. Existing native denials still win. Source redaction is
+conservative pattern detection, not a general secret classifier; unsupported or
+ambiguous source inputs are skipped.
+
+Protocol references: [Codex hooks](https://learn.chatgpt.com/docs/hooks),
+[Claude hooks](https://code.claude.com/docs/en/hooks), and the installed
+Antigravity `agy-customizations/docs/hooks.md` for the deployed AGY version.
+Frozen CLI tests establish adapter behavior; separate ordinary-client checks
+are required before claiming provider activation.
+
 ## Missing-evidence diagnostic advice
 
 After an assessment returns raw `verification=insufficient_evidence`, the
@@ -183,6 +257,49 @@ relevance/probabilities/confidence and changes reading order. Required
 instructions remain outside ranking. Control still checks registry/authority
 and verifies current source in the relevant IDE.
 
+### Passage classification cookbook
+
+The optional passage signals adapt the official
+[classifying RAG passages cookbook](https://docs.typesafe.ai/cookbooks/classifying_rag_passages).
+Set `"passage_checks": true` beside `request` and `candidates` in the same
+context JSON, then use the existing CLI:
+
+```powershell
+rtk proxy node scripts/jev_agent.js context --repo D:/project --input context.json --out context_advice.json
+```
+
+Omitting `passage_checks` defaults to false and preserves the original request,
+Choice questions and output shape; explicit false also disables the extension.
+The field accepts only booleans. When true, the existing `c0`, `c1`, … relevance
+Choices remain, with three Noul questions per candidate:
+`c0::evidence`, `c0::conflict`, and `c0::injection` (and the corresponding next
+indices). They ask whether the supplied passage supports the request, conflicts
+with the request or another candidate, or attempts to redirect instructions or
+actions. All questions share at most one request with the existing 10-second
+timeout, no retries, 32-candidate limit and 64,000-byte serialized request limit.
+Only caller-supplied snapshots enter the request; source paths are never read.
+
+Each ranked candidate gains `passage_signals` with `evidence`, `conflict` and
+`injection` keys, each retaining the raw `{ "type": "noul", "noul": 0.5 }`
+answer. These probabilities do not determine source authority, remove candidates
+or alter ordering. Relevance fields remain intact, required sources come first,
+and equal-priority sources retain their input order. Every source/path/line/cell/hash
+field survives. Missing credentials, oversized requests, provider failures and
+any malformed or partial mixed reply return `NOT_EVALUATED` with all original
+candidates in their original order and no partial signals.
+
+```powershell
+$env:ORCA_BACKGROUND_LAUNCH = '1'
+node --test scripts/test-jev-cookbooks.js scripts/test-jev-agent.js
+```
+
+The passage fixtures cover mixed typed answers, raw conflict/injection values,
+notebook provenance, stable required-first ordering, omitted/false compatibility,
+missing credentials, oversized UTF-8 snapshots and malformed replies. An isolated
+copy of the CLI verifies self-contained transport, no-clobber output and content-free
+stdout/errors; injection-like source text remains data and is never executed.
+These are mocked acceptance checks, not a live provider quality evaluation.
+
 ## Skill suggestion
 
 Codex uses native skill discovery and Control selection by default. Compliance
@@ -234,6 +351,151 @@ ranking chunks and shrinking survivor rounds. Control reviews the suggestion;
 independent native admission still checks policy and execution
 evidence. An empty roster needs no model call. A failed optional call stays
 `NOT_EVALUATED` without invalidating a correctly reviewed native task.
+
+## Terminal guardrails cookbook
+
+Explicit caller snapshots can request advisory terminal hazard probabilities:
+
+```json
+{
+  "request": "Inspect repository status",
+  "commands": [
+    { "id": "status", "command": "git status --short", "shell": "powershell", "cwd": "D:/project" }
+  ]
+}
+```
+
+```powershell
+node scripts/jev_agent.js guardrails --repo D:/project --input commands.json --out command_advice.json
+```
+
+The envelope accepts only `request` and `commands`; each command accepts exactly
+`id`, `command`, `shell`, and `cwd`, all nonempty strings. Supply 1..32 commands
+with distinct IDs. The complete serialized provider request has a 64,000-byte
+UTF-8 limit. Shape, count and byte guards run before credential lookup or fetch.
+Invalid shapes and oversized snapshots return `NOT_EVALUATED` (CLI exit 3).
+
+Successful advice returns `REVIEW_REQUIRED`, `authority: "NONE"`, and `commands`
+in submitted order with all four original fields. Each record adds `hazards`
+containing `destructive_effects`, `sensitive_data_access`, `exfiltration`,
+`elevated_privileges`, and `scope_mismatch`. Each hazard is a typed atomic
+`{ "type": "noul", "noul": 0.25 }` probability in [0,1], copied without
+rounding, aggregation or normalization. Hazards are independent and need not
+sum to one. No cutoff, approval, denial, execution or routing decision follows.
+
+Missing keys, provider failures and malformed replies return `NOT_EVALUATED`
+with original command records and fixed failure diagnostics where available;
+they never substitute zero probabilities. The snapshot is treated as untrusted
+data, including instruction-like command text. This mode does not read command
+targets, source files, shell history or secrets; only the existing credential
+lookup and explicit CLI input are read. Native approval and execution authority
+remain unchanged. Output creation stays exclusive; stdout contains only the
+status, reason, count and output location, never commands, source or keys.
+
+```powershell
+node --test scripts/test-jev-cookbooks.js scripts/test-jev-agent.js
+```
+
+The guardrails fixtures use mocked fetch, including a standalone copy of the
+advisor without sibling modules. They verify exact command identity and all
+per-hazard values, closed shapes, duplicate IDs, empty/oversized lists, the byte
+limit before credentials, missing keys, unavailable providers and malformed
+replies. Injection-like text remains data; CLI checks cover a command execution
+marker remaining absent, no-clobber output and no key/source/command content
+in stdout or errors. These fixtures test wiring and validation, not provider
+accuracy or probability calibration; no live provider call is required.
+
+## Evaluate the advisory policy
+
+Use the synthetic shadow harness to record model observations without activating
+permission or Stop rules. Both modes require a new output file in an existing
+directory; existing results are never overwritten:
+
+```powershell
+node scripts/jev-shadow-eval.js --live --repeats 2 --out .dely/local/jev-shadow-new.json
+node scripts/jev-shadow-eval.js --replay .dely/local/jev-shadow-new.json --out .dely/local/jev-shadow-replayed.json
+```
+
+Live mode uses the existing TypeSafe credential lookup and sends only the committed
+synthetic cases. It stops on the first provider/transport failure rather than
+retrying. Repeats are bounded to 1..5 and have fresh evaluation identifiers; replay
+performs no network requests and validates the dataset/model identity. The report
+keeps raw answers, unknowns, semantic accuracy/coverage, confusion counts and
+repeatability. Example confidence thresholds are replayed hypothetically with
+`calibrated: false` and `activated: false`. Replay validates structure and identity,
+not the authenticity of a manually edited result file.
+
+The [self-consistency cookbook](https://docs.typesafe.ai/cookbooks/consistency_choice_cookbook)
+explains why agreement is not correctness. Synthetic acceptance results and mocked
+unit tests are not calibration on labelled representative user traffic. Control
+must review a separate holdout evaluation before proposing automatic action.
+
+## Citation verification cookbook
+
+This adapts the official [double-checking citations cookbook](https://docs.typesafe.ai/cookbooks/citation_check)
+with normalized literal matching, section-only citations and mandatory Control review.
+
+Reviewers supply immutable snapshots explicitly; this mode never opens source
+paths, histories or citation targets:
+
+```json
+{
+  "request": "Check the review's export claim",
+  "sources": [{ "id": "module", "path": "src/export.js", "source": "Exports are disabled." }],
+  "citations": [{ "id": "review-claim", "source_id": "module", "claim": "Exports are enabled", "quote": "Exports are disabled." }]
+}
+```
+
+```powershell
+node scripts/jev_agent.js citations --repo D:/project --input citations.json --out citation_advice.json
+node --test scripts/test-jev-cookbooks.js scripts/test-jev-agent.js
+```
+
+The envelope has exactly `request`, `sources`, and `citations`. Citation records
+have exactly the fields shown above; `quote` may additionally be `null` for a
+section-only reference. A source can add boolean `complete` and `context_complete`
+plus a lowercase SHA-256 `document_sha256`. Legacy supplied snapshots default to
+complete; a caller passing an excerpt must mark document completeness honestly.
+All other shown fields are nonempty strings. Both lists contain 1..32
+records with unique IDs within each list; every `source_id` must identify a
+supplied source. The complete JSON snapshot and serialized provider request
+each have a 64,000-byte UTF-8 ceiling. Shape, identity and snapshot size guards
+run before credentials or transport; invalid inputs remain `NOT_EVALUATED`.
+
+Literal quotation matching folds curly quotes and collapses whitespace, retaining
+case. Absence from a complete supplied source deterministically produces
+`judgment: "fabricated"`, `quote_present: false` and `REVIEW_REQUIRED`. An absent
+quote in an incomplete source remains `NOT_EVALUATED` with `INCOMPLETE_SOURCE`;
+incomplete semantic context remains `INCOMPLETE_CONTEXT`. A null quote bypasses
+literal matching and uses the identified section for semantic checking. The hook
+never synthesizes an assistant quotation from source lines. Only eligible citations and
+their referenced source snapshots enter the semantic request. Each receives a
+closed Choice of `supported`, `unsupported`, or `contradicted`; raw typed Choice,
+confidence and probabilities are retained without normalization or thresholds.
+All eligible citations share at most one provider request, with the existing
+10-second timeout and no retries; an all-fabricated input sends zero requests.
+
+Results preserve citation IDs, source IDs, claims, quotes, source paths and the
+SHA-256 of each source's exact UTF-8 context, optional whole-document hash, plus the complete input hash. Source
+text is not duplicated into results. Missing keys, transport errors, oversized
+provider requests and malformed replies leave matching citations unevaluated
+and the overall result `NOT_EVALUATED` (exit 3), while retaining deterministic
+fabricated findings. Completed advice remains `REVIEW_REQUIRED`, with
+`authority: "NONE"`; reviewers must inspect the bound snapshots and make the
+acceptance decision themselves. Per-citation `evaluation_status` distinguishes
+executed evaluation from unknowns; `auto_accept` is always false. The policy is
+`advisory` with `calibration_status: "NOT_EVALUATED"`. No cookbook example threshold
+is a calibrated permission or Stop rule. Output creation refuses existing files, and
+stdout reports only status, fixed reason, count and output location.
+
+Focused fixtures prove exact-source matching, fabricated quotes without any
+API call, supported and contradicted claims, missing-key and failure retention,
+closed schemas and replies, wrong source identities, duplicate IDs, count and
+UTF-8 size limits, and injection-like text remaining data. A standalone frozen
+CLI fixture proves no sibling import requirement, unsupported Choice handling,
+no-clobber output and no key/source/command leakage in stdout or errors. These
+mocked fixtures validate wiring and deterministic checks, not live semantic
+accuracy or probability calibration.
 
 ## Evidence and limits
 

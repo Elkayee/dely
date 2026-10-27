@@ -34,6 +34,7 @@ function fixture(t, count = 1) {
   put(source, "skills/delivery/scripts/dispatch-receipts.js", fs.readFileSync(path.join(__dirname, "../skills/delivery/scripts/dispatch-receipts.js")));
   put(source, "scripts/jev_agent.js", 'const ROOT = path.resolve(__dirname, "..");');
   put(source, "scripts/codex-compliance.js", fs.readFileSync(path.join(__dirname, "codex-compliance.js")));
+  put(source, "scripts/jev-workflow.js", fs.readFileSync(path.join(__dirname, "jev-workflow.js")));
   for (const name of ["codex-compliance", "task-risk-policy", "jev-skill-advice"]) {
     put(source, "docs/" + name + ".md", fs.readFileSync(path.join(__dirname, "../docs", name + ".md")));
   }

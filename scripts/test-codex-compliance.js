@@ -1459,6 +1459,25 @@ test("bootstrap accepts quoted task JSON but denies chained commands and redirec
   }
 });
 
+test("exact PyCharm database discovery is readable before review while executable commands stay gated", t => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "List the configured database connections." }, f.home);
+  const tool = "mcp__pycharm_auto__pycharm_raw_execute_tool";
+  const event = input => ({ ...f.event, tool_name: tool, tool_input: input });
+  const listing = { command: "list_database_connections", project_path: f.repo, max_chars: 1800, verbose: false };
+  assert.equal(guard.needsReview(event(listing), __filename), false);
+  assert.deepEqual(guard.hook(event(listing), f.home), {});
+  for (const input of [undefined, null, {}, { command: null }, { command: ["list_database_connections"] },
+    { command: "list_database_connections; execute_sql_query" }, { command: "list_database_connections --query DELETE" },
+    { command: "execute_sql_query --query SELECT" }, { command: "create_database_connection" },
+    { command: "runNotebookCell" }, { command: "unknown_command" },
+    { command: "list_database_connections", query: "DELETE FROM sample" }]) {
+    assert.equal(guard.needsReview(event(input), __filename), true);
+    assert.equal(guard.hook(event(input), f.home).hookSpecificOutput.permissionDecision, "deny");
+  }
+  assert.equal(guard.needsReview({ ...event(listing), tool_name: tool + "_other" }, __filename), true);
+});
+
 test("read-only preflight coordination stops without Jev while conditional discovery stays denied", (t) => {
   const f = fixture(t);
   guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Preflight only; no implementation." }, f.home);
@@ -1474,6 +1493,21 @@ test("read-only preflight coordination stops without Jev while conditional disco
   const conditional = 'if ($env:ORCA_CLI_COMMAND) { & $env:ORCA_CLI_COMMAND skills get orchestration } elseif ($env:ORCA_DEV_REPO_ROOT) { orca-dev skills get orchestration } else { orca skills get orchestration }';
   assert.equal(guard.hook({ ...f.event, tool_name: "Bash", tool_input: { command: conditional } }, f.home).hookSpecificOutput.permissionDecision, "deny");
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("cookbook alignment exports task context only after immutable current native review", async t => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the confirmed task" }, f.home);
+  assert.equal(guard.workflowContext(f.event, f.home), null);
+  await f.prepare();
+  f.review();
+  const context = guard.workflowContext(f.event, f.home);
+  assert.equal(context.scope, f.task.context.scope);
+  assert.equal(context.request, f.task.request);
+  assert.match(context.spec_sha256, /^[a-f0-9]{64}$/);
+  assert.equal(guard.workflowContext({ ...f.event, turn_id: "foreign" }, f.home), null);
+  fs.appendFileSync(f.skill, "Changed source.\n");
+  assert.equal(guard.workflowContext(f.event, f.home), null);
 });
 
 test("real routing review permits Hard with native skill provenance and loaded instructions", async (t) => {

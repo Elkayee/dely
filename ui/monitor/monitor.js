@@ -203,6 +203,7 @@ function showJevRows() {
     workspace.append(element("div", row.ts ? new Date(row.ts).toLocaleString() : "Unknown time"),
       element("div", row.repo || "Unknown workspace", "cell-secondary mono"));
     if (row.timeSource === "co-located assessment") workspace.append(element("div", "Time: co-located assessment", "cell-secondary"));
+    if (row.origin === "workflow") workspace.append(element("div", "Workspace: " + row.workspaceSource + "; evaluation time not saved", "cell-secondary"));
     const mode = element("td"); mode.append(element("div", row.mode), element("div", row.status, "cell-secondary"));
     if (row.policy) mode.append(element("div", row.policy, "cell-secondary"));
     const result = element("td"), details = element("details", null, "evidence-details");
@@ -221,7 +222,7 @@ function showJevRows() {
     details.addEventListener("toggle", () => {
       if (!details.open || details.dataset.loaded) return;
       details.dataset.loaded = "true";
-      details.append(element("p", row.output ? "Original Jev structured output" : "Jev output unavailable in saved artifacts", "cell-secondary"));
+      details.append(element("p", row.output ? "Allowlisted recorded output (content and pointers omitted)" : "Jev output unavailable in saved artifacts", "cell-secondary"));
       if (row.output) details.append(element("pre", JSON.stringify(row.output, null, 2), "jev-output"));
       details.append(element("p", row.request_diagnostics ? "Recorded request telemetry" : "Request telemetry not recorded (legacy or not called)", "cell-secondary"));
       if (row.request_diagnostics) details.append(element("pre", JSON.stringify(row.request_diagnostics, null, 2), "jev-output"));
@@ -236,7 +237,7 @@ function showJevRows() {
       }
       details.append(element("p", "Control reviewed routing decision (separate from Jev)", "cell-secondary"));
       details.append(element("pre", view.review, "jev-output"));
-      for (const source of row.sources) details.append(element("div", `${source.home}/dely-compliance/tasks/${source.task}/${source.file}`, "mono cell-secondary"));
+      for (const source of row.sources) details.append(element("div", `${source.home}/dely-compliance/${source.area || "tasks"}/${source.task}/${source.file}`, "mono cell-secondary"));
     });
     result.append(details);
     tr.append(workspace, mode, element("td", view.model, "mono"), element("td", view.proposal), result);
@@ -255,15 +256,36 @@ function renderJev(data) {
   $("jev-count").textContent = pending ? "Reading saved evidence…" : `${stats.recorded} unique records`;
   $("jev-summary").textContent = pending && !source?.available ? "Reading saved evaluations in the background…" :
     `${stats.evaluations} recorded evaluations · ${stats.valid} valid outputs · ${stats.errors} recorded errors · ${stats.notEvaluated} advice not evaluated · ${stats.skipped} Hard/direct skips · ${stats.notApplicable} not applicable · ${stats.unknown} unknown. ${stats.unknownTime} unknown time · ${stats.unknownWorkspace} unknown workspace.${stats.excludedUnknownTime ? ` ${stats.excludedUnknownTime} unknown-time records excluded by reset.` : ""}${pending ? " Refreshing; last available values shown." : ""}`;
+  const effectiveness = $("jev-effectiveness"); effectiveness.replaceChildren();
+  const phaseNames = { task: "Task", skill: "Skill", context: "Advisor context", guardrails: "Workflow guardrails", workflow_context: "Workflow context", citations: "Workflow citations" };
+  for (const phase of stats.effectiveness?.phases || []) {
+    const tr = element("tr"), rate = phase.validReplyRate, latency = phase.latency;
+    tr.append(element("td", phaseNames[phase.mode]),
+      element("td", `${phase.valid} valid · ${phase.error} errors · ${phase.not_evaluated} not evaluated · ${phase.skipped} skipped · ${phase.not_applicable} not applicable · ${phase.unknown} unknown / ${phase.recorded} saved records`),
+      element("td", `${rate.numerator} / ${rate.denominator} evaluated attempts · ${rate.rate === null ? "not measured" : (rate.rate * 100).toFixed(1) + "%"}`),
+      element("td", `${latency.samples} / ${latency.records} records with telemetry · ${latency.samples ? `median ${latency.medianMs} ms · p95 ${latency.p95Ms} ms (nearest rank)` : "latency not recorded"}`));
+    effectiveness.append(tr);
+  }
+  if (!stats.effectiveness) {
+    const tr = element("tr"), td = element("td", "Effectiveness statistics are not available from the running monitor; saved records remain visible.");
+    td.colSpan = 4; tr.append(td); effectiveness.append(tr);
+  }
+  const agreement = stats.effectiveness?.agreement;
+  $("jev-agreement").textContent = agreement ? `Task proposal / final saved Control decision: ${agreement.agreed} agree, ${agreement.disagreed} disagree / ${agreement.paired} paired samples from ${agreement.proposed} graded proposals. Missing approved review: ${agreement.missingReview}; ambiguous final review: ${agreement.ambiguousReview}. Repeated Control records add no independent samples; agreement is not accuracy.` : "Control agreement statistics are not available from the running monitor.";
+  const distributions = $("jev-distributions"); distributions.replaceChildren();
+  for (const item of stats.effectiveness?.distributions || []) distributions.append(element("p", `${phaseNames[item.mode]} · ${item.signal}: ${item.count === undefined ? `${item.samples} recorded probabilities, ${item.notEvaluated} not evaluated, ${item.missing} missing` : item.count} / ${item.items} output items${item.signal === "fabricated" ? " (local quote check, not a Jev reply)" : ""}`, "footnote mono"));
+  if (!stats.effectiveness?.distributions.length) distributions.append(element("p", stats.effectiveness ? "No saved workflow output matches these filters." : "Workflow distributions are not available from the running monitor.", "footnote"));
   const reasons = $("jev-reasons"); reasons.replaceChildren();
   for (const group of stats.reasons) reasons.append(element("p", `${group.mode} · ${group.category.replace(/_/g, " ")} · ${group.reason}: ${group.count}`, "footnote mono"));
   if (!stats.reasons.length) reasons.append(element("p", "No saved reasons match these filters.", "footnote"));
   const coverage = $("jev-coverage"); coverage.replaceChildren();
-  coverage.append(element("p", `Source state: ${source?.state || "NOT_EVALUATED"}. Filtered modes: task ${stats.modes.task}, skill ${stats.modes.skill}, context ${stats.modes.context}. Absent advisor modes have unknown coverage, not zero API use.`, "footnote"));
+  coverage.append(element("p", `Source state: ${source?.state || "NOT_EVALUATED"}. Filtered phases: ${Object.entries(stats.modes).map(([mode, count]) => `${phaseNames[mode]} ${count}`).join(", ")}. Absent advisor modes have unknown coverage, not zero API use.`, "footnote"));
   for (const s of source?.coverage || []) {
-    coverage.append(element("p", `${s.home}: ${s.state} · ${s.directories} task folders · ${s.loaded} readable artifacts (includes review/copy files) · ${s.missing} missing assessments · ${s.malformed} malformed · ${s.unreadable} unreadable · ${s.oversized} oversized · ${s.excluded} excluded links · ${s.truncated ? "directory cap reached" : "within directory cap"}. Saved modes: task ${s.modes.task}, skill ${s.modes.skill}, context ${s.modes.context}.`, "footnote mono"));
+    coverage.append(element("p", `${s.home}: task source ${s.taskState || s.state} · ${s.directories} task folders · ${s.loaded} readable artifacts (includes review/copy files) · ${s.missing} missing assessments · ${s.malformed} malformed · ${s.unreadable} unreadable · ${s.oversized} oversized · ${s.excluded} excluded links · ${s.truncated ? "directory cap reached" : "within directory cap"}. Saved modes: task ${s.modes.task}, skill ${s.modes.skill}, context ${s.modes.context}.`, "footnote mono"));
+    const w = s.workflow;
+    if (w) coverage.append(element("p", `${s.home}/dely-compliance/jev-workflow: ${w.state} · ${w.directories} saved turns · ${w.loaded} readable cache/feedback copies · ${w.malformed} malformed or mismatched pointers · ${w.unreadable} unreadable · ${w.oversized} oversized · ${w.excluded} excluded links · ${w.truncated ? "source cap reached" : "within source caps"}. Saved phases: guardrails ${w.modes.guardrails}, workflow context ${w.modes.workflow_context}, citations ${w.modes.citations}.`, "footnote mono"));
   }
-  coverage.append(element("p", "Only immediate assessment.json, reviewed.json, skill-advice.json and context-advice.json in the two compliance task homes are read (256 KiB/file, 4096 folders/home). Other saved locations and unsaved calls are NOT_EVALUATED. Advisor workspace/time comes from its co-located assessment when absent; it is not measured request timing.", "footnote"));
+  coverage.append(element("p", "Saved sources only; not total hook or API coverage. Task homes: immediate assessment.json, reviewed.json, skill-advice.json and context-advice.json (256 KiB/file, 4096 folders/home). Workflow homes: cache/feedback summaries (32 KiB/file, 256 files/turn, 4096 turns and 16384 files/home), deduplicated including identical runtime copies. Workspace requires a matching saved session pointer (16 KiB); workflow evaluation time/model/latency are not saved. Advisor workspace/time comes from its co-located assessment when absent. Unknown times remain visible unless observation reset excludes them; unsaved calls are NOT_EVALUATED.", "footnote"));
   const scope = JSON.stringify([$("days").value, $("repo").value, $("probes").checked, $("jev-mode").value, observationStart]);
   if (scope !== jevScope) { jevShown = 25; jevScope = scope; }
   jevRows = stats.rows; showJevRows();

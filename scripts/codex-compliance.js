@@ -265,6 +265,9 @@ function needsReview(event, script, home) {
   const name = event.tool_name || "";
   if (/^(?:apply_patch|Edit|Write)$/.test(name)) return true;
   if (name !== "Bash") {
+    const input = event.tool_input;
+    if (name === "mcp__pycharm_auto__pycharm_raw_execute_tool" && input?.command === "list_database_connections" &&
+        Object.keys(input).every(key => ["command", "project_path", "max_chars", "verbose"].includes(key))) return false;
     return /(?:filesystem|fs_|file_|notebook|pycharm).*(?:write|edit|patch|delete|remove|create|rename|move|execute|insert|replace|append|set|run)/i.test(name);
   }
   const command = String(event.tool_input && (event.tool_input.command || event.tool_input.cmd) || "");
@@ -897,6 +900,7 @@ function install(options, home) {
   const directory = root(home);
   const script = path.join(directory, "codex-compliance.js");
   const frozenAdvisor = path.join(directory, "jev-advisor.js");
+  const workflow = path.join(directory, "jev-workflow.js");
   const advisorSource = fs.readFileSync(advisor, "utf8");
   const previous = fs.existsSync(settingsFile(home)) ? read(settingsFile(home)) : null;
   const updaterFile = path.join(path.dirname(advisor), "sync-dely.js");
@@ -936,6 +940,8 @@ function install(options, home) {
   if (fs.existsSync(manifestFile)) fs.copyFileSync(manifestFile, path.join(directory,
     "hooks-before-" + Date.now() + "-" + crypto.randomBytes(4).toString("hex") + ".json"));
   fs.copyFileSync(__filename, script);
+  const workflowSource = path.join(__dirname, "jev-workflow.js");
+  if (fs.existsSync(workflowSource) && (!fs.existsSync(workflow) || !samePath(workflowSource, workflow))) fs.copyFileSync(workflowSource, workflow);
   fs.copyFileSync(guide, path.join(directory, "guide.md"));
   const riskGuide = path.resolve(__dirname, "../docs/task-risk-policy.md");
   if (fs.existsSync(riskGuide)) fs.copyFileSync(riskGuide, path.join(directory, "task-risk-policy.md"));
@@ -945,12 +951,24 @@ function install(options, home) {
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
   write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely, receipts,
-    updater, sync_source: syncSource, sync_homes: syncHomes,
+    updater, workflow: fs.existsSync(workflow) ? workflow : undefined, sync_source: syncSource, sync_homes: syncHomes,
     dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely, receipts, ...[updater].filter(Boolean),
+      ...[workflow].filter(file => fs.existsSync(file)),
       ...[path.join(path.dirname(routing), "network-fallback.js")].filter((file) => fs.existsSync(file))]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
   if (!preserveHooks) write(manifestFile, manifest);
   return { home, script, script_sha256: hashFile(script), configured_events: 4,
     trust: preserveHooks ? "UNCHANGED_REQUIRES_EXISTING_NATIVE_TRUST" : "REQUIRES_NATIVE_HOOK_REVIEW" };
+}
+
+function workflowContext(event, home) {
+  try {
+    const state = read(stateFile(home, event.session_id));
+    validate(state, event, home);
+    const task = read(state.task_input), binding = state.assessment.task;
+    return { session: event.session_id, turn: event.turn_id, repo: state.execution_repo || state.repo,
+      request: task.request, scope: binding.context.scope, acceptance: binding.context.acceptance,
+      spec_sha256: binding.spec_sha256, context_sha256: binding.context_sha256 };
+  } catch { return null; }
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -962,7 +980,19 @@ async function main(argv = process.argv.slice(2)) {
   if (command !== "prepare" && values.continue) throw Error("Continuation is supported only by prepare.");
   const home = path.resolve(values.home || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
   let result;
-  if (command === "hook") result = hook(JSON.parse(fs.readFileSync(0, "utf8")), home);
+  if (command === "hook") {
+    const event = JSON.parse(fs.readFileSync(0, "utf8"));
+    result = hook(event, home);
+    try {
+      const settings = checkedSettings(home);
+      if (settings.workflow) result = await require(settings.workflow).run(event, home, {
+        provider: "codex", base: result, taskContext: workflowContext(event, home) });
+    } catch {
+      if (result.decision !== "block" && result.hookSpecificOutput?.permissionDecision !== "deny") {
+        result = { ...result, systemMessage: "Jev workflow NOT_EVALUATED: runtime_unavailable" };
+      }
+    }
+  }
   else if (command === "install") result = install(values, home);
   else if (command === "prepare" || command === "review" || command === "advise" || command === "resume") {
     if (!values.session || !values.turn) throw Error("Session and turn are required.");
@@ -977,7 +1007,7 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = { digest, fingerprints, stateFile, settingsFile, inputFile, taskInputWrite, instructions, needsReview, logRecords,
-  dispatchEvidence, verifiedWorker, validate, hook, advisory, prepare, review, resume, install };
+  dispatchEvidence, verifiedWorker, validate, hook, advisory, prepare, review, resume, install, workflowContext };
 if (require.main === module) main().catch(() => {
   console.error("Compliance check failed. Inspect the task inputs and installed hook guide; no source write was authorized.");
   process.exitCode = 2;

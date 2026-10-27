@@ -13,6 +13,154 @@ const { createJevReader } = require("./dely-monitor-jev.js");
 const { taskKey, taskMetadata, runtimeFingerprint, recordTask } = require("../skills/delivery/scripts/usage.js");
 const ts = "2026-10-09T01:00:00Z", repo = "D:/project";
 
+// Exercise refresh -> render with the production script and a text-only DOM.
+function monitorPage(fetch) {
+  const vm = require("node:vm");
+  class Element {
+    constructor(tag) {
+      this.tagName = tag; this.children = []; this.value = ""; this.dataset = {}; this.style = {};
+      this.classList = { add() {}, toggle() {}, contains: name => (this.className || "").split(" ").includes(name) };
+    }
+    set textContent(value) { this.text = String(value); this.children = []; }
+    get textContent() { return (this.text || "") + this.children.map(child => child.textContent).join(" "); }
+    set innerHTML(_) { throw Error("HTML writes are forbidden"); }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.text = ""; this.children = children; }
+    addEventListener() {}
+    setAttribute() {}
+    get firstElementChild() { return this.children[0]; }
+  }
+  const nodes = {}, get = id => nodes[id] ||= new Element("div"), timers = [];
+  get("days").value = "7";
+  const context = vm.createContext({ document: { getElementById: get, createElement: tag => new Element(tag) },
+    localStorage: { getItem() { return null; } }, URLSearchParams, fetch,
+    setTimeout: callback => { timers.push(callback); return timers.length; }, clearTimeout() {},
+    jevPresentation: require("../ui/monitor/jev-view.js").jevPresentation });
+  const source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8");
+  vm.runInContext(source.slice(0, source.indexOf('$("reset-statistics").addEventListener')), context);
+  return { get, timers, refresh: () => vm.runInContext("refresh()", context) };
+}
+
+test("refresh renders legacy Jev payload, preserves unknown evidence and recovers after HTTP failure", async t => {
+  const server = createMonitor({ now: () => Date.parse(ts) + 1000, collect: async () => ({
+    events: [], workers: [], conversations: [], collectedAt: ts,
+    jev: [{ id: "unknown-record", mode: "task", category: "unknown", status: "NOT_EVALUATED", reason: "NOT_RECORDED",
+      ts: null, repo: null, sources: [], control: [] }],
+    sources: { log: { present: false }, orca: { available: false }, codex: { available: false },
+      jev: { available: true, state: "partial", coverage: [] } }
+  }) });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  await fetch(origin + "/api/usage?days=7"); // Settle collection before testing the retained payload shape.
+  let legacy = true, fail = false;
+  const page = monitorPage(async url => {
+    assert.match(url, /^\/api\/usage\?.*days=7.*progressive=true/);
+    if (fail) return { ok: false };
+    const response = await fetch(origin + url), data = await response.json();
+    assert.equal(response.status, 200);
+    if (legacy) delete data.jev.effectiveness; // Shape observed from the still-running older collector.
+    return { ok: response.ok, json: async () => data };
+  });
+  await page.refresh();
+  assert.match(page.get("updated").textContent, /^Updated /, page.get("notice").textContent);
+  assert.match(page.get("jev-effectiveness").textContent, /not available.*running monitor/i);
+  assert.match(page.get("jev-agreement").textContent, /not available/i);
+  assert.match(page.get("jev-distributions").textContent, /not available/i);
+  assert.match(page.get("jev-summary").textContent, /1 unknown.*1 unknown time · 1 unknown workspace/);
+  assert.match(page.get("jev-rows").textContent, /NOT_EVALUATED/);
+  assert.doesNotMatch(page.get("attention-list").textContent, /Refresh failed/);
+  const saved = page.get("jev-summary").textContent;
+  fail = true; await page.refresh();
+  assert.equal(page.get("updated").textContent, "Refresh failed");
+  assert.match(page.get("notice").textContent, /temporarily unavailable/);
+  assert.match(page.get("attention-list").textContent, /Refresh failed; displayed values may be stale/);
+  assert.equal(page.get("jev-summary").textContent, saved);
+  fail = false; legacy = false; await page.refresh();
+  assert.match(page.get("updated").textContent, /^Updated /);
+  assert.doesNotMatch(page.get("attention-list").textContent, /Refresh failed/);
+  assert.doesNotMatch(page.get("notice").textContent, /temporarily unavailable/);
+  assert.match(page.get("jev-effectiveness").textContent, /1 unknown \/ 1 saved records/);
+});
+
+test("workflow phases reach the filtered API and effectiveness DOM with explicit evidence gaps", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-workflow-api-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const crypto = require("node:crypto"), turn = "api-turn", session = "a".repeat(64);
+  const suffix = crypto.createHash("sha256").update(turn).digest("hex").slice(0, 16);
+  const root = path.join(home, "dely-compliance/jev-workflow"), directory = path.join(root, session + "-" + suffix);
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(root, session + ".json"), JSON.stringify({ cwd: repo, turn, prompt: "PRIVATE_SENTINEL" }));
+  const snapshots = [
+    { mode: "guardrails", status: "NOT_EVALUATED", reason: "JEV_UNAVAILABLE_OR_INVALID", command: "PRIVATE_SENTINEL" },
+    { mode: "context", status: "REVIEW_REQUIRED", sources: [{ relevance: "direct", confidence: 0.9,
+      probabilities: { direct: 1, supporting: 0, unknown: 0, unrelated: 0 }, path: "PRIVATE_SENTINEL" }] },
+    { mode: "citations", status: "REVIEW_REQUIRED", citations: [{ judgment: "fabricated", evaluation_status: "EVALUATED",
+      claim: "PRIVATE_SENTINEL", quote: "PRIVATE_SENTINEL" }] },
+  ];
+  for (const [i, value] of snapshots.entries()) for (const kind of ["cache", "feedback"]) fs.writeFileSync(
+    path.join(directory, `${kind}-${String(i).repeat(64)}.json`), JSON.stringify(value));
+  const readJev = createJevReader({ homes: [home] });
+  const server = createMonitor({ now: () => Date.parse(ts) + 1000, collect: options => collect({ ...options,
+    journal: path.join(home, "missing.jsonl"), readJev,
+    readWorkers: async () => ({ rows: [], complete: true }), readConversations: async () => ({ rows: [], available: true }) }) });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(origin + "/api/usage?days=30"), data = await response.json();
+    assert.equal(response.status, 200); assert.equal(data.jev.recorded, 3);
+    assert.equal(data.jev.errors, 1); assert.equal(data.jev.valid, 1); assert.equal(data.jev.notEvaluated, 1);
+    assert.equal(data.jev.unknownTime, 3); assert.equal(data.sources.jev.coverage[0].workflow.loaded, 6);
+    assert.ok(data.repos.includes(repo)); assert.doesNotMatch(JSON.stringify(data.jev), /PRIVATE_SENTINEL/);
+    for (const mode of ["guardrails", "workflow_context", "citations"]) {
+      const selected = await (await fetch(origin + "/api/usage?days=30&jevMode=" + mode)).json();
+      assert.equal(selected.jev.recorded, 1); assert.equal(selected.jev.rows[0].mode, mode);
+      assert.deepEqual(selected.metrics, data.metrics);
+    }
+    assert.equal((await (await fetch(origin + "/api/usage?repo=D:/other")).json()).jev.recorded, 0);
+    assert.equal((await (await fetch(origin + "/api/usage?jevMode=context")).json()).jev.recorded, 0);
+    assert.equal((await (await fetch(origin + "/api/usage?days=1")).json()).jev.recorded, 3);
+    const reset = await (await fetch(origin + "/api/usage?since=" + encodeURIComponent(ts))).json();
+    assert.equal(reset.jev.recorded, 0); assert.equal(reset.jev.excludedUnknownTime, 3);
+    class Element {
+      constructor(tag) { this.tagName = tag; this.children = []; this.value = ""; this.dataset = {}; }
+      set textContent(value) { this.text = String(value); this.children = []; }
+      get textContent() { return (this.text || "") + this.children.map(child => child.textContent).join(" "); }
+      set innerHTML(_) { throw Error("HTML writes are forbidden"); }
+      append(...children) { this.children.push(...children); }
+      replaceChildren(...children) { this.children = children; }
+      addEventListener(type, callback) { if (type === "toggle") { this.open = true; callback(); } }
+    }
+    const nodes = {}, get = id => nodes[id] ||= new Element("div");
+    const source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8");
+    const helper = source.slice(source.indexOf("const element ="), source.indexOf("\n", source.indexOf("const element =")));
+    const renderer = source.slice(source.indexOf("function showJevRows()"), source.indexOf("function render(data)"));
+    const render = value => require("node:vm").runInNewContext(helper + renderer + "\nrenderJev(data);", {
+      document: { createElement: tag => new Element(tag) }, $: get, data: value,
+      jevRows: [], jevShown: 25, jevScope: "", observationStart: null,
+      jevPresentation: require("../ui/monitor/jev-view.js").jevPresentation
+    });
+    render(data);
+    const table = get("jev-effectiveness").textContent;
+    assert.match(table, /Workflow guardrails.*0 valid · 1 errors.*1 saved records.*0 \/ 1 evaluated attempts · 0.0%/);
+    assert.match(table, /Workflow context.*1 \/ 1 evaluated attempts · 100.0%/);
+    assert.match(table, /Workflow citations.*0 \/ 0 evaluated attempts · not measured/);
+    assert.match(table, /0 \/ 1 records with telemetry · latency not recorded/);
+    assert.match(get("jev-agreement").textContent, /0 paired samples from 0 graded proposals.*agreement is not accuracy/);
+    assert.match(get("jev-coverage").textContent, /not total hook or API coverage.*matching saved session pointer/);
+    assert.match(get("jev-distributions").textContent, /fabricated: 1 \/ 1 output items \(local quote check, not a Jev reply\)/);
+    assert.match(get("jev-rows").textContent, /jev-workflow/);
+    assert.doesNotMatch(Object.values(nodes).map(node => node.textContent).join(" "), /PRIVATE_SENTINEL/);
+    render(reset);
+    assert.match(get("jev-summary").textContent, /3 unknown-time records excluded by reset/);
+    assert.match(get("jev-effectiveness").textContent, /0 saved records/);
+    const html = await (await fetch(origin + "/")).text();
+    for (const mode of ["guardrails", "workflow_context", "citations"]) assert.ok(html.includes(`value="${mode}"`));
+    assert.match(html, /Verified usefulness, false positives, false negatives, production accuracy, and time\/cost savings: not measured/);
+    assert.match(html, /REVIEW_REQUIRED is advisory, not a confirmed error or effective intervention/);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 // Run the production render call, including its source panel, without HTML writes.
 function sourcePanel(data, source = fs.readFileSync(path.join(__dirname, "../ui/monitor/monitor.js"), "utf8"), target = "sources") {
   class Element {
