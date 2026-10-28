@@ -64,7 +64,10 @@ test("explicit resume keeps the approved task without new input, assessment or r
   const files = fs.readdirSync(path.dirname(before.skill_input));
   const next = { ...f.event, turn_id: "resume_turn" };
   guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same confirmed task" }, f.home);
-  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(guard.hook(next, f.home), {});
+  const auto = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(auto.status, "REVIEWED");
+  assert.equal(auto.auto_resume, true);
   const resumed = guard.resume({ session: "session", turn: next.turn_id, repo: f.repo }, f.home);
   assert.equal(resumed.status, "REVIEWED");
   const after = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
@@ -463,10 +466,10 @@ test("confirmed continuation preserves the dispatch basis and requires fresh Con
 
 test("continuation rejects changed inputs, authority and immutable proof", async (t) => {
   const cases = [
-    ["spec", (f) => { f.task.spec += "Different work.\n"; }],
-    ["context", (f) => { f.task.context.acceptance = "Different acceptance"; }],
-    ["roster", (f) => { f.task.skills[0].description = "Different workflow"; }],
-    ["mandatory skills", (f) => { f.task.required_skills = []; }],
+    ["spec", (f) => { f.task.spec += "Different work.\n"; }, {}, true],
+    ["context", (f) => { f.task.context.acceptance = "Different acceptance"; }, {}, true],
+    ["roster", (f) => { f.task.skills[0].description = "Different workflow"; }, {}, true],
+    ["mandatory skills", (f) => { f.task.required_skills = []; }, {}, true],
     ["instructions", (f) => { fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed authority.\n"); }],
     ["skill body", (f) => { fs.appendFileSync(f.skill, "Changed workflow.\n"); }],
     ["original evidence", (f, prior) => { fs.appendFileSync(prior.original_assessment, " "); }],
@@ -475,9 +478,9 @@ test("continuation rejects changed inputs, authority and immutable proof", async
       fs.writeFileSync(guard.settingsFile(f.home), JSON.stringify(s)); }],
     ["foreign model", () => {}, { model: "different-model" }],
     ["worker claim", () => {}, { prompt: "receipt rcpt_0000000000000000" }],
-    ["foreign Run", () => {}, { run: "different_run" }],
-    ["foreign session", () => {}, { session: "different_session" }],
-    ["reserved native metadata", (f) => { f.task.native_continuation = { file: "forged", sha256: "0".repeat(64) }; }],
+    ["foreign Run", () => {}, { run: "different_run" }, true],
+    ["foreign session", () => {}, { session: "different_session" }, true],
+    ["reserved native metadata", (f) => { f.task.native_continuation = { file: "forged", sha256: "0".repeat(64) }; }, {}, true],
     ["foreign terminal", (f, prior, sub) => {
       const old = process.env.ORCA_TERMINAL_HANDLE;
       process.env.ORCA_TERMINAL_HANDLE = "different_terminal";
@@ -485,7 +488,7 @@ test("continuation rejects changed inputs, authority and immutable proof", async
         else process.env.ORCA_TERMINAL_HANDLE = old; });
     }],
   ];
-  for (const [name, change, extra = {}] of cases) await t.test(name, async (sub) => {
+  for (const [name, change, extra = {}, reused = false] of cases) await t.test(name, async (sub) => {
     const f = fixture(sub);
     guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the task" }, f.home);
     await f.prepare(); f.review();
@@ -495,7 +498,12 @@ test("continuation rejects changed inputs, authority and immutable proof", async
     guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: extra.prompt || "Continue unchanged" }, f.home);
     await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id,
       continue: true, ...extra, "task-json": JSON.stringify(f.task) }, f.home), /continuation|changed|checkpoint/i);
-    assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+    const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+    assert.equal(state.status, reused ? "REVIEWED" : "PENDING");
+    if (reused) {
+      assert.equal(state.auto_resume, true);
+      assert.deepEqual(guard.hook(next, f.home), {});
+    } else assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
   });
 });
 
@@ -540,7 +548,7 @@ test("native continuation CLI retains direct Hard evidence and normal prepare st
   const original = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const next = { ...f.event, turn_id: "next" };
   const guidance = guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the task" }, f.home);
-  assert.match(guidance.hookSpecificOutput.additionalContext, /resume/);
+  assert.match(guidance.hookSpecificOutput.additionalContext, /reused the session's approved task/);
   const result = spawnSync(process.execPath, [path.join(f.home, "dely-compliance/codex-compliance.js"), "prepare",
     "--home", f.home, "--repo", f.repo, "--session", "session", "--turn", "next", "--continue",
     "--task-json", JSON.stringify(f.task)], { encoding: "utf8" });
@@ -1585,13 +1593,29 @@ for (const target of ["spec", "task", "skill", "instructions", "dependency"]) {
   });
 }
 
-test("new user turn resets authorization; another workspace cannot reuse it", async (t) => {
+test("a new user turn reuses unchanged authorization; another workspace cannot reuse it", async (t) => {
   const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the confirmed task" }, f.home);
   await f.prepare();
   f.review();
   const elsewhere = path.dirname(f.repo);
   assert.equal(guard.hook({ ...f.event, cwd: elsewhere }, f.home).hookSpecificOutput.permissionDecision, "deny");
-  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "next" }, f.home);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "next", prompt: "Continue the confirmed task" }, f.home);
+  assert.deepEqual(guard.hook({ ...f.event, turn_id: "next" }, f.home), {});
+  fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed instructions.\n");
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "later", prompt: "Continue the confirmed task" }, f.home);
+  assert.equal(guard.hook({ ...f.event, turn_id: "later" }, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("worker claims never auto-reuse a Control review", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "next",
+    prompt: "Task spec staged at spec.md (100 bytes, SHA-256: " + "a".repeat(64) + ") rcpt_0123456789abcdef" }, f.home);
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.status, "PENDING");
+  assert.equal(state.auto_resume, undefined);
   assert.equal(guard.hook({ ...f.event, turn_id: "next" }, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 

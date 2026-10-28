@@ -243,7 +243,8 @@ function context(event, home, state = {}) {
     policy +
     "When changing the registered Dely authoring source, finish review and required verification, then run native Node scripts/sync-dely.js " +
     "and require COHERENT for every selected installation before claiming completion. Report NOT_SYNCED if blocked; open a fresh session after updating. " +
-    (state.continuation_checkpoint ? "For the same confirmed task, use resume with these session/turn/repo/home arguments and the original --run for delegated work. Resume validates the immutable approval without new input, assessment or review. Changed scope requires normal preparation. " : "") +
+    (state.auto_resume ? "This prompt reused the session's approved task; the reviewed spec and context remain unchanged. If the request changed scope, prepare and review a fresh task before implementation. " :
+      state.continuation_checkpoint ? "For the same confirmed task, use resume with these session/turn/repo/home arguments and the original --run for delegated work. Resume validates the immutable approval without new input, assessment or review. Changed scope requires normal preparation. " : "") +
     guide +
     "Read-only inspection and Orca coordination remain available.";
 }
@@ -417,12 +418,13 @@ function resume(options, home) {
   const prior = continuationState({ ...options, continue: true }, pending, null, canonical(options.repo), null, home, settings);
   const state = { ...prior, turn: pending.turn, input_nonce: pending.input_nonce,
     mutation_admitted: false, stop_reported: false, continuation_checkpoint: pending.continuation_checkpoint,
-    fingerprints: { ...prior.fingerprints, ...fingerprints([pending.continuation_checkpoint.file]) } };
+    fingerprints: { ...prior.fingerprints, ...fingerprints([pending.continuation_checkpoint.file]) },
+    ...(options.auto ? { auto_resume: true } : {}) };
   validate(state, { session_id: options.session, turn_id: options.turn, cwd: state.repo, model: pending.native_model }, home);
   const latest = read(file);
   if (latest.turn !== pending.turn || latest.input_nonce !== pending.input_nonce) throw Error("User prompt changed during resume.");
   write(file, state);
-  return { status: state.status, continuation: true, route: state.assessment.route };
+  return { status: state.status, continuation: true, ...(options.auto ? { auto_resume: true } : {}), route: state.assessment.route };
 }
 
 function continuationProof(state) {
@@ -562,7 +564,15 @@ function hook(event, home, workerCheck = verifiedWorker) {
     write(promptFile(home, event.session_id), { session: state.session, turn: state.turn,
       repo: state.repo, input_nonce: state.input_nonce });
     write(file, state);
-    return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, state) } };
+    let current = state;
+    if (previous?.session === state.session && previous.status === "REVIEWED" && prompt.trim() &&
+        !state.worker_claim.spec_sha256 && !state.worker_claim.receipts.length) {
+      try {
+        resume({ session: event.session_id, turn: event.turn_id, repo: event.cwd, auto: true }, home);
+        current = read(file);
+      } catch (_) { /* Changed ownership or evidence requires normal preparation. */ }
+    }
+    return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, current) } };
   }
   if (type !== "PreToolUse" && type !== "Stop") return {};
   if (type === "PreToolUse" && !needsReview(event, script, home)) return {};

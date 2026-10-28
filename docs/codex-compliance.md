@@ -246,8 +246,15 @@ unchanged, even when every diagnostic check says `present`.
 ## Continue the same confirmed task
 
 An implementation review saves an immutable `continuation.json` checkpoint.
-After a new prompt, native state is `PENDING` until Control explicitly resumes
-the same confirmed task. Run the installed script's `resume` command with
+On a new prompt in the same session, the adapter automatically reuses that
+checkpoint when its owner session, native model, thread/terminal, instructions,
+selected skill policies, software, target, task fingerprints and any required
+dispatch still validate. The turn stays `REVIEWED`, mutations remain admitted,
+and the prompt guidance states that the approved task was reused. Workers
+cannot inherit this path through a staged receipt claim. A changed scope,
+ownership or evidence falls back to `PENDING` and normal preparation.
+
+Control can also run the installed script's `resume` command with
 the current `--session`, `--turn`, `--repo` and `--home`, plus the original
 `--run` for delegated work. Direct Hard work omits `--run`.
 
@@ -264,8 +271,9 @@ that form still stages an input and requires explicit current-turn review.
 
 For a changed task, instructions, model, roster, target, dependency or software,
 use normal preparation and the required new dispatch. Older states without a
-checkpoint also use normal preparation. Normal preparation remains the default;
-the adapter never guesses that a new user request continues an old approval.
+checkpoint also use normal preparation. The adapter only reuses a checkpoint
+whose complete evidence still validates; it never guesses that a scope change
+continues an old approval.
 
 A retained unavailable Jev result stays `NOT_EVALUATED`; continuation is not a
 provider retry. Record a Control disposition for missing mandatory evidence:
