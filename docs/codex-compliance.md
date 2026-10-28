@@ -39,8 +39,10 @@ the frozen software and guides without granting or changing native hook trust.
 
 ## Agent procedure
 
-SessionStart and each UserPromptSubmit supply the current session/turn IDs,
-the installed script and this guide. Read-only inspection can gather context
+SessionStart supplies the current session/turn IDs, the installed script, this
+guide and the full routing and fallback detail. Each UserPromptSubmit repeats
+the actionable core: the current prepare/advise command, evidence reminder,
+routing boundary and sync rule. Read-only inspection can gather context
 before preparation. Keep mandatory instructions outside relevance ranking.
 Use one read command per tool call and the resolved Orca CLI directly. Independent
 reads can use separate parallel tool calls. Shell conditionals, compound commands,
@@ -48,9 +50,14 @@ pipelines, redirects and wrappers remain subject to review. A denied tool stays
 blocked and permits an honest limitation report at Stop. A preflight healthcheck performs only
 read-only instruction loading and Orca lifecycle calls, then stops without
 implementation or a separate Jev review.
-Simple `git remote`, `git remote -v`, `git remote --verbose` and
-`git remote get-url <name>` are read-only conveniences. Mutating remote
-subcommands and `remote show` (which may contact the remote) still require review.
+Read-only inspection conveniences include `cat`, `head`, `tail`, `wc`, `ls`,
+`stat`, `file`, `du`, `df`, `grep`, plain `find` without delete, exec or
+print-to-file, `node --check <file>`, and listing git forms (`status`, `diff`,
+`log`, `show`, `blame`, `grep`, `ls-tree`, `cat-file`, `branch` list flags,
+`tag --list`, `config --get`, `worktree list`, `reflog`). Simple `git remote`,
+`git remote -v`, `git remote --verbose` and `git remote get-url <name>` are
+also read-only. Mutating flags, redirects, pipelines, output flags and
+`remote show` (which may contact the remote) still require review.
 After Context Engine returns multiple optional candidates, use the existing
 Jev context command and preserve every candidate and its provenance.
 

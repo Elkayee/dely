@@ -220,6 +220,12 @@ function context(event, home, state = {}) {
     "Explicitly distinguish a planned detector before dispatch from executed acceptance after implementation. " +
     "For a valid insufficient_evidence response, gather real new evidence with a fresh task snapshot without overwriting raw Jev answers; unknowns remain NOT_EVALUATED. " +
     guide + "Read-only inspection and Orca coordination remain available.";
+  const policy = event.hook_event_name === "SessionStart" ?
+    "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
+    "Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
+    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
+    "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
+    "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " : "";
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
     nativeModelContext(event) +
     "For a new or changed task, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
@@ -229,15 +235,12 @@ function context(event, home, state = {}) {
     "Use apply_patch to add only that current-turn JSON input file before review; it grants no implementation authority. " +
     "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " +
     "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
-    "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Before prepare/dispatch, require concrete verification evidence in existing context.acceptance and context.evidence fields: available method/command and fixture, procedure, expected_result, would_fail_if, and inspected source/caller/detector provenance. " +
     "Explicitly distinguish a planned detector before dispatch from executed acceptance after implementation. " +
     "For a valid insufficient_evidence response, inspect the gap, gather real new evidence and use a fresh task snapshot/assessment without overwriting raw Jev answers, old tasks or reviews. Unknowns remain NOT_EVALUATED. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
-    "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
-    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
-    "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
-    "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
+    "Prefer reviewed Dely for reversible bounded internal changes. " +
+    policy +
     "When changing the registered Dely authoring source, finish review and required verification, then run native Node scripts/sync-dely.js " +
     "and require COHERENT for every selected installation before claiming completion. Report NOT_SYNCED if blocked; open a fresh session after updating. " +
     (state.continuation_checkpoint ? "For the same confirmed task, use resume with these session/turn/repo/home arguments and the original --run for delegated work. Resume validates the immutable approval without new input, assessment or review. Changed scope requires normal preparation. " : "") +
@@ -303,13 +306,30 @@ function needsReview(event, script, home) {
   if (executable === "orca") return false;
   if (["qoder", "qoder.cmd"].includes(executable) && words[1] === "wiki") return false;
   if (["--help", "--version", "-h"].includes(words[1])) return false;
-  if (["rg", "pwd", "get-location", "get-content", "get-childitem", "get-item", "test-path", "select-string", "get-filehash"].includes(executable)) return false;
-  if (executable === "git" && words[1] === "remote") {
-    const args = words.slice(2);
-    return !(args.length === 0 || (args.length === 1 && ["-v", "--verbose"].includes(args[0])) ||
-      (args.length === 2 && args[0] === "get-url" && /^[A-Za-z0-9_.-]+$/.test(args[1]) && !args[1].startsWith("-")));
+  if (["rg", "grep", "pwd", "ls", "dir", "cat", "head", "tail", "wc", "stat", "file", "du", "df", "which", "where",
+    "sort", "uniq", "cut", "tr", "get-location", "get-content", "get-childitem", "get-item", "test-path",
+    "select-string", "get-filehash"].includes(executable)) return false;
+  if (executable === "find") {
+    return words.slice(1).some(word => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)\b/.test(word));
   }
-  return !(executable === "git" && ["status", "diff", "log", "show", "ls-files", "rev-parse", "check-attr"].includes(words[1]));
+  if (executable === "node" && words[1] === "--check" && words.length === 3) return false;
+  if (executable === "git") {
+    const sub = words[1], args = words.slice(2);
+    if (sub === "remote") {
+      return !(args.length === 0 || (args.length === 1 && ["-v", "--verbose"].includes(args[0])) ||
+        (args.length === 2 && args[0] === "get-url" && /^[A-Za-z0-9_.-]+$/.test(args[1]) && !args[1].startsWith("-")));
+    }
+    if (sub === "branch") {
+      return !(args.length === 0 || (args.length === 1 && args[0] === "--show-current") ||
+        args.every(arg => ["--list", "-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--color", "--no-color"].includes(arg)));
+    }
+    if (sub === "tag") return !(args.length === 0 || (["-l", "--list"].includes(args[0]) && args.slice(1).every(arg => !arg.startsWith("-"))));
+    if (sub === "config") return !["--get", "--get-all", "--list", "-l"].includes(args[0]);
+    if (sub === "worktree") return !(args.length === 1 && args[0] === "list");
+    return !["status", "diff", "log", "show", "ls-files", "rev-parse", "check-attr", "blame", "grep", "ls-tree",
+      "cat-file", "describe", "shortlog", "reflog", "rev-list", "merge-base", "for-each-ref", "name-rev"].includes(sub);
+  }
+  return true;
 }
 
 function logRecords(file) {

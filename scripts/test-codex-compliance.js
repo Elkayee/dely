@@ -98,6 +98,25 @@ test("only qoder wiki and help forms bypass task admission", () => {
   }
 });
 
+test("read-only inspection commands bypass task admission while mutation forms stay gated", () => {
+  const check = (command) => guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename);
+  for (const command of ["cat README.md", "head -n 20 README.md", "tail -n 20 README.md", "wc -l README.md",
+    "ls -la", "dir", "stat README.md", "file README.md", "du -sh .", "df -h", "which node", "where node",
+    "grep -n TODO README.md", "find . -name '*.js'", "node --check scripts/sync-dely.js",
+    "git blame README.md", "git grep -n TODO", "git ls-tree HEAD", "git cat-file -p HEAD",
+    "git branch --show-current", "git branch -a", "git tag --list", "git config --get user.name",
+    "git worktree list", "git reflog -5", "git describe --tags"]) {
+    assert.equal(check(command), false, command);
+  }
+  for (const command of ["cat README.md > out.txt", "find . -delete", "find . -exec rm {} \\;",
+    "node --check scripts/sync-dely.js && git push", "node -e \"require('fs').writeFileSync('x','y')\"",
+    "node --test scripts/test-jev-workflow.js", "git branch new-branch", "git branch -D main", "git tag -d v1",
+    "git config user.name changed", "git worktree add ../x", "sed -i 's/a/b/' README.md", "tee out.txt",
+    "cat README.md | head"]) {
+    assert.equal(check(command), true, command);
+  }
+});
+
 function candidateFixture(t, f = fixture(t)) {
   const git = (...args) => {
     const result = spawnSync("git", args, { encoding: "utf8" });
@@ -2027,4 +2046,23 @@ test("SessionStart and UserPromptSubmit Control hooks include concrete verificat
   await f.prepare();
   f.review();
   assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+test("prompt guidance keeps the actionable core while session start retains routing detail", (t) => {
+  const f = fixture(t);
+  const session = guard.hook({ ...f.event, hook_event_name: "SessionStart" }, f.home).hookSpecificOutput.additionalContext;
+  const prompt = guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Fix the typo in README" }, f.home)
+    .hookSpecificOutput.additionalContext;
+  for (const text of [session, prompt]) {
+    assert.match(text, /prepare --session/);
+    assert.match(text, /would_fail_if/);
+    assert.match(text, /Dely Run ID/);
+    assert.match(text, /sync-dely\.js/);
+  }
+  assert.match(session, /gemini-3\.8-flash-medium/);
+  assert.match(session, /gpt-6\.1-sol/);
+  assert.match(session, /review-evidence-json/);
+  assert.doesNotMatch(prompt, /gemini-3\.8-flash-medium/);
+  assert.doesNotMatch(prompt, /review-evidence-json/);
+  assert.ok(Buffer.byteLength(prompt) < 2800, "prompt guidance stays compact");
 });
