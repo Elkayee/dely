@@ -148,7 +148,7 @@ git grep -nE 'adoptCommand|adoptedPermission|adoptPath|readAdopts|writeAdopts|re
 
 ```bash
 git grep -Ei '(^|[^A-Za-z0-9])pace.?id([^A-Za-z0-9]|$)' -- . ':!docs/_plans' && exit 1 || true
-git grep -E '(^|[^A-Za-z0-9])[A-Z][0-9]+[a-z]?([^A-Za-z0-9]|$)' -- . ':!docs/_plans' && exit 1 || true
+git grep -E '(^|[^A-Za-z0-9#-])[A-Z][0-9]+[a-z]?([^A-Za-z0-9-]|$)' -- . ':!docs/_plans' && exit 1 || true
 ```
 
 ```bash
@@ -175,9 +175,9 @@ the same instrument applied to code: it fails on a deletion that removes a
 definition and leaves a caller.
 
 The disclosure grep is lexical. Its name boundaries avoid matching the standard
-`ORCA_WORKSPACE_ID` environment variable. It catches named consumer identifiers; it does
-not catch a quoted consumer path, a branch name, or a session id. A green result
-is not a proof of non-disclosure.
+`ORCA_WORKSPACE_ID` environment variable, regex ranges, and citation anchors.
+It catches standalone consumer identifiers; it does not catch a quoted consumer
+path, a branch name, or a session id. A green result is not a proof of non-disclosure.
 
 ---
 
