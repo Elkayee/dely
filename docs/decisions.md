@@ -19,7 +19,9 @@ review for all `sort` and `uniq` forms rather than add an argument parser; inclu
 these command strings without executing them, alongside valid delegated reuse
 and dispatch removal or mismatch. Keep optioned `file` calls and Git grep pager
 launches gated too, and limit the generic help exemption to a standalone flag.
-Preserve native hook definitions on sync.
+Preserve native hook definitions on sync. Bound the disclosure grep to names so
+the standard Orca workspace environment variable does not fail the closure gate;
+retain positive identifier fixtures when verifying that gate.
 
 ## 2026-10-23 — Keep missing-evidence diagnostics separate from admission (0.27.17)
 
