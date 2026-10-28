@@ -10,8 +10,28 @@ CLI, Cursor Agent CLI and the other harnesses `harnesses.json` marks
 - The workflow contract is `skills/delivery/SKILL.md`.
 - Settled, open, and rejected decisions are recorded in `docs/decisions.md`.
 - Installation and onboarding instructions are in `README.md`.
-- The closure gates below are the whole structural check. There is no test
-  suite and no CI workflow; nothing runs on a pull request automatically.
+- Tracked `scripts/test-*.js` use `node:test` as the test suite. There is no
+  checked-in CI workflow; nothing runs on a pull request automatically.
+  The closure gates below are the whole structural check.
+- No `PLAN.md`, `TASK.md`, or `AGENT.md` exists in the repository convention;
+  transient plans and handoffs live in `docs/_plans/`.
+- Dated evidence plans and handoffs include
+  `docs/_plans/2026-10-27-jev-cookbook-alignment.md` and the monitor handoff
+  `docs/_plans/2026-10-27-jev-monitor-loading-handoff.md`.
+- Current evidence and status distinctions:
+  - Source state: Git reports external commit `9a4ab3d1b8016a309e588e7d8135dda78f48afc7`
+    on `main`, while the local `origin/main` ref remains at `97fd926072cd98b8b0456708a351ddab09ad281f`.
+    The package manifests and version gate specify 0.27.30.
+  - Historical technical checks: existing handoff records report passing test
+    suites and gates for specific scoped tasks; these are recorded historical
+    technical checks, not whole-tree current acceptance.
+  - Independent integration verification, business approval, release, and live
+    user interface activation: `NOT_EVALUATED` for current whole-tree 0.27.29
+    where no matching proof exists. Acceptance is planned, not yet executed.
+  - Release and installation: historical handoff records `NOT_SYNCED` pending
+    Control; historical local cookbook review and sync records cover older
+    0.27.24 and 0.27.28 snapshots and do not constitute automatic proof of
+    0.27.29 whole-tree acceptance.
 - Live verification is `probe/checklist.md`, run by a separate agent session
   against a candidate installed from a `git archive` snapshot. When a delivery
   requires that checklist, it runs before the review dispatch, so the reviewed
@@ -109,9 +129,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.29
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.29
-test "$(jq -r .version package.json)" = 0.27.29
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.30
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.30
+test "$(jq -r .version package.json)" = 0.27.30
 ```
 
 ```bash
