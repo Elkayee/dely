@@ -306,12 +306,13 @@ function needsReview(event, script, home) {
   if (chained) return true;
   if (executable === "orca") return false;
   if (["qoder", "qoder.cmd"].includes(executable) && words[1] === "wiki") return false;
-  if (["--help", "--version", "-h"].includes(words[1])) return false;
-  if (["rg", "grep", "pwd", "ls", "dir", "cat", "head", "tail", "wc", "stat", "file", "du", "df", "which", "where",
-    "sort", "uniq", "cut", "tr", "get-location", "get-content", "get-childitem", "get-item", "test-path",
+  if (words.length === 2 && ["--help", "--version", "-h"].includes(words[1])) return false;
+  if (executable === "file") return words.slice(1).some(word => word.startsWith("-"));
+  if (["rg", "grep", "pwd", "ls", "dir", "cat", "head", "tail", "wc", "stat", "du", "df", "which", "where",
+    "cut", "tr", "get-location", "get-content", "get-childitem", "get-item", "test-path",
     "select-string", "get-filehash"].includes(executable)) return false;
   if (executable === "find") {
-    return words.slice(1).some(word => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)\b/.test(word));
+    return words.slice(1).some(word => /^-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/.test(word));
   }
   if (executable === "node" && words[1] === "--check" && words.length === 3) return false;
   if (executable === "git") {
@@ -327,6 +328,9 @@ function needsReview(event, script, home) {
     if (sub === "tag") return !(args.length === 0 || (["-l", "--list"].includes(args[0]) && args.slice(1).every(arg => !arg.startsWith("-"))));
     if (sub === "config") return !["--get", "--get-all", "--list", "-l"].includes(args[0]);
     if (sub === "worktree") return !(args.length === 1 && args[0] === "list");
+    if (sub === "reflog" && ["delete", "expire", "drop", "write"].includes(args[0])) return true;
+    if (sub === "grep" && args.some(arg => /^-[^-]*O/.test(arg) ||
+        (arg.length > 2 && arg.startsWith("--") && "--open-files-in-pager".startsWith(arg.split("=")[0])))) return true;
     return !["status", "diff", "log", "show", "ls-files", "rev-parse", "check-attr", "blame", "grep", "ls-tree",
       "cat-file", "describe", "shortlog", "reflog", "rev-list", "merge-base", "for-each-ref", "name-rev"].includes(sub);
   }
@@ -568,7 +572,7 @@ function hook(event, home, workerCheck = verifiedWorker) {
     if (previous?.session === state.session && previous.status === "REVIEWED" && prompt.trim() &&
         !state.worker_claim.spec_sha256 && !state.worker_claim.receipts.length) {
       try {
-        resume({ session: event.session_id, turn: event.turn_id, repo: event.cwd, auto: true }, home);
+        resume({ session: event.session_id, turn: event.turn_id, repo: event.cwd, run: previous.run, auto: true }, home);
         current = read(file);
       } catch (_) { /* Changed ownership or evidence requires normal preparation. */ }
     }

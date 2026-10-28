@@ -58,6 +58,13 @@ print-to-file, `node --check <file>`, and listing git forms (`status`, `diff`,
 `git remote -v`, `git remote --verbose` and `git remote get-url <name>` are
 also read-only. Mutating flags, redirects, pipelines, output flags and
 `remote show` (which may contact the remote) still require review.
+`sort` and `uniq` require review because their arguments can name output files.
+`find -fprint0` and `git reflog delete`, `expire`, `drop` and `write` also require
+review; listing reflogs and plain `find` printing remain read-only.
+Plain `file <path>` remains read-only; optioned forms require review because
+`--compile` writes a magic database. Git grep pager options also require review
+because they launch a command. Help/version shortcuts exempt only a standalone
+flag, so `sort -h -o <output>` cannot inherit a help exemption.
 After Context Engine returns multiple optional candidates, use the existing
 Jev context command and preserve every candidate and its provenance.
 
@@ -251,8 +258,12 @@ checkpoint when its owner session, native model, thread/terminal, instructions,
 selected skill policies, software, target, task fingerprints and any required
 dispatch still validate. The turn stays `REVIEWED`, mutations remain admitted,
 and the prompt guidance states that the approved task was reused. Workers
-cannot inherit this path through a staged receipt claim. A changed scope,
-ownership or evidence falls back to `PENDING` and normal preparation.
+cannot inherit this path through a staged receipt claim. Changed ownership or
+invalid evidence falls back to `PENDING` and normal preparation. Control must
+prepare a fresh task when the request changes scope.
+Automatic reuse supplies the previous review's Run ID and validates it against
+the immutable checkpoint and matching dispatch. A missing or mismatched dispatch
+keeps the next turn `PENDING`; removing dispatch evidence also blocks later tools.
 
 Control can also run the installed script's `resume` command with
 the current `--session`, `--turn`, `--repo` and `--home`, plus the original

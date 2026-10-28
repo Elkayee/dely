@@ -108,7 +108,8 @@ test("read-only inspection commands bypass task admission while mutation forms s
     "grep -n TODO README.md", "find . -name '*.js'", "node --check scripts/sync-dely.js",
     "git blame README.md", "git grep -n TODO", "git ls-tree HEAD", "git cat-file -p HEAD",
     "git branch --show-current", "git branch -a", "git tag --list", "git config --get user.name",
-    "git worktree list", "git reflog -5", "git describe --tags"]) {
+    "git worktree list", "git reflog -5", "git reflog show HEAD", "git reflog list", "git reflog exists HEAD",
+    "find . -print0", "git describe --tags"]) {
     assert.equal(check(command), false, command);
   }
   for (const command of ["cat README.md > out.txt", "find . -delete", "find . -exec rm {} \\;",
@@ -117,6 +118,19 @@ test("read-only inspection commands bypass task admission while mutation forms s
     "git config user.name changed", "git worktree add ../x", "sed -i 's/a/b/' README.md", "tee out.txt",
     "cat README.md | head"]) {
     assert.equal(check(command), true, command);
+  }
+});
+
+test("output writers and command-launching inspections require task admission", async (t) => {
+  for (const command of ["sort -o output.txt input.txt", "sort -h -o output.txt input.txt",
+    "uniq input.txt output.txt", "find . -fprint0 output.txt",
+    "git reflog expire --expire=now --all", "git reflog delete HEAD@{0}", "git reflog drop refs/heads/main",
+    "git reflog write HEAD old new message", "file -C -m magic", "file -h -C -m magic", "file --compile -m magic",
+    "git grep -Oeditor TODO", "git grep -nOeditor TODO", "git grep --open-files-in-pager=editor TODO",
+    "git grep --open-files=editor TODO"]) {
+    await t.test(command, () => {
+      assert.equal(guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename), true);
+    });
   }
 });
 
@@ -415,7 +429,7 @@ test("canonical prepared specs retain unchanged-task continuation for the origin
   f.review({ turn: "canonical_next" });
 });
 
-test("confirmed continuation preserves the dispatch basis and requires fresh Control review", async (t) => {
+test("confirmed continuation reuses the original Run and requires matching dispatch evidence", async (t) => {
   const f = fixture(t), routing = require(routingPath), assess = routing.assess;
   let requests = 0;
   t.after(() => { routing.assess = assess; });
@@ -443,13 +457,27 @@ test("confirmed continuation preserves the dispatch basis and requires fresh Con
     assessmentBasisSha256: route.assessmentBasisSha256, correctionSha256: null,
     launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "continued_dispatch" };
   fs.appendFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
-  const next = { ...f.event, turn_id: "continuation_turn" };
+  let next = { ...f.event, turn_id: "continuation_turn" };
   guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same Run after worker completion" }, f.home);
-  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  const resumed = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(resumed.status, "REVIEWED");
+  assert.equal(resumed.auto_resume, true);
+  assert.equal(resumed.run, prior.run);
+  assert.equal(resumed.original_assessment, prior.original_assessment);
+  assert.equal(requests, 1, "automatic continuation must not repeat the Jev request");
+  assert.deepEqual(guard.hook(next, f.home), {});
   fs.writeFileSync(f.settings.journal, JSON.stringify(route) + "\n");
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  next = { ...next, turn_id: "missing_dispatch_turn" };
+  guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same Run" }, f.home);
+  assert.equal(JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8")).status, "PENDING");
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
   await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
     run: prior.run, "task-json": JSON.stringify(f.task) }, f.home), /matching dispatch/);
-  fs.appendFileSync(f.settings.journal, JSON.stringify(dispatch) + "\n");
+  fs.appendFileSync(f.settings.journal, JSON.stringify({ ...dispatch, promptSha256: "f".repeat(64) }) + "\n");
+  await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
+    run: prior.run, "task-json": JSON.stringify(f.task) }, f.home), /matching dispatch/);
+  fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
   const prepared = await guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
     run: prior.run, "task-json": JSON.stringify(f.task) }, f.home);
   assert.equal(prepared.assessment.assessment_basis_sha256, route.assessmentBasisSha256,
