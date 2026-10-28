@@ -21,7 +21,7 @@ CLI, Cursor Agent CLI and the other harnesses `harnesses.json` marks
 - Current evidence and status distinctions:
   - Source state: Git reports external commit `9a4ab3d1b8016a309e588e7d8135dda78f48afc7`
     on `main`, while the local `origin/main` ref remains at `97fd926072cd98b8b0456708a351ddab09ad281f`.
-    The package manifests and version gate specify 0.27.31.
+    The package manifests and version gate specify 0.27.32.
   - Historical technical checks: existing handoff records report passing test
     suites and gates for specific scoped tasks; these are recorded historical
     technical checks, not whole-tree current acceptance.
@@ -129,9 +129,9 @@ git ls-files -z '*.sh' 'skills/delivery/scripts/dely' | xargs -0 -n1 bash -n
 ```
 
 ```bash
-test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.31
-test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.31
-test "$(jq -r .version package.json)" = 0.27.31
+test "$(jq -r .version .claude-plugin/plugin.json)" = 0.27.32
+test "$(jq -r .version .codex-plugin/plugin.json)" = 0.27.32
+test "$(jq -r .version package.json)" = 0.27.32
 ```
 
 ```bash

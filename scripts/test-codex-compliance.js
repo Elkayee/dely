@@ -88,6 +88,16 @@ test("only concrete read-only git remote forms bypass task admission", () => {
   }
 });
 
+test("only qoder wiki and help forms bypass task admission", () => {
+  const check = (command) => guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename);
+  for (const command of ["qoder wiki", "qoder wiki --help", "qoder wiki --repo C:/repo --language en,zh", "qoder wiki --regenerate", "qoder.cmd wiki --help", "rtk qoder wiki", "qoder --help", "qoder --version"]) {
+    assert.equal(check(command), false, command);
+  }
+  for (const command of ["qoder", "qoder login", "qoder wiki && git push", "qoder wiki --output=file"]) {
+    assert.equal(check(command), true, command);
+  }
+});
+
 function candidateFixture(t, f = fixture(t)) {
   const git = (...args) => {
     const result = spawnSync("git", args, { encoding: "utf8" });
@@ -1693,8 +1703,9 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   assert.match(admitted.hookSpecificOutput.additionalContext, /Native Codex hook model: "gpt-6-luna"/);
   assert.ok(admitted.hookSpecificOutput.additionalContext.includes(event.turn_id));
   assert.equal(admitted.hookSpecificOutput.permissionDecision, undefined);
+  assert.deepEqual(guard.hook(event, f.home), {});
   await f.prepare();
-  assert.deepEqual(guard.hook(event, f.home), admitted);
+  assert.deepEqual(guard.hook(event, f.home), {});
   assert.throws(f.review, /workers cannot create Codex Control reviews/);
   const command = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"))
     .hooks.PreToolUse[0].hooks[0].command;
@@ -1704,7 +1715,7 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
     spawnSync(process.execPath, [path.join(f.home, "dely-compliance", "codex-compliance.js"), "hook", "--home", f.home],
       { input: JSON.stringify(event), encoding: "utf8" });
   assert.equal(native.status, 0, native.stderr);
-  assert.deepEqual(JSON.parse(native.stdout), admitted);
+  assert.deepEqual(JSON.parse(native.stdout), {});
   assert.equal(guard.hook({ ...event, model: "wrong-model" }, f.home).hookSpecificOutput.permissionDecision, "deny");
   delete process.env.ORCA_TERMINAL_HANDLE;
   assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");

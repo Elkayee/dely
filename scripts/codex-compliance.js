@@ -24,6 +24,7 @@ const write = (file, value) => {
 };
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
+const admissionFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".admission");
 const settingsFile = (home) => path.join(root(home), "settings.json");
 const NATIVE_SCHEMA = "native-skills-v4";
 const promptFile = (home, session) => path.join(root(home), "prompts", digest(session) + ".json");
@@ -209,19 +210,24 @@ function nativeModelContext(event) {
 
 function context(event, home, state = {}) {
   const script = path.join(root(home), "codex-compliance.js").replace(/\\/g, "/");
-  const workerContext = state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length) ?
+  const guide = "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". ";
+  const worker = state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length);
+  if (worker) return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
+    nativeModelContext(event) +
     "Dely-dispatched Codex workers inherit Codex Control's reviewed admission only after current prompt, terminal, model, route, dispatch and owned-inventory checks pass. " +
     "Read the supplied task spec and send its heartbeat receipt first. Do not prepare or review a task as a worker; report an admission denial to Control. " +
-    "The preparation procedure below is for Codex Control. " : "";
+    "Before implementation, require concrete verification evidence in the task's acceptance and evidence fields: an available method/command and fixture, procedure, expected_result, would_fail_if, and inspected source/caller/detector provenance. " +
+    "Explicitly distinguish a planned detector before dispatch from executed acceptance after implementation. " +
+    "For a valid insufficient_evidence response, gather real new evidence with a fresh task snapshot without overwriting raw Jev answers; unknowns remain NOT_EVALUATED. " +
+    guide + "Read-only inspection and Orca coordination remain available.";
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
     nativeModelContext(event) +
-    workerContext +
     "For a new or changed task, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
     " --task-file \"" + inputFile(home, event.session_id, event.turn_id, state.input_nonce).replace(/\\/g, "/") + "\". " +
     "Use apply_patch to add only that current-turn JSON input file before review; it grants no implementation authority. " +
-    (!workerContext ? "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " : "") +
+    "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " +
     "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
     "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Before prepare/dispatch, require concrete verification evidence in existing context.acceptance and context.evidence fields: available method/command and fixture, procedure, expected_result, would_fail_if, and inspected source/caller/detector provenance. " +
@@ -235,7 +241,7 @@ function context(event, home, state = {}) {
     "When changing the registered Dely authoring source, finish review and required verification, then run native Node scripts/sync-dely.js " +
     "and require COHERENT for every selected installation before claiming completion. Report NOT_SYNCED if blocked; open a fresh session after updating. " +
     (state.continuation_checkpoint ? "For the same confirmed task, use resume with these session/turn/repo/home arguments and the original --run for delegated work. Resume validates the immutable approval without new input, assessment or review. Changed scope requires normal preparation. " : "") +
-    "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
+    guide +
     "Read-only inspection and Orca coordination remain available.";
 }
 
@@ -295,6 +301,7 @@ function needsReview(event, script, home) {
   }
   if (chained) return true;
   if (executable === "orca") return false;
+  if (["qoder", "qoder.cmd"].includes(executable) && words[1] === "wiki") return false;
   if (["--help", "--version", "-h"].includes(words[1])) return false;
   if (["rg", "pwd", "get-location", "get-content", "get-childitem", "get-item", "test-path", "select-string", "get-filehash"].includes(executable)) return false;
   if (executable === "git" && words[1] === "remote") {
@@ -547,7 +554,13 @@ function hook(event, home, workerCheck = verifiedWorker) {
   try {
     checkPrompt(state, home);
     if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) {
-      return type === "Stop" ? {} : { hookSpecificOutput: { hookEventName: type,
+      if (type === "Stop") return {};
+      const marker = admissionFile(home, event.session_id), turn = String(event.turn_id);
+      let last = "";
+      try { last = fs.readFileSync(marker, "utf8"); } catch (_) { /* first notice this session */ }
+      if (last === turn) return {};
+      fs.writeFileSync(marker, turn, { mode: 0o600 });
+      return { hookSpecificOutput: { hookEventName: type,
         additionalContext: "Dely inherited admission checks passed for this tool call. " + nativeModelContext(event) } };
     }
   } catch (_) { /* unknown worker identity never exempts a tool call */ }

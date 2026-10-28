@@ -414,12 +414,15 @@ The dispatch's native session/turn evidence must match the current hook;
 matching only a model slug, terminal or copied receipt cannot inherit admission.
 This preserves the worker instruction to read only its supplied task spec.
 Session and prompt guidance expose the native hook's model, session and turn.
-A verified inherited PreToolUse call also reports those facts to the worker.
+The first verified inherited PreToolUse call in each turn also reports those
+facts to the worker; repeats in the same turn stay silent.
 Missing model evidence stays `NOT_EVALUATED`; native hooks do not supply effort.
 These messages grant no admission and do not replace the existing checks.
 The native prompt guidance identifies this inherited path separately from
 Control preparation: workers read their supplied spec, send the receipt and
-report an admission denial to Control instead of reviewing themselves.
+report an admission denial to Control instead of reviewing themselves. Worker
+prompts omit the Control preparation procedure and retain the
+verification-evidence reminder, supplied-spec, guide and read-only guidance.
 If preparation nevertheless occurs, it retains only the current prompt's
 worker claim; the same dispatch/model/terminal/inventory checks still apply.
 An unrelated prompt resets that claim and cannot inherit the preceding task.
