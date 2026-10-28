@@ -262,7 +262,10 @@ async function run(event, home, options = {}) {
   if (input.phase === "prompt") {
     const prompt = input.prompt || transcriptMessage(event, "user", home);
     if (!prompt.trim() || Buffer.byteLength(prompt) > 8000 || sensitive(prompt)) {
-      fs.writeFileSync(pointer, JSON.stringify({ cwd, turn: input.turn || crypto.randomUUID(), disabled: true }), { mode: 0o600 });
+      const hash = digest(prompt);
+      if (state?.disabled && state.prompt_hash === hash) return base;
+      fs.writeFileSync(pointer, JSON.stringify({ cwd, turn: input.turn || crypto.randomUUID(), prompt_hash: hash,
+        disabled: true, notified: true }), { mode: 0o600 });
       return responseWithAdvice(base, input, [{ status: "NOT_EVALUATED", reason: "private_or_unavailable_prompt" }]);
     }
     const fresh = !state || state.closed || state.prompt_hash !== digest(prompt) ||
@@ -278,7 +281,11 @@ async function run(event, home, options = {}) {
       ...(input.provider === "antigravity" ? feedback(directory) : [])]);
   }
   if (!state || !same(state.cwd, cwd) || (input.turn && input.turn !== state.turn)) return base;
-  if (state.disabled) return responseWithAdvice(base, input, [{ status: "NOT_EVALUATED", reason: "private_or_unavailable_prompt" }]);
+  if (state.disabled) {
+    if (state.notified) return base;
+    fs.writeFileSync(pointer, JSON.stringify({ ...state, notified: true }), { mode: 0o600 });
+    return responseWithAdvice(base, input, [{ status: "NOT_EVALUATED", reason: "private_or_unavailable_prompt" }]);
+  }
   if (typeof state.prompt !== "string" || state.prompt_hash !== digest(state.prompt) || sensitive(state.prompt)) return base;
   if (input.continued) return base;
   if (input.provider === "antigravity" && input.phase === "stop" &&
@@ -319,6 +326,12 @@ async function run(event, home, options = {}) {
     "\nAcceptance: " + context.acceptance + "\nLatest user message: " + state.prompt : state.prompt;
   const observed = summary => ({ ...summary, observed_at: new Date().toISOString() });
   const local = summary => Promise.resolve(observed(summary));
+  // At most one notice per distinct finding per turn; observed_at is provenance, not identity.
+  const unnoticed = list => list.filter(summary => {
+    const { observed_at, ...stable } = summary;
+    try { fs.writeFileSync(path.join(directory, "noticed-" + digest(JSON.stringify(stable))), "noticed", { flag: "wx", mode: 0o600 }); return true; }
+    catch (error) { if (error.code === "EEXIST") return false; throw error; }
+  });
   async function evaluate(mode, payload) {
     const evaluationOptions = mode === "guardrails" ? { scopeConfirmed: Boolean(confirmed) } : {};
     const identity = digest(mode + JSON.stringify(payload) + JSON.stringify(evaluationOptions) +
@@ -410,7 +423,7 @@ async function run(event, home, options = {}) {
     for (const reason of new Set(unresolved)) evaluations.push(local({ mode: "citations", status: "NOT_EVALUATED",
       reason, count: unresolved.filter(value => value === reason).length }));
   }
-  const summaries = await Promise.all(evaluations);
+  const summaries = unnoticed(await Promise.all(evaluations));
   if (input.provider === "antigravity" && ["before", "after"].includes(input.phase)) {
     for (const summary of summaries) {
       const bytes = JSON.stringify(summary), file = path.join(directory, "feedback-" + digest(bytes) + ".json");

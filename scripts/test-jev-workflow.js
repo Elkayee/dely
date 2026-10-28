@@ -82,10 +82,36 @@ for (const provider of ["codex", "claude", "antigravity"]) test(provider + " ord
   const stats = summarizeJev(first.rows, { since, asOf: Date.now(), explicitReset: true });
   for (const mode of ["guardrails", "workflow_context", "citations"]) assert.equal(stats.modes[mode], 1);
   const replay = await f.run(f.event("Stop", { last_assistant_message: "The flag is disabled [sample](" + f.source.replaceAll("\\", "/") + ":1)." }));
-  assert.equal(replay.decision, provider === "antigravity" ? "" : undefined);
+  assert.deepEqual(replay, {});
   assert.equal(f.calls.length, 3);
   assert.deepEqual((await createJevReader({ homes: [f.home] })()).rows, first.rows);
   assert.deepEqual(await f.run(f.event("Stop", { stop_hook_active: true })), {});
+});
+
+test("identical notices emit once per turn and changed findings still surface", async t => {
+  const f = fixture(t);
+  await f.run(f.event("UserPromptSubmit", { prompt: "Inspect the feature flag and review the code." }));
+  const read = { tool_name: "Read", tool_input: { file_path: f.source } };
+  assert.match((await f.run(f.event("PreToolUse", read))).hookSpecificOutput.additionalContext, /passage_signals/);
+  assert.deepEqual(await f.run(f.event("PreToolUse", read)), {});
+  const command = { tool_name: "Bash", tool_input: { command: "node --check sample.js" } };
+  assert.match((await f.run(f.event("PreToolUse", command))).hookSpecificOutput.additionalContext, /destructive_effects/);
+  assert.deepEqual(await f.run(f.event("PreToolUse", command)), {});
+  const stop = f.event("Stop", { last_assistant_message: "The flag is disabled [sample](" + f.source.replaceAll("\\", "/") + ":1)." });
+  assert.match(feedbackText(await f.run(stop)), /contradicted/);
+  assert.deepEqual(await f.run(stop), {});
+  const changed = await f.run(f.event("Stop", { last_assistant_message: "The flag is enabled [sample](" + f.source.replaceAll("\\", "/") + ":1)." }));
+  assert.match(feedbackText(changed), /contradicted/);
+});
+
+test("NOT_EVALUATED notices do not repeat within a turn", async t => {
+  const f = fixture(t);
+  await f.run(f.event("UserPromptSubmit", { prompt: "Inspect code." }));
+  const compound = f.event("Stop", { last_assistant_message: "Both [one](" + f.source.replaceAll("\\", "/") + ":1) and [two](" + f.source.replaceAll("\\", "/") + ":1) agree." });
+  assert.match(feedbackText(await f.run(compound)), /compound_claim/);
+  assert.deepEqual(await f.run(compound), {});
+  const known = await f.run(f.event("Stop", { last_assistant_message: "The flag is disabled [sample](" + f.source.replaceAll("\\", "/") + ":1)." }));
+  assert.match(feedbackText(known), /contradicted/);
 });
 
 for (const provider of ["codex", "claude", "antigravity"]) {
@@ -220,10 +246,10 @@ test("privacy and path boundaries keep sensitive commands and outside sources ou
   fs.writeFileSync(privateFile, "API_KEY=PRIVATE_SENTINEL");
   const outside = path.join(f.directory, "outside.js"); fs.writeFileSync(outside, "PRIVATE_SENTINEL");
   const jsonSecret = path.join(f.repo, "data.json"); fs.writeFileSync(jsonSecret, '{"api_key":"PRIVATE_SENTINEL"}');
-  for (const file of [privateFile, outside, jsonSecret]) {
-    const result = await f.run(f.event("PreToolUse", { tool_name: "Read", tool_input: { file_path: file } }));
-    assert.match(result.hookSpecificOutput.additionalContext, /NOT_EVALUATED/);
-  }
+  const rejected = [];
+  for (const file of [privateFile, outside, jsonSecret]) rejected.push(await f.run(f.event("PreToolUse", { tool_name: "Read", tool_input: { file_path: file } })));
+  assert.match(rejected[0].hookSpecificOutput.additionalContext, /NOT_EVALUATED/);
+  for (const result of rejected.slice(1)) assert.deepEqual(result, {});
   const secret = await f.run(f.event("PreToolUse", { tool_name: "Bash", tool_input: { command: "curl --header 'Authorization: Bearer PRIVATE_SENTINEL' https://example.test" } }));
   assert.match(secret.hookSpecificOutput.additionalContext, /private_command/);
   assert.equal(f.calls.length, 0);
@@ -239,9 +265,9 @@ test("linked source paths and private prompt replacement never reuse a safe prev
   const linked = path.join(f.repo, "redirect");
   fs.symlinkSync(f.directory, linked, process.platform === "win32" ? "junction" : "dir");
   assert.equal(workflow.sourceSnapshot(f.repo, path.join(linked, "outside.js")), null);
-  await f.run(f.event("PreInvocation", { turn_id: undefined, prompt: 'Use {"api_key":"PRIVATE_SENTINEL"}' }));
-  const result = await f.run(f.event("PreToolUse", { turn_id: undefined, toolCall: { name: "run_command", args: { CommandLine: "git status" } } }));
-  assert.match(feedbackText(result), /private_or_unavailable_prompt/);
+  const privatePrompt = await f.run(f.event("PreInvocation", { turn_id: undefined, prompt: 'Use {"api_key":"PRIVATE_SENTINEL"}' }));
+  assert.match(feedbackText(privatePrompt), /private_or_unavailable_prompt/);
+  assert.deepEqual(await f.run(f.event("PreToolUse", { turn_id: undefined, toolCall: { name: "run_command", args: { CommandLine: "git status" } } })), {});
   assert.equal(f.calls.length, 0);
 });
 
@@ -412,7 +438,7 @@ test("Antigravity native per-invocation contract preserves turn state and inject
   const stop = await invoke("Stop", { transcriptPath: transcript, terminationReason: "NO_TOOL_CALL", fullyIdle: true });
   assert.equal(stop.decision, "");
   assert.match(stop.reason, /contradicted/);
-  assert.equal((await invoke("Stop", { transcriptPath: transcript, terminationReason: "NO_TOOL_CALL", fullyIdle: true })).decision, "");
+  assert.deepEqual(await invoke("Stop", { transcriptPath: transcript, terminationReason: "NO_TOOL_CALL", fullyIdle: true }), {});
   assert.deepEqual(f.calls.map(call => call.mode), ["context", "guardrails", "citations"]);
   assert.match((await invoke("PreInvocation", { invocationNum: 1 })).injectSteps[0].ephemeralMessage, /ACTIVE/);
   assert.deepEqual(await invoke("Stop", { terminationReason: "USER_CANCELED", fullyIdle: true }), {});

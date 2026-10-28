@@ -64,7 +64,8 @@ Private local state is under `dely-compliance/jev-workflow` in the selected
 home. It contains the safe prompt, source identities and cached result summaries,
 with per-turn request/count limits and replay locks. Feedback carries validated
 labels, probabilities and provenance rather than command/source text. A failed
-check stays NOT_EVALUATED. The uncalibrated advisory policy never creates a Stop
+check stays NOT_EVALUATED, and identical notices are emitted at most once per
+turn while changed findings still surface. The uncalibrated advisory policy never creates a Stop
 block/continue decision, including for low-confidence citation findings. Shared
 feedback explicitly distinguishes citation-evaluation status from task completion:
 agents continue outstanding authorized work and required checks without waiting
