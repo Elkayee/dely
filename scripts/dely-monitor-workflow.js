@@ -36,8 +36,13 @@ function project(value) {
   const status = ["REVIEW_REQUIRED", "NOT_EVALUATED"].includes(value.status) ? value.status : "unknown";
   const reason = value.reason === "JEV_UNAVAILABLE_OR_INVALID" ? value.reason : reasons.has(value.reason) ? value.reason :
     value.reason == null ? "NOT_RECORDED" : "UNRECOGNIZED_RECORDED_REASON";
+  // Only explicit UTC observation times are supported; never date legacy records by discovery.
+  const rawTime = value.observed_at;
+  const parsed = typeof rawTime === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(rawTime) && Date.parse(rawTime);
+  const ts = Number.isFinite(parsed) && new Date(parsed).toISOString().replace(".000Z", "Z") === rawTime.replace(".000Z", "Z")
+    ? new Date(parsed).toISOString() : null;
   const row = { mode, origin: "workflow", status, reason, category: reason === "JEV_UNAVAILABLE_OR_INVALID" ? "error" :
-    status === "NOT_EVALUATED" ? "not_evaluated" : "unknown", ts: null, timeSource: "not recorded",
+    status === "NOT_EVALUATED" ? "not_evaluated" : "unknown", ts, timeSource: ts ? "recorded workflow observation" : "not recorded",
     repo: null, workspaceSource: "not recorded", model: null, request_diagnostics: null, proposal: null,
     suggestions: null, output: null, control: [] };
   const values = value[mode === "guardrails" ? "commands" : mode === "workflow_context" ? "sources" : "citations"];

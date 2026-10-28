@@ -99,18 +99,19 @@ test("workflow phases reach the filtered API and effectiveness DOM with explicit
       claim: "PRIVATE_SENTINEL", quote: "PRIVATE_SENTINEL" }] },
   ];
   for (const [i, value] of snapshots.entries()) for (const kind of ["cache", "feedback"]) fs.writeFileSync(
-    path.join(directory, `${kind}-${String(i).repeat(64)}.json`), JSON.stringify(value));
+    path.join(directory, `${kind}-${String(i).repeat(64)}.json`), JSON.stringify({ ...value, observed_at: ts }));
   const readJev = createJevReader({ homes: [home] });
-  const server = createMonitor({ now: () => Date.parse(ts) + 1000, collect: options => collect({ ...options,
+  const server = createMonitor({ now: () => Date.parse(ts) + 1000, collect: async options => ({ ...await collect({ ...options,
     journal: path.join(home, "missing.jsonl"), readJev,
-    readWorkers: async () => ({ rows: [], complete: true }), readConversations: async () => ({ rows: [], available: true }) }) });
+    readWorkers: async () => ({ rows: [], complete: true }), readConversations: async () => ({ rows: [], available: true }) }),
+    collectedAt: new Date(Date.parse(ts) + 1000).toISOString() }) });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const origin = `http://127.0.0.1:${server.address().port}`;
   try {
     const response = await fetch(origin + "/api/usage?days=30"), data = await response.json();
     assert.equal(response.status, 200); assert.equal(data.jev.recorded, 3);
     assert.equal(data.jev.errors, 1); assert.equal(data.jev.valid, 1); assert.equal(data.jev.notEvaluated, 1);
-    assert.equal(data.jev.unknownTime, 3); assert.equal(data.sources.jev.coverage[0].workflow.loaded, 6);
+    assert.equal(data.jev.unknownTime, 0); assert.equal(data.sources.jev.coverage[0].workflow.loaded, 6);
     assert.ok(data.repos.includes(repo)); assert.doesNotMatch(JSON.stringify(data.jev), /PRIVATE_SENTINEL/);
     for (const mode of ["guardrails", "workflow_context", "citations"]) {
       const selected = await (await fetch(origin + "/api/usage?days=30&jevMode=" + mode)).json();
@@ -120,8 +121,9 @@ test("workflow phases reach the filtered API and effectiveness DOM with explicit
     assert.equal((await (await fetch(origin + "/api/usage?repo=D:/other")).json()).jev.recorded, 0);
     assert.equal((await (await fetch(origin + "/api/usage?jevMode=context")).json()).jev.recorded, 0);
     assert.equal((await (await fetch(origin + "/api/usage?days=1")).json()).jev.recorded, 3);
-    const reset = await (await fetch(origin + "/api/usage?since=" + encodeURIComponent(ts))).json();
-    assert.equal(reset.jev.recorded, 0); assert.equal(reset.jev.excludedUnknownTime, 3);
+    const reset = await (await fetch(origin + "/api/usage?days=30&since=" + encodeURIComponent(ts))).json();
+    assert.equal(reset.jev.recorded, 3); assert.equal(reset.jev.excludedUnknownTime, 0);
+    for (const mode of ["guardrails", "workflow_context", "citations"]) assert.equal(reset.jev.modes[mode], 1);
     class Element {
       constructor(tag) { this.tagName = tag; this.children = []; this.value = ""; this.dataset = {}; }
       set textContent(value) { this.text = String(value); this.children = []; }
@@ -152,8 +154,9 @@ test("workflow phases reach the filtered API and effectiveness DOM with explicit
     assert.match(get("jev-rows").textContent, /jev-workflow/);
     assert.doesNotMatch(Object.values(nodes).map(node => node.textContent).join(" "), /PRIVATE_SENTINEL/);
     render(reset);
-    assert.match(get("jev-summary").textContent, /3 unknown-time records excluded by reset/);
-    assert.match(get("jev-effectiveness").textContent, /0 saved records/);
+    assert.match(get("jev-summary").textContent, /0 unknown time/);
+    assert.match(get("jev-rows").textContent, /Time: recorded workflow observation/);
+    assert.match(get("jev-effectiveness").textContent, /1 saved records/);
     const html = await (await fetch(origin + "/")).text();
     for (const mode of ["guardrails", "workflow_context", "citations"]) assert.ok(html.includes(`value="${mode}"`));
     assert.match(html, /Verified usefulness, false positives, false negatives, production accuracy, and time\/cost savings: not measured/);

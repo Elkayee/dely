@@ -543,6 +543,29 @@ function workflowSamples() {
   ];
 }
 
+test("workflow observation timestamps survive reset without inventing legacy time", async t => {
+  const { homes, saved, pointer } = workflowFixture(t);
+  for (const home of homes) {
+    pointer(home);
+    for (const sample of workflowSamples()) {
+      for (const observed_at of [ts, "2026-10-17T10:00:00Z", "2026-10-19T10:00:00Z", undefined, "invalid", 123, "2026-02-30T10:00:00Z"]) {
+        const value = { ...sample, observed_at };
+        saved(home, value); saved(home, value, "feedback");
+      }
+    }
+  }
+  const read = createJevReader({ homes }), result = await read();
+  assert.equal(result.rows.length, 21);
+  const stats = summarizeJev(result.rows, { since: Date.parse(ts), asOf: Date.parse(ts) + 1000, explicitReset: true });
+  assert.equal(stats.recorded, 3); assert.equal(stats.excludedUnknownTime, 12);
+  for (const mode of ["guardrails", "workflow_context", "citations"]) assert.equal(stats.modes[mode], 1);
+  for (const row of result.rows.filter(row => row.ts === new Date(ts).toISOString())) {
+    assert.equal(row.sources.length, 4); assert.equal(row.timeSource, "recorded workflow observation");
+  }
+  assert.deepEqual((await read()).rows, result.rows);
+  assert.doesNotMatch(JSON.stringify({ result, stats }), /PRIVATE_SENTINEL/);
+});
+
 test("workflow cache, feedback and runtime copies deduplicate all three phases without exposing content", async t => {
   const { homes, saved, pointer, put } = workflowFixture(t);
   for (const home of homes) {
@@ -575,7 +598,7 @@ test("workflow cache, feedback and runtime copies deduplicate all three phases w
   assert.equal(summarizeJev(result.rows, { explicitReset: true }).recorded, 1);
   assert.equal(stats.unknownTime, 4);
   assert.doesNotMatch(JSON.stringify({ result, stats }), /PRIVATE_SENTINEL|"prompt"|"command"|"claim"|"quote"|"path"/);
-  assert.match(visibleJevRows(result.rows.filter(row => row.origin === "workflow"))[0].textContent, /matching saved session pointer.*evaluation time not saved/);
+  assert.match(visibleJevRows(result.rows.filter(row => row.origin === "workflow"))[0].textContent, /matching saved session pointer.*observation time not recorded/);
 });
 
 test("historical citation replies retain missing evaluation-status provenance and strict validation", async t => {

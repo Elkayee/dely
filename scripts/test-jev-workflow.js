@@ -71,9 +71,20 @@ for (const provider of ["codex", "claude", "antigravity"]) test(provider + " ord
   assert.equal(f.calls[0].input.candidates[0].path, f.source);
   assert.equal(f.calls[2].input.sources[0].source, "exports.enabled = true;\n");
   assert.doesNotMatch(feedbackText(stopped), /exports.enabled|TEST_KEY/);
+  const { createJevReader, summarizeJev } = require("./dely-monitor-jev.js");
+  const first = await createJevReader({ homes: [f.home] })();
+  assert.equal(first.rows.length, 3);
+  for (const row of first.rows) {
+    assert.ok(Number.isFinite(Date.parse(row.ts)), "real writer must save observation time");
+    assert.equal(row.timeSource, "recorded workflow observation");
+  }
+  const since = Math.min(...first.rows.map(row => Date.parse(row.ts)));
+  const stats = summarizeJev(first.rows, { since, asOf: Date.now(), explicitReset: true });
+  for (const mode of ["guardrails", "workflow_context", "citations"]) assert.equal(stats.modes[mode], 1);
   const replay = await f.run(f.event("Stop", { last_assistant_message: "The flag is disabled [sample](" + f.source.replaceAll("\\", "/") + ":1)." }));
   assert.equal(replay.decision, provider === "antigravity" ? "" : undefined);
   assert.equal(f.calls.length, 3);
+  assert.deepEqual((await createJevReader({ homes: [f.home] })()).rows, first.rows);
   assert.deepEqual(await f.run(f.event("Stop", { stop_hook_active: true })), {});
 });
 
@@ -91,6 +102,9 @@ for (const provider of ["codex", "claude", "antigravity"]) {
     assert.match(feedbackText(result), /[Cc]ontinue outstanding authorized work and required checks without waiting for the user to type continue/);
     assert.match(feedbackText(result), /disclose unavailable sources without presenting NOT_EVALUATED as verification/);
     assert.equal(f.calls.length, 0);
+    const summary = JSON.parse(feedbackText(result).split("JEV_WORKFLOW_FEEDBACK ")[1].split("\n")[0])[0];
+    assert.ok(Number.isFinite(Date.parse(summary.observed_at)));
+    assert.equal(summary.status, "NOT_EVALUATED");
     assert.doesNotMatch(JSON.stringify(result), /Private installation guidance/);
 
     const known = await f.run(f.event("Stop", { last_assistant_message:

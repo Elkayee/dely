@@ -203,7 +203,7 @@ function showJevRows() {
     workspace.append(element("div", row.ts ? new Date(row.ts).toLocaleString() : "Unknown time"),
       element("div", row.repo || "Unknown workspace", "cell-secondary mono"));
     if (row.timeSource === "co-located assessment") workspace.append(element("div", "Time: co-located assessment", "cell-secondary"));
-    if (row.origin === "workflow") workspace.append(element("div", "Workspace: " + row.workspaceSource + "; evaluation time not saved", "cell-secondary"));
+    if (row.origin === "workflow") workspace.append(element("div", "Workspace: " + row.workspaceSource + "; " + (row.ts ? "Time: " + row.timeSource : "observation time not recorded"), "cell-secondary"));
     const mode = element("td"); mode.append(element("div", row.mode), element("div", row.status, "cell-secondary"));
     if (row.policy) mode.append(element("div", row.policy, "cell-secondary"));
     const result = element("td"), details = element("details", null, "evidence-details");
@@ -285,7 +285,7 @@ function renderJev(data) {
     const w = s.workflow;
     if (w) coverage.append(element("p", `${s.home}/dely-compliance/jev-workflow: ${w.state} · ${w.directories} saved turns · ${w.loaded} readable cache/feedback copies · ${w.malformed} malformed or mismatched pointers · ${w.unreadable} unreadable · ${w.oversized} oversized · ${w.excluded} excluded links · ${w.truncated ? "source cap reached" : "within source caps"}. Saved phases: guardrails ${w.modes.guardrails}, workflow context ${w.modes.workflow_context}, citations ${w.modes.citations}.`, "footnote mono"));
   }
-  coverage.append(element("p", "Saved sources only; not total hook or API coverage. Task homes: immediate assessment.json, reviewed.json, skill-advice.json and context-advice.json (256 KiB/file, 4096 folders/home). Workflow homes: cache/feedback summaries (32 KiB/file, 256 files/turn, 4096 turns and 16384 files/home), deduplicated including identical runtime copies. Workspace requires a matching saved session pointer (16 KiB); workflow evaluation time/model/latency are not saved. Advisor workspace/time comes from its co-located assessment when absent. Unknown times remain visible unless observation reset excludes them; unsaved calls are NOT_EVALUATED.", "footnote"));
+  coverage.append(element("p", "Saved sources only; not total hook or API coverage. Task homes: immediate assessment.json, reviewed.json, skill-advice.json and context-advice.json (256 KiB/file, 4096 folders/home). Workflow homes: cache/feedback summaries (32 KiB/file, 256 files/turn, 4096 turns and 16384 files/home), deduplicated including identical runtime copies. Workspace requires a matching saved session pointer (16 KiB); new workflow summaries record observation time, preserved on cache reuse, not API evaluation time. Workflow model/latency are not saved. Advisor workspace/time comes from its co-located assessment when absent. Unknown times remain visible unless observation reset excludes them; unsaved calls are NOT_EVALUATED.", "footnote"));
   const scope = JSON.stringify([$("days").value, $("repo").value, $("probes").checked, $("jev-mode").value, observationStart]);
   if (scope !== jevScope) { jevShown = 25; jevScope = scope; }
   jevRows = stats.rows; showJevRows();

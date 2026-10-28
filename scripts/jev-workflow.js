@@ -317,6 +317,8 @@ async function run(event, home, options = {}) {
     Buffer.byteLength(JSON.stringify(context)) <= 8000 && !sensitive(JSON.stringify(context));
   const request = confirmed ? "Confirmed task: " + context.request + "\nConfirmed scope: " + context.scope +
     "\nAcceptance: " + context.acceptance + "\nLatest user message: " + state.prompt : state.prompt;
+  const observed = summary => ({ ...summary, observed_at: new Date().toISOString() });
+  const local = summary => Promise.resolve(observed(summary));
   async function evaluate(mode, payload) {
     const evaluationOptions = mode === "guardrails" ? { scopeConfirmed: Boolean(confirmed) } : {};
     const identity = digest(mode + JSON.stringify(payload) + JSON.stringify(evaluationOptions) +
@@ -326,18 +328,18 @@ async function run(event, home, options = {}) {
       const saved = boundedFile(file, 32768);
       if (saved) return JSON.parse(saved);
     } catch {}
-    if (fs.readdirSync(directory).length > 256) return { mode, status: "NOT_EVALUATED", reason: "turn_budget" };
+    if (fs.readdirSync(directory).length > 256) return observed({ mode, status: "NOT_EVALUATED", reason: "turn_budget" });
     const lock = file + ".lock";
     let descriptor;
     try { descriptor = fs.openSync(lock, "wx", 0o600); }
     catch (error) {
-      if (error.code === "EEXIST") return { mode, status: "NOT_EVALUATED", reason: "duplicate_in_flight" };
+      if (error.code === "EEXIST") return observed({ mode, status: "NOT_EVALUATED", reason: "duplicate_in_flight" });
       throw error;
     }
     try {
       const result = await advisor.advise(payload, mode, { repo: cwd, ...(options.advisorOptions || {}), ...evaluationOptions });
-      const summary = { mode, status: result.status, input_sha256: result.input_sha256,
-        policy: { mode: "advisory", calibration_status: "NOT_EVALUATED" }, ...(result.reason ? { reason: result.reason } : {}) };
+      const summary = observed({ mode, status: result.status, input_sha256: result.input_sha256,
+        policy: { mode: "advisory", calibration_status: "NOT_EVALUATED" }, ...(result.reason ? { reason: result.reason } : {}) });
       if (mode === "guardrails") summary.commands = result.commands?.map(command => ({ id: command.id, hazards: command.hazards }));
       if (mode === "context") summary.sources = result.ranked_context?.map(candidate => ({ id: candidate.id, path: candidate.path,
         line_start: candidate.line_start, line_end: candidate.line_end,
@@ -347,17 +349,17 @@ async function run(event, home, options = {}) {
         path: citation.path, source_sha256: citation.source_sha256, document_sha256: citation.document_sha256,
         judgment: citation.judgment, status: citation.status, evaluation_status: citation.evaluation_status,
         auto_accept: false, reason: citation.reason, confidence: citation.confidence, probabilities: citation.probabilities }));
-      if (Buffer.byteLength(JSON.stringify(summary)) > 24000) return { mode, status: "NOT_EVALUATED", reason: "feedback_limit" };
+      if (Buffer.byteLength(JSON.stringify(summary)) > 24000) return observed({ mode, status: "NOT_EVALUATED", reason: "feedback_limit" });
       fs.writeFileSync(file, JSON.stringify(summary), { mode: 0o600, flag: "wx" });
       return summary;
     } finally { fs.closeSync(descriptor); fs.unlinkSync(lock); }
   }
   const evaluations = [];
-  if (rejectedSources) evaluations.push(Promise.resolve({ mode: "context", status: "NOT_EVALUATED", reason: "ineligible_source", count: rejectedSources }));
+  if (rejectedSources) evaluations.push(local({ mode: "context", status: "NOT_EVALUATED", reason: "ineligible_source", count: rejectedSources }));
   if (input.phase === "before") {
     const command = text(input.args.command || input.args.cmd || input.args.CommandLine);
     if (command) evaluations.push(sensitive(command) || /(?:^|\s)(?:export|set|\$env:)\s*\w+\s*=|(?:https?:\/\/)[^\s/]+@/i.test(command)
-      ? Promise.resolve({ mode: "guardrails", status: "NOT_EVALUATED", reason: "private_command" })
+      ? local({ mode: "guardrails", status: "NOT_EVALUATED", reason: "private_command" })
       : evaluate("guardrails", { request, commands: [{ id: "pending", command,
         shell: text(input.args.shell) || (input.provider === "claude" && input.tool === "Bash" ? "bash" : "provider_default_on_" + process.platform), cwd }] }));
   }
@@ -371,7 +373,7 @@ async function run(event, home, options = {}) {
         } catch { return null; }
       }).filter(Boolean);
       if (sources.length) evaluations.push(evaluate("context", { request, candidates: sources, passage_checks: true }));
-    } else evaluations.push(Promise.resolve({ mode: "context", status: "NOT_EVALUATED", reason: "source_count_limit" }));
+    } else evaluations.push(local({ mode: "context", status: "NOT_EVALUATED", reason: "source_count_limit" }));
   }
   if (input.phase === "stop") {
     const message = input.assistant || transcriptMessage(event, "assistant", home);
@@ -394,7 +396,7 @@ async function run(event, home, options = {}) {
       const located = citationInput(cwd, href, claim, before);
       if (located.reason) { unresolved.push(located.reason); continue; }
       if (located.finding) {
-        evaluations.push(Promise.resolve({ mode: "citations", status: "REVIEW_REQUIRED",
+        evaluations.push(local({ mode: "citations", status: "REVIEW_REQUIRED",
           policy: { mode: "advisory", calibration_status: "NOT_EVALUATED" }, citations: [located.finding] }));
         continue;
       }
@@ -404,8 +406,8 @@ async function run(event, home, options = {}) {
         claim, quote: located.quote });
     }
     if (citations.length && citations.length <= 32 && sources.length <= 32) evaluations.push(evaluate("citations", { request, sources, citations }));
-    if (citations.length > 32 || sources.length > 32) evaluations.push(Promise.resolve({ mode: "citations", status: "NOT_EVALUATED", reason: "citation_count_limit" }));
-    for (const reason of new Set(unresolved)) evaluations.push(Promise.resolve({ mode: "citations", status: "NOT_EVALUATED",
+    if (citations.length > 32 || sources.length > 32) evaluations.push(local({ mode: "citations", status: "NOT_EVALUATED", reason: "citation_count_limit" }));
+    for (const reason of new Set(unresolved)) evaluations.push(local({ mode: "citations", status: "NOT_EVALUATED",
       reason, count: unresolved.filter(value => value === reason).length }));
   }
   const summaries = await Promise.all(evaluations);

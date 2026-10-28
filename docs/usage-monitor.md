@@ -222,7 +222,12 @@ existing unknown or NOT_EVALUATED states and explain the evidence gap.
 The existing time, workspace, probe and browser observation-start filters apply
 to Jev rows. Advisor artifacts without their own time/workspace use their
 co-located original assessment; that attribution is labeled and is not request
-timing. Unknown times remain visible in ordinary rolling windows. An explicit
+timing. New workflow summaries save `observed_at` when the summary is produced;
+cache reuse preserves that original observation time. This is observation
+provenance, including local not-evaluated findings, not proof of an API evaluation
+or its timing. The reader validates explicit UTC timestamps; absent or invalid
+historical times stay unknown and are never inferred from files or session pointers.
+Unknown times remain visible in ordinary rolling windows. An explicit
 browser reset (`/api/usage?since=...`) requires a valid in-window observation
 time for every statistics population, including project/unassigned membership,
 workers, assessments, conversations and Jev rows. Excluded unknown-time counts
