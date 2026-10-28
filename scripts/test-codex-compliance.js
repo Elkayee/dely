@@ -64,7 +64,10 @@ test("explicit resume keeps the approved task without new input, assessment or r
   const files = fs.readdirSync(path.dirname(before.skill_input));
   const next = { ...f.event, turn_id: "resume_turn" };
   guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same confirmed task" }, f.home);
-  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  assert.deepEqual(guard.hook(next, f.home), {});
+  const auto = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(auto.status, "REVIEWED");
+  assert.equal(auto.auto_resume, true);
   const resumed = guard.resume({ session: "session", turn: next.turn_id, repo: f.repo }, f.home);
   assert.equal(resumed.status, "REVIEWED");
   const after = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
@@ -85,6 +88,49 @@ test("only concrete read-only git remote forms bypass task admission", () => {
   }
   for (const command of ["git remote add origin example", "git remote set-url origin example", "git remote remove origin", "git remote rename old new", "git remote update", "git remote show origin", "git remote -v; git push", "git remote --output=file", "git remote get-url origin --ext-diff"]) {
     assert.equal(check(command), true, command);
+  }
+});
+
+test("only qoder wiki and help forms bypass task admission", () => {
+  const check = (command) => guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename);
+  for (const command of ["qoder wiki", "qoder wiki --help", "qoder wiki --repo C:/repo --language en,zh", "qoder wiki --regenerate", "qoder.cmd wiki --help", "rtk qoder wiki", "qoder --help", "qoder --version"]) {
+    assert.equal(check(command), false, command);
+  }
+  for (const command of ["qoder", "qoder login", "qoder wiki && git push", "qoder wiki --output=file"]) {
+    assert.equal(check(command), true, command);
+  }
+});
+
+test("read-only inspection commands bypass task admission while mutation forms stay gated", () => {
+  const check = (command) => guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename);
+  for (const command of ["cat README.md", "head -n 20 README.md", "tail -n 20 README.md", "wc -l README.md",
+    "ls -la", "dir", "stat README.md", "file README.md", "du -sh .", "df -h", "which node", "where node",
+    "grep -n TODO README.md", "find . -name '*.js'", "node --check scripts/sync-dely.js",
+    "git blame README.md", "git grep -n TODO", "git ls-tree HEAD", "git cat-file -p HEAD",
+    "git branch --show-current", "git branch -a", "git tag --list", "git config --get user.name",
+    "git worktree list", "git reflog -5", "git reflog show HEAD", "git reflog list", "git reflog exists HEAD",
+    "find . -print0", "git describe --tags"]) {
+    assert.equal(check(command), false, command);
+  }
+  for (const command of ["cat README.md > out.txt", "find . -delete", "find . -exec rm {} \\;",
+    "node --check scripts/sync-dely.js && git push", "node -e \"require('fs').writeFileSync('x','y')\"",
+    "node --test scripts/test-jev-workflow.js", "git branch new-branch", "git branch -D main", "git tag -d v1",
+    "git config user.name changed", "git worktree add ../x", "sed -i 's/a/b/' README.md", "tee out.txt",
+    "cat README.md | head"]) {
+    assert.equal(check(command), true, command);
+  }
+});
+
+test("output writers and command-launching inspections require task admission", async (t) => {
+  for (const command of ["sort -o output.txt input.txt", "sort -h -o output.txt input.txt",
+    "uniq input.txt output.txt", "find . -fprint0 output.txt",
+    "git reflog expire --expire=now --all", "git reflog delete HEAD@{0}", "git reflog drop refs/heads/main",
+    "git reflog write HEAD old new message", "file -C -m magic", "file -h -C -m magic", "file --compile -m magic",
+    "git grep -Oeditor TODO", "git grep -nOeditor TODO", "git grep --open-files-in-pager=editor TODO",
+    "git grep --open-files=editor TODO"]) {
+    await t.test(command, () => {
+      assert.equal(guard.needsReview({ tool_name: "Bash", tool_input: { command } }, __filename), true);
+    });
   }
 });
 
@@ -383,7 +429,7 @@ test("canonical prepared specs retain unchanged-task continuation for the origin
   f.review({ turn: "canonical_next" });
 });
 
-test("confirmed continuation preserves the dispatch basis and requires fresh Control review", async (t) => {
+test("confirmed continuation reuses the original Run and requires matching dispatch evidence", async (t) => {
   const f = fixture(t), routing = require(routingPath), assess = routing.assess;
   let requests = 0;
   t.after(() => { routing.assess = assess; });
@@ -411,13 +457,27 @@ test("confirmed continuation preserves the dispatch basis and requires fresh Con
     assessmentBasisSha256: route.assessmentBasisSha256, correctionSha256: null,
     launch: { effective: { agent: "codex", model: "gpt-6.1-sol", effort: "medium" } }, dispatchId: "continued_dispatch" };
   fs.appendFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
-  const next = { ...f.event, turn_id: "continuation_turn" };
+  let next = { ...f.event, turn_id: "continuation_turn" };
   guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same Run after worker completion" }, f.home);
-  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  const resumed = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(resumed.status, "REVIEWED");
+  assert.equal(resumed.auto_resume, true);
+  assert.equal(resumed.run, prior.run);
+  assert.equal(resumed.original_assessment, prior.original_assessment);
+  assert.equal(requests, 1, "automatic continuation must not repeat the Jev request");
+  assert.deepEqual(guard.hook(next, f.home), {});
   fs.writeFileSync(f.settings.journal, JSON.stringify(route) + "\n");
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+  next = { ...next, turn_id: "missing_dispatch_turn" };
+  guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the same Run" }, f.home);
+  assert.equal(JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8")).status, "PENDING");
+  assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
   await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
     run: prior.run, "task-json": JSON.stringify(f.task) }, f.home), /matching dispatch/);
-  fs.appendFileSync(f.settings.journal, JSON.stringify(dispatch) + "\n");
+  fs.appendFileSync(f.settings.journal, JSON.stringify({ ...dispatch, promptSha256: "f".repeat(64) }) + "\n");
+  await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
+    run: prior.run, "task-json": JSON.stringify(f.task) }, f.home), /matching dispatch/);
+  fs.writeFileSync(f.settings.journal, [route, dispatch].map((row) => JSON.stringify(row)).join("\n") + "\n");
   const prepared = await guard.prepare({ ...f.options, turn: next.turn_id, continue: true,
     run: prior.run, "task-json": JSON.stringify(f.task) }, f.home);
   assert.equal(prepared.assessment.assessment_basis_sha256, route.assessmentBasisSha256,
@@ -434,10 +494,10 @@ test("confirmed continuation preserves the dispatch basis and requires fresh Con
 
 test("continuation rejects changed inputs, authority and immutable proof", async (t) => {
   const cases = [
-    ["spec", (f) => { f.task.spec += "Different work.\n"; }],
-    ["context", (f) => { f.task.context.acceptance = "Different acceptance"; }],
-    ["roster", (f) => { f.task.skills[0].description = "Different workflow"; }],
-    ["mandatory skills", (f) => { f.task.required_skills = []; }],
+    ["spec", (f) => { f.task.spec += "Different work.\n"; }, {}, true],
+    ["context", (f) => { f.task.context.acceptance = "Different acceptance"; }, {}, true],
+    ["roster", (f) => { f.task.skills[0].description = "Different workflow"; }, {}, true],
+    ["mandatory skills", (f) => { f.task.required_skills = []; }, {}, true],
     ["instructions", (f) => { fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed authority.\n"); }],
     ["skill body", (f) => { fs.appendFileSync(f.skill, "Changed workflow.\n"); }],
     ["original evidence", (f, prior) => { fs.appendFileSync(prior.original_assessment, " "); }],
@@ -446,9 +506,9 @@ test("continuation rejects changed inputs, authority and immutable proof", async
       fs.writeFileSync(guard.settingsFile(f.home), JSON.stringify(s)); }],
     ["foreign model", () => {}, { model: "different-model" }],
     ["worker claim", () => {}, { prompt: "receipt rcpt_0000000000000000" }],
-    ["foreign Run", () => {}, { run: "different_run" }],
-    ["foreign session", () => {}, { session: "different_session" }],
-    ["reserved native metadata", (f) => { f.task.native_continuation = { file: "forged", sha256: "0".repeat(64) }; }],
+    ["foreign Run", () => {}, { run: "different_run" }, true],
+    ["foreign session", () => {}, { session: "different_session" }, true],
+    ["reserved native metadata", (f) => { f.task.native_continuation = { file: "forged", sha256: "0".repeat(64) }; }, {}, true],
     ["foreign terminal", (f, prior, sub) => {
       const old = process.env.ORCA_TERMINAL_HANDLE;
       process.env.ORCA_TERMINAL_HANDLE = "different_terminal";
@@ -456,7 +516,7 @@ test("continuation rejects changed inputs, authority and immutable proof", async
         else process.env.ORCA_TERMINAL_HANDLE = old; });
     }],
   ];
-  for (const [name, change, extra = {}] of cases) await t.test(name, async (sub) => {
+  for (const [name, change, extra = {}, reused = false] of cases) await t.test(name, async (sub) => {
     const f = fixture(sub);
     guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the task" }, f.home);
     await f.prepare(); f.review();
@@ -466,7 +526,12 @@ test("continuation rejects changed inputs, authority and immutable proof", async
     guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: extra.prompt || "Continue unchanged" }, f.home);
     await assert.rejects(() => guard.prepare({ ...f.options, turn: next.turn_id,
       continue: true, ...extra, "task-json": JSON.stringify(f.task) }, f.home), /continuation|changed|checkpoint/i);
-    assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
+    const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+    assert.equal(state.status, reused ? "REVIEWED" : "PENDING");
+    if (reused) {
+      assert.equal(state.auto_resume, true);
+      assert.deepEqual(guard.hook(next, f.home), {});
+    } else assert.equal(guard.hook(next, f.home).hookSpecificOutput.permissionDecision, "deny");
   });
 });
 
@@ -511,7 +576,7 @@ test("native continuation CLI retains direct Hard evidence and normal prepare st
   const original = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
   const next = { ...f.event, turn_id: "next" };
   const guidance = guard.hook({ ...next, hook_event_name: "UserPromptSubmit", prompt: "Continue the task" }, f.home);
-  assert.match(guidance.hookSpecificOutput.additionalContext, /resume/);
+  assert.match(guidance.hookSpecificOutput.additionalContext, /reused the session's approved task/);
   const result = spawnSync(process.execPath, [path.join(f.home, "dely-compliance/codex-compliance.js"), "prepare",
     "--home", f.home, "--repo", f.repo, "--session", "session", "--turn", "next", "--continue",
     "--task-json", JSON.stringify(f.task)], { encoding: "utf8" });
@@ -1459,6 +1524,25 @@ test("bootstrap accepts quoted task JSON but denies chained commands and redirec
   }
 });
 
+test("exact PyCharm database discovery is readable before review while executable commands stay gated", t => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "List the configured database connections." }, f.home);
+  const tool = "mcp__pycharm_auto__pycharm_raw_execute_tool";
+  const event = input => ({ ...f.event, tool_name: tool, tool_input: input });
+  const listing = { command: "list_database_connections", project_path: f.repo, max_chars: 1800, verbose: false };
+  assert.equal(guard.needsReview(event(listing), __filename), false);
+  assert.deepEqual(guard.hook(event(listing), f.home), {});
+  for (const input of [undefined, null, {}, { command: null }, { command: ["list_database_connections"] },
+    { command: "list_database_connections; execute_sql_query" }, { command: "list_database_connections --query DELETE" },
+    { command: "execute_sql_query --query SELECT" }, { command: "create_database_connection" },
+    { command: "runNotebookCell" }, { command: "unknown_command" },
+    { command: "list_database_connections", query: "DELETE FROM sample" }]) {
+    assert.equal(guard.needsReview(event(input), __filename), true);
+    assert.equal(guard.hook(event(input), f.home).hookSpecificOutput.permissionDecision, "deny");
+  }
+  assert.equal(guard.needsReview({ ...event(listing), tool_name: tool + "_other" }, __filename), true);
+});
+
 test("read-only preflight coordination stops without Jev while conditional discovery stays denied", (t) => {
   const f = fixture(t);
   guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Preflight only; no implementation." }, f.home);
@@ -1474,6 +1558,21 @@ test("read-only preflight coordination stops without Jev while conditional disco
   const conditional = 'if ($env:ORCA_CLI_COMMAND) { & $env:ORCA_CLI_COMMAND skills get orchestration } elseif ($env:ORCA_DEV_REPO_ROOT) { orca-dev skills get orchestration } else { orca skills get orchestration }';
   assert.equal(guard.hook({ ...f.event, tool_name: "Bash", tool_input: { command: conditional } }, f.home).hookSpecificOutput.permissionDecision, "deny");
   assert.equal(guard.hook(f.event, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("cookbook alignment exports task context only after immutable current native review", async t => {
+  const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the confirmed task" }, f.home);
+  assert.equal(guard.workflowContext(f.event, f.home), null);
+  await f.prepare();
+  f.review();
+  const context = guard.workflowContext(f.event, f.home);
+  assert.equal(context.scope, f.task.context.scope);
+  assert.equal(context.request, f.task.request);
+  assert.match(context.spec_sha256, /^[a-f0-9]{64}$/);
+  assert.equal(guard.workflowContext({ ...f.event, turn_id: "foreign" }, f.home), null);
+  fs.appendFileSync(f.skill, "Changed source.\n");
+  assert.equal(guard.workflowContext(f.event, f.home), null);
 });
 
 test("real routing review permits Hard with native skill provenance and loaded instructions", async (t) => {
@@ -1522,13 +1621,29 @@ for (const target of ["spec", "task", "skill", "instructions", "dependency"]) {
   });
 }
 
-test("new user turn resets authorization; another workspace cannot reuse it", async (t) => {
+test("a new user turn reuses unchanged authorization; another workspace cannot reuse it", async (t) => {
   const f = fixture(t);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Implement the confirmed task" }, f.home);
   await f.prepare();
   f.review();
   const elsewhere = path.dirname(f.repo);
   assert.equal(guard.hook({ ...f.event, cwd: elsewhere }, f.home).hookSpecificOutput.permissionDecision, "deny");
-  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "next" }, f.home);
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "next", prompt: "Continue the confirmed task" }, f.home);
+  assert.deepEqual(guard.hook({ ...f.event, turn_id: "next" }, f.home), {});
+  fs.appendFileSync(path.join(f.repo, "AGENTS.md"), "Changed instructions.\n");
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "later", prompt: "Continue the confirmed task" }, f.home);
+  assert.equal(guard.hook({ ...f.event, turn_id: "later" }, f.home).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("worker claims never auto-reuse a Control review", async (t) => {
+  const f = fixture(t);
+  await f.prepare();
+  f.review();
+  guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", turn_id: "next",
+    prompt: "Task spec staged at spec.md (100 bytes, SHA-256: " + "a".repeat(64) + ") rcpt_0123456789abcdef" }, f.home);
+  const state = JSON.parse(fs.readFileSync(guard.stateFile(f.home, "session"), "utf8"));
+  assert.equal(state.status, "PENDING");
+  assert.equal(state.auto_resume, undefined);
   assert.equal(guard.hook({ ...f.event, turn_id: "next" }, f.home).hookSpecificOutput.permissionDecision, "deny");
 });
 
@@ -1659,8 +1774,9 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
   assert.match(admitted.hookSpecificOutput.additionalContext, /Native Codex hook model: "gpt-6-luna"/);
   assert.ok(admitted.hookSpecificOutput.additionalContext.includes(event.turn_id));
   assert.equal(admitted.hookSpecificOutput.permissionDecision, undefined);
+  assert.deepEqual(guard.hook(event, f.home), {});
   await f.prepare();
-  assert.deepEqual(guard.hook(event, f.home), admitted);
+  assert.deepEqual(guard.hook(event, f.home), {});
   assert.throws(f.review, /workers cannot create Codex Control reviews/);
   const command = JSON.parse(fs.readFileSync(path.join(f.home, "hooks.json"), "utf8"))
     .hooks.PreToolUse[0].hooks[0].command;
@@ -1670,7 +1786,7 @@ test("preparation retains a dispatched worker's current prompt claim", async (t)
     spawnSync(process.execPath, [path.join(f.home, "dely-compliance", "codex-compliance.js"), "hook", "--home", f.home],
       { input: JSON.stringify(event), encoding: "utf8" });
   assert.equal(native.status, 0, native.stderr);
-  assert.deepEqual(JSON.parse(native.stdout), admitted);
+  assert.deepEqual(JSON.parse(native.stdout), {});
   assert.equal(guard.hook({ ...event, model: "wrong-model" }, f.home).hookSpecificOutput.permissionDecision, "deny");
   delete process.env.ORCA_TERMINAL_HANDLE;
   assert.equal(guard.hook(event, f.home).hookSpecificOutput.permissionDecision, "deny");
@@ -1982,4 +2098,23 @@ test("SessionStart and UserPromptSubmit Control hooks include concrete verificat
   await f.prepare();
   f.review();
   assert.deepEqual(guard.hook(f.event, f.home), {});
+});
+
+test("prompt guidance keeps the actionable core while session start retains routing detail", (t) => {
+  const f = fixture(t);
+  const session = guard.hook({ ...f.event, hook_event_name: "SessionStart" }, f.home).hookSpecificOutput.additionalContext;
+  const prompt = guard.hook({ ...f.event, hook_event_name: "UserPromptSubmit", prompt: "Fix the typo in README" }, f.home)
+    .hookSpecificOutput.additionalContext;
+  for (const text of [session, prompt]) {
+    assert.match(text, /prepare --session/);
+    assert.match(text, /would_fail_if/);
+    assert.match(text, /Dely Run ID/);
+    assert.match(text, /sync-dely\.js/);
+  }
+  assert.match(session, /gemini-3\.8-flash-medium/);
+  assert.match(session, /gpt-6\.1-sol/);
+  assert.match(session, /review-evidence-json/);
+  assert.doesNotMatch(prompt, /gemini-3\.8-flash-medium/);
+  assert.doesNotMatch(prompt, /review-evidence-json/);
+  assert.ok(Buffer.byteLength(prompt) < 2800, "prompt guidance stays compact");
 });

@@ -24,6 +24,7 @@ const write = (file, value) => {
 };
 const root = (home) => path.join(home, "dely-compliance");
 const stateFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".json");
+const admissionFile = (home, session) => path.join(root(home), "sessions", digest(session) + ".admission");
 const settingsFile = (home) => path.join(root(home), "settings.json");
 const NATIVE_SCHEMA = "native-skills-v4";
 const promptFile = (home, session) => path.join(root(home), "prompts", digest(session) + ".json");
@@ -209,33 +210,42 @@ function nativeModelContext(event) {
 
 function context(event, home, state = {}) {
   const script = path.join(root(home), "codex-compliance.js").replace(/\\/g, "/");
-  const workerContext = state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length) ?
+  const guide = "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". ";
+  const worker = state.worker_claim && (state.worker_claim.spec_sha256 || state.worker_claim.receipts.length);
+  if (worker) return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
+    nativeModelContext(event) +
     "Dely-dispatched Codex workers inherit Codex Control's reviewed admission only after current prompt, terminal, model, route, dispatch and owned-inventory checks pass. " +
     "Read the supplied task spec and send its heartbeat receipt first. Do not prepare or review a task as a worker; report an admission denial to Control. " +
-    "The preparation procedure below is for Codex Control. " : "";
+    "Before implementation, require concrete verification evidence in the task's acceptance and evidence fields: an available method/command and fixture, procedure, expected_result, would_fail_if, and inspected source/caller/detector provenance. " +
+    "Explicitly distinguish a planned detector before dispatch from executed acceptance after implementation. " +
+    "For a valid insufficient_evidence response, gather real new evidence with a fresh task snapshot without overwriting raw Jev answers; unknowns remain NOT_EVALUATED. " +
+    guide + "Read-only inspection and Orca coordination remain available.";
+  const policy = event.hook_event_name === "SessionStart" ?
+    "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
+    "Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
+    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
+    "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
+    "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " : "";
   return "Dely compliance is active. Follow the session's AGENTS.md and mandatory skills. " +
     nativeModelContext(event) +
-    workerContext +
     "For a new or changed task, supply the actual session skill roster and task evidence to: " + nodeCommand(script) +
     " prepare --session \"" + event.session_id + "\" --turn \"" + event.turn_id +
     "\" --repo \"" + event.cwd + "\" --home " + (process.platform === "win32" ? psQuote(home) : '"' + home + '"') +
     " --task-file \"" + inputFile(home, event.session_id, event.turn_id, state.input_nonce).replace(/\\/g, "/") + "\". " +
     "Use apply_patch to add only that current-turn JSON input file before review; it grants no implementation authority. " +
-    (!workerContext ? "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " : "") +
+    "For pre-assessment advisory, add the documented advisory envelope, then use advise instead of prepare with the same five arguments and absolute native Node executable. Read and settle that result before prepare; advice never grants implementation. " +
     "Choose skills from the actual native session roster, retain mandatory/user-selected skills, then explicitly review with this script's review command. " +
-    "Skill advice is optional through the existing Jev CLI; task-difficulty assessment remains required. " +
     "Before prepare/dispatch, require concrete verification evidence in existing context.acceptance and context.evidence fields: available method/command and fixture, procedure, expected_result, would_fail_if, and inspected source/caller/detector provenance. " +
     "Explicitly distinguish a planned detector before dispatch from executed acceptance after implementation. " +
     "For a valid insufficient_evidence response, inspect the gap, gather real new evidence and use a fresh task snapshot/assessment without overwriting raw Jev answers, old tasks or reviews. Unknowns remain NOT_EVALUATED. " +
     "Hard is direct; Easy/Medium-/Medium+ require an actual Dely Run ID on review --run and a matching Dely dispatch before edits. " +
-    "Prefer reviewed Dely for reversible bounded internal changes. Hard flags describe consequential effects, not task topics; record concrete evidence for each exclusion. " +
-    "Final Easy/Medium- use AGY gemini-3.8-flash-medium/default and retain one Luna/max exception for explicit quota, verified AGY model absence, or adapter-classified transport failure with reconciled bound evidence. Timeout alone never permits retry or fallback. Final Medium+ uses only Codex gpt-6.1-sol/medium; Hard uses only Codex Sol/xhigh. Neither has a fallback. " +
-    "An eligible v4 candidate needs optional --review-evidence-json and a justified Control correction before it can become Medium-. " +
-    "A recommendation never overrides mandatory or user-selected skills. Missing evaluations stay NOT_EVALUATED. " +
+    "Prefer reviewed Dely for reversible bounded internal changes. " +
+    policy +
     "When changing the registered Dely authoring source, finish review and required verification, then run native Node scripts/sync-dely.js " +
     "and require COHERENT for every selected installation before claiming completion. Report NOT_SYNCED if blocked; open a fresh session after updating. " +
-    (state.continuation_checkpoint ? "For the same confirmed task, use resume with these session/turn/repo/home arguments and the original --run for delegated work. Resume validates the immutable approval without new input, assessment or review. Changed scope requires normal preparation. " : "") +
-    "See \"" + path.join(root(home), "guide.md").replace(/\\/g, "/") + "\". " +
+    (state.auto_resume ? "This prompt reused the session's approved task; the reviewed spec and context remain unchanged. If the request changed scope, prepare and review a fresh task before implementation. " :
+      state.continuation_checkpoint ? "For the same confirmed task, use resume with these session/turn/repo/home arguments and the original --run for delegated work. Resume validates the immutable approval without new input, assessment or review. Changed scope requires normal preparation. " : "") +
+    guide +
     "Read-only inspection and Orca coordination remain available.";
 }
 
@@ -265,6 +275,9 @@ function needsReview(event, script, home) {
   const name = event.tool_name || "";
   if (/^(?:apply_patch|Edit|Write)$/.test(name)) return true;
   if (name !== "Bash") {
+    const input = event.tool_input;
+    if (name === "mcp__pycharm_auto__pycharm_raw_execute_tool" && input?.command === "list_database_connections" &&
+        Object.keys(input).every(key => ["command", "project_path", "max_chars", "verbose"].includes(key))) return false;
     return /(?:filesystem|fs_|file_|notebook|pycharm).*(?:write|edit|patch|delete|remove|create|rename|move|execute|insert|replace|append|set|run)/i.test(name);
   }
   const command = String(event.tool_input && (event.tool_input.command || event.tool_input.cmd) || "");
@@ -292,14 +305,36 @@ function needsReview(event, script, home) {
   }
   if (chained) return true;
   if (executable === "orca") return false;
-  if (["--help", "--version", "-h"].includes(words[1])) return false;
-  if (["rg", "pwd", "get-location", "get-content", "get-childitem", "get-item", "test-path", "select-string", "get-filehash"].includes(executable)) return false;
-  if (executable === "git" && words[1] === "remote") {
-    const args = words.slice(2);
-    return !(args.length === 0 || (args.length === 1 && ["-v", "--verbose"].includes(args[0])) ||
-      (args.length === 2 && args[0] === "get-url" && /^[A-Za-z0-9_.-]+$/.test(args[1]) && !args[1].startsWith("-")));
+  if (["qoder", "qoder.cmd"].includes(executable) && words[1] === "wiki") return false;
+  if (words.length === 2 && ["--help", "--version", "-h"].includes(words[1])) return false;
+  if (executable === "file") return words.slice(1).some(word => word.startsWith("-"));
+  if (["rg", "grep", "pwd", "ls", "dir", "cat", "head", "tail", "wc", "stat", "du", "df", "which", "where",
+    "cut", "tr", "get-location", "get-content", "get-childitem", "get-item", "test-path",
+    "select-string", "get-filehash"].includes(executable)) return false;
+  if (executable === "find") {
+    return words.slice(1).some(word => /^-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/.test(word));
   }
-  return !(executable === "git" && ["status", "diff", "log", "show", "ls-files", "rev-parse", "check-attr"].includes(words[1]));
+  if (executable === "node" && words[1] === "--check" && words.length === 3) return false;
+  if (executable === "git") {
+    const sub = words[1], args = words.slice(2);
+    if (sub === "remote") {
+      return !(args.length === 0 || (args.length === 1 && ["-v", "--verbose"].includes(args[0])) ||
+        (args.length === 2 && args[0] === "get-url" && /^[A-Za-z0-9_.-]+$/.test(args[1]) && !args[1].startsWith("-")));
+    }
+    if (sub === "branch") {
+      return !(args.length === 0 || (args.length === 1 && args[0] === "--show-current") ||
+        args.every(arg => ["--list", "-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--color", "--no-color"].includes(arg)));
+    }
+    if (sub === "tag") return !(args.length === 0 || (["-l", "--list"].includes(args[0]) && args.slice(1).every(arg => !arg.startsWith("-"))));
+    if (sub === "config") return !["--get", "--get-all", "--list", "-l"].includes(args[0]);
+    if (sub === "worktree") return !(args.length === 1 && args[0] === "list");
+    if (sub === "reflog" && ["delete", "expire", "drop", "write"].includes(args[0])) return true;
+    if (sub === "grep" && args.some(arg => /^-[^-]*O/.test(arg) ||
+        (arg.length > 2 && arg.startsWith("--") && "--open-files-in-pager".startsWith(arg.split("=")[0])))) return true;
+    return !["status", "diff", "log", "show", "ls-files", "rev-parse", "check-attr", "blame", "grep", "ls-tree",
+      "cat-file", "describe", "shortlog", "reflog", "rev-list", "merge-base", "for-each-ref", "name-rev"].includes(sub);
+  }
+  return true;
 }
 
 function logRecords(file) {
@@ -387,12 +422,13 @@ function resume(options, home) {
   const prior = continuationState({ ...options, continue: true }, pending, null, canonical(options.repo), null, home, settings);
   const state = { ...prior, turn: pending.turn, input_nonce: pending.input_nonce,
     mutation_admitted: false, stop_reported: false, continuation_checkpoint: pending.continuation_checkpoint,
-    fingerprints: { ...prior.fingerprints, ...fingerprints([pending.continuation_checkpoint.file]) } };
+    fingerprints: { ...prior.fingerprints, ...fingerprints([pending.continuation_checkpoint.file]) },
+    ...(options.auto ? { auto_resume: true } : {}) };
   validate(state, { session_id: options.session, turn_id: options.turn, cwd: state.repo, model: pending.native_model }, home);
   const latest = read(file);
   if (latest.turn !== pending.turn || latest.input_nonce !== pending.input_nonce) throw Error("User prompt changed during resume.");
   write(file, state);
-  return { status: state.status, continuation: true, route: state.assessment.route };
+  return { status: state.status, continuation: true, ...(options.auto ? { auto_resume: true } : {}), route: state.assessment.route };
 }
 
 function continuationProof(state) {
@@ -532,7 +568,15 @@ function hook(event, home, workerCheck = verifiedWorker) {
     write(promptFile(home, event.session_id), { session: state.session, turn: state.turn,
       repo: state.repo, input_nonce: state.input_nonce });
     write(file, state);
-    return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, state) } };
+    let current = state;
+    if (previous?.session === state.session && previous.status === "REVIEWED" && prompt.trim() &&
+        !state.worker_claim.spec_sha256 && !state.worker_claim.receipts.length) {
+      try {
+        resume({ session: event.session_id, turn: event.turn_id, repo: event.cwd, run: previous.run, auto: true }, home);
+        current = read(file);
+      } catch (_) { /* Changed ownership or evidence requires normal preparation. */ }
+    }
+    return { hookSpecificOutput: { hookEventName: type, additionalContext: context(event, home, current) } };
   }
   if (type !== "PreToolUse" && type !== "Stop") return {};
   if (type === "PreToolUse" && !needsReview(event, script, home)) return {};
@@ -544,7 +588,13 @@ function hook(event, home, workerCheck = verifiedWorker) {
   try {
     checkPrompt(state, home);
     if (workerCheck(event, checkedSettings(home), process.env.ORCA_TERMINAL_HANDLE, state.worker_claim)) {
-      return type === "Stop" ? {} : { hookSpecificOutput: { hookEventName: type,
+      if (type === "Stop") return {};
+      const marker = admissionFile(home, event.session_id), turn = String(event.turn_id);
+      let last = "";
+      try { last = fs.readFileSync(marker, "utf8"); } catch (_) { /* first notice this session */ }
+      if (last === turn) return {};
+      fs.writeFileSync(marker, turn, { mode: 0o600 });
+      return { hookSpecificOutput: { hookEventName: type,
         additionalContext: "Dely inherited admission checks passed for this tool call. " + nativeModelContext(event) } };
     }
   } catch (_) { /* unknown worker identity never exempts a tool call */ }
@@ -897,6 +947,7 @@ function install(options, home) {
   const directory = root(home);
   const script = path.join(directory, "codex-compliance.js");
   const frozenAdvisor = path.join(directory, "jev-advisor.js");
+  const workflow = path.join(directory, "jev-workflow.js");
   const advisorSource = fs.readFileSync(advisor, "utf8");
   const previous = fs.existsSync(settingsFile(home)) ? read(settingsFile(home)) : null;
   const updaterFile = path.join(path.dirname(advisor), "sync-dely.js");
@@ -936,6 +987,8 @@ function install(options, home) {
   if (fs.existsSync(manifestFile)) fs.copyFileSync(manifestFile, path.join(directory,
     "hooks-before-" + Date.now() + "-" + crypto.randomBytes(4).toString("hex") + ".json"));
   fs.copyFileSync(__filename, script);
+  const workflowSource = path.join(__dirname, "jev-workflow.js");
+  if (fs.existsSync(workflowSource) && (!fs.existsSync(workflow) || !samePath(workflowSource, workflow))) fs.copyFileSync(workflowSource, workflow);
   fs.copyFileSync(guide, path.join(directory, "guide.md"));
   const riskGuide = path.resolve(__dirname, "../docs/task-risk-policy.md");
   if (fs.existsSync(riskGuide)) fs.copyFileSync(riskGuide, path.join(directory, "task-risk-policy.md"));
@@ -945,12 +998,24 @@ function install(options, home) {
   fs.writeFileSync(frozenAdvisor, advisorSource.replace(rootDeclaration,
     "const ROOT = " + JSON.stringify(credentialRoot) + ";\n"), { mode: 0o600 });
   write(settingsFile(home), { routing, advisor: frozenAdvisor, advisor_source: advisor, credential_root: credentialRoot, delivery, dely, receipts,
-    updater, sync_source: syncSource, sync_homes: syncHomes,
+    updater, workflow: fs.existsSync(workflow) ? workflow : undefined, sync_source: syncSource, sync_homes: syncHomes,
     dependencies: fingerprints([routing, path.join(path.dirname(routing), "usage.js"), frozenAdvisor, dely, receipts, ...[updater].filter(Boolean),
+      ...[workflow].filter(file => fs.existsSync(file)),
       ...[path.join(path.dirname(routing), "network-fallback.js")].filter((file) => fs.existsSync(file))]), journal: path.join(os.homedir(), ".dely", "log.jsonl") });
   if (!preserveHooks) write(manifestFile, manifest);
   return { home, script, script_sha256: hashFile(script), configured_events: 4,
     trust: preserveHooks ? "UNCHANGED_REQUIRES_EXISTING_NATIVE_TRUST" : "REQUIRES_NATIVE_HOOK_REVIEW" };
+}
+
+function workflowContext(event, home) {
+  try {
+    const state = read(stateFile(home, event.session_id));
+    validate(state, event, home);
+    const task = read(state.task_input), binding = state.assessment.task;
+    return { session: event.session_id, turn: event.turn_id, repo: state.execution_repo || state.repo,
+      request: task.request, scope: binding.context.scope, acceptance: binding.context.acceptance,
+      spec_sha256: binding.spec_sha256, context_sha256: binding.context_sha256 };
+  } catch { return null; }
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -962,7 +1027,19 @@ async function main(argv = process.argv.slice(2)) {
   if (command !== "prepare" && values.continue) throw Error("Continuation is supported only by prepare.");
   const home = path.resolve(values.home || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
   let result;
-  if (command === "hook") result = hook(JSON.parse(fs.readFileSync(0, "utf8")), home);
+  if (command === "hook") {
+    const event = JSON.parse(fs.readFileSync(0, "utf8"));
+    result = hook(event, home);
+    try {
+      const settings = checkedSettings(home);
+      if (settings.workflow) result = await require(settings.workflow).run(event, home, {
+        provider: "codex", base: result, taskContext: workflowContext(event, home) });
+    } catch {
+      if (result.decision !== "block" && result.hookSpecificOutput?.permissionDecision !== "deny") {
+        result = { ...result, systemMessage: "Jev workflow NOT_EVALUATED: runtime_unavailable" };
+      }
+    }
+  }
   else if (command === "install") result = install(values, home);
   else if (command === "prepare" || command === "review" || command === "advise" || command === "resume") {
     if (!values.session || !values.turn) throw Error("Session and turn are required.");
@@ -977,7 +1054,7 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = { digest, fingerprints, stateFile, settingsFile, inputFile, taskInputWrite, instructions, needsReview, logRecords,
-  dispatchEvidence, verifiedWorker, validate, hook, advisory, prepare, review, resume, install };
+  dispatchEvidence, verifiedWorker, validate, hook, advisory, prepare, review, resume, install, workflowContext };
 if (require.main === module) main().catch(() => {
   console.error("Compliance check failed. Inspect the task inputs and installed hook guide; no source write was authorized.");
   process.exitCode = 2;

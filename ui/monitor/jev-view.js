@@ -12,7 +12,9 @@ function jevPresentation(row) {
     else if (row.mode === "skill") proposal = row.suggestions === null ? "Suggestions not recorded" :
       row.suggestions.map((s) => s.name + (s.requires_explicit_invocation === true || s.allow_implicit_invocation === false ? " (explicit invocation only)" : "")).join(", ") ||
       (row.reason === "LEGACY_NO_SUGGESTION" ? "No suggestion (legacy none)" : "No suggested skills");
-    else proposal = row.mode === "context" ? "Recorded context ranking" : "Proposal not recorded";
+    else proposal = ["context", "workflow_context"].includes(row.mode) ? "Recorded context ranking" :
+      row.mode === "guardrails" ? "Recorded hazard probabilities (uncalibrated)" :
+      row.mode === "citations" ? "Recorded citation judgments (advisory)" : "Proposal not recorded";
   }
   const telemetry = row.request_diagnostics;
   const flags = row.mode === "task" ? ["security", "data", "public_contract", "architecture", "production", "routing"].map((key) => {

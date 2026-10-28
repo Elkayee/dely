@@ -505,3 +505,261 @@ test("time, workspace, probe and observation-reset filters preserve unknown time
   assert.equal(reset.recorded, 0); assert.equal(reset.unknownTime, 0);
   assert.equal(reset.excludedUnknownTime, 2);
 });
+
+function workflowFixture(t) {
+  const base = fixture(t), crypto = require("node:crypto");
+  const digest = value => crypto.createHash("sha256").update(value).digest("hex");
+  const session = "c".repeat(64), turn = "fixture-turn", directory = session + "-" + digest(turn).slice(0, 16);
+  const root = home => path.join(home, "dely-compliance", "jev-workflow");
+  function pointer(home, overrides = {}) {
+    fs.mkdirSync(root(home), { recursive: true });
+    const target = path.join(root(home), session + ".json");
+    fs.writeFileSync(target, JSON.stringify({ cwd: "D:/example", turn, prompt: "PRIVATE_SENTINEL", ...overrides }));
+    return target;
+  }
+  function saved(home, value, kind = "cache", name = digest(JSON.stringify(value))) {
+    const target = path.join(root(home), directory, `${kind}-${name}.json`);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, typeof value === "string" ? value : JSON.stringify(value));
+    return target;
+  }
+  return { ...base, pointer, saved, workflowRoot: root, directory };
+}
+const noul = value => ({ type: "noul", noul: value, secret: "PRIVATE_SENTINEL" });
+const contextChoice = { relevance: "direct", confidence: 0.9, probabilities: { direct: 1, supporting: 0, unknown: 0, unrelated: 0 } };
+function workflowSamples() {
+  return [
+    { mode: "guardrails", status: "REVIEW_REQUIRED", input_sha256: "a".repeat(64), commands: [{
+      command: "PRIVATE_SENTINEL", id: "PRIVATE_SENTINEL", hazards: {
+        destructive_effects: noul(0.8), sensitive_data_access: noul(0.1), elevated_privileges: noul(0.2),
+        scope_mismatch: { status: "NOT_EVALUATED", reason: "UNCONFIRMED_SCOPE", body: "PRIVATE_SENTINEL" },
+        exfiltration: { status: "NOT_EVALUATED", reason: "UNCONFIRMED_SCOPE" } } }] },
+    { mode: "context", status: "REVIEW_REQUIRED", input_sha256: "b".repeat(64), sources: [{ ...contextChoice,
+      path: "PRIVATE_SENTINEL", source: "PRIVATE_SENTINEL", passage_signals: { evidence: noul(0.8), conflict: noul(0.2), injection: noul(0.1) } }] },
+    { mode: "citations", status: "REVIEW_REQUIRED", input_sha256: "c".repeat(64), citations: [{
+      claim: "PRIVATE_SENTINEL", quote: "PRIVATE_SENTINEL", path: "PRIVATE_SENTINEL", reason: "PRIVATE_SENTINEL",
+      judgment: "supported", status: "REVIEW_REQUIRED", evaluation_status: "EVALUATED", confidence: 0.8,
+      probabilities: { supported: 1, unsupported: 0, contradicted: 0 } }] },
+  ];
+}
+
+test("workflow observation timestamps survive reset without inventing legacy time", async t => {
+  const { homes, saved, pointer } = workflowFixture(t);
+  for (const home of homes) {
+    pointer(home);
+    for (const sample of workflowSamples()) {
+      for (const observed_at of [ts, "2026-10-17T10:00:00Z", "2026-10-19T10:00:00Z", undefined, "invalid", 123, "2026-02-30T10:00:00Z"]) {
+        const value = { ...sample, observed_at };
+        saved(home, value); saved(home, value, "feedback");
+      }
+    }
+  }
+  const read = createJevReader({ homes }), result = await read();
+  assert.equal(result.rows.length, 21);
+  const stats = summarizeJev(result.rows, { since: Date.parse(ts), asOf: Date.parse(ts) + 1000, explicitReset: true });
+  assert.equal(stats.recorded, 3); assert.equal(stats.excludedUnknownTime, 12);
+  for (const mode of ["guardrails", "workflow_context", "citations"]) assert.equal(stats.modes[mode], 1);
+  for (const row of result.rows.filter(row => row.ts === new Date(ts).toISOString())) {
+    assert.equal(row.sources.length, 4); assert.equal(row.timeSource, "recorded workflow observation");
+  }
+  assert.deepEqual((await read()).rows, result.rows);
+  assert.doesNotMatch(JSON.stringify({ result, stats }), /PRIVATE_SENTINEL/);
+});
+
+test("workflow cache, feedback and runtime copies deduplicate all three phases without exposing content", async t => {
+  const { homes, saved, pointer, put } = workflowFixture(t);
+  for (const home of homes) {
+    pointer(home);
+    for (const value of workflowSamples()) { saved(home, value); saved(home, value, "feedback"); }
+  }
+  put(homes[0], "old-task", "assessment.json", assessment());
+  put(homes[0], "old-context", "context-advice.json", { mode: "context", status: "REVIEW_REQUIRED", ranked_context: [contextChoice] });
+  const read = createJevReader({ homes });
+  const result = await read(), again = await read();
+  assert.equal(result.rows.length, 5);
+  for (const row of result.rows.filter(row => row.origin === "workflow")) {
+    assert.equal(row.sources.length, 4); assert.equal(row.repo, "D:/example");
+    assert.equal(row.workspaceSource, "matching saved session pointer");
+    assert.equal(row.ts, null); assert.equal(row.model, null); assert.equal(row.request_diagnostics, null);
+    assert.equal(row.category, "valid");
+  }
+  assert.equal(result.coverage[0].workflow.loaded, 6);
+  assert.deepEqual(result.coverage[0].workflow.modes, { guardrails: 2, workflow_context: 2, citations: 2 });
+  assert.deepEqual(again.rows, result.rows); assert.ok(again.cache.hits >= 12);
+  const stats = summarizeJev(result.rows, { asOf: Date.parse(ts) + 1 });
+  assert.deepEqual(stats.modes, { task: 1, skill: 0, context: 1, guardrails: 1, workflow_context: 1, citations: 1 });
+  assert.equal(stats.valid, 5);
+  for (const mode of ["guardrails", "workflow_context", "citations"]) {
+    const phase = stats.effectiveness.phases.find(phase => phase.mode === mode);
+    assert.deepEqual(phase.validReplyRate, { numerator: 1, denominator: 1, rate: 1 });
+    assert.deepEqual(phase.latency, { samples: 0, records: 1, medianMs: null, p95Ms: null });
+    assert.equal(summarizeJev(result.rows, { mode, repo: "D:/example" }).recorded, 1);
+  }
+  assert.equal(summarizeJev(result.rows, { explicitReset: true }).recorded, 1);
+  assert.equal(stats.unknownTime, 4);
+  assert.doesNotMatch(JSON.stringify({ result, stats }), /PRIVATE_SENTINEL|"prompt"|"command"|"claim"|"quote"|"path"/);
+  assert.match(visibleJevRows(result.rows.filter(row => row.origin === "workflow"))[0].textContent, /matching saved session pointer.*observation time not recorded/);
+});
+
+test("historical citation replies retain missing evaluation-status provenance and strict validation", async t => {
+  const { homes, saved } = workflowFixture(t);
+  const citation = workflowSamples()[2];
+  const { evaluation_status, ...legacy } = citation.citations[0];
+  const record = (item, extra = {}) => ({ ...citation, ...extra, citations: [item] });
+  const historical = record(legacy);
+  for (const home of homes) {
+    saved(home, historical); saved(home, historical, "feedback");
+  }
+  const rejected = [
+    { ...legacy, evaluation_status: "NOT_EVALUATED" },
+    { ...legacy, evaluation_status: null },
+    { ...legacy, evaluation_status: "PRIVATE_SENTINEL" },
+    { ...legacy, confidence: 2 },
+    { ...legacy, probabilities: { supported: 1, unsupported: 0 } },
+    { ...legacy, probabilities: { supported: 0, unsupported: 1, contradicted: 0 } },
+    { ...legacy, judgment: "fabricated" },
+    { ...legacy, judgment: "PRIVATE_SENTINEL" },
+  ];
+  for (const item of rejected) saved(homes[0], record(item));
+  saved(homes[0], record(legacy, { status: "NOT_EVALUATED" }));
+  const result = await createJevReader({ homes })();
+  const rows = result.rows, valid = rows.filter(row => row.category === "valid");
+  assert.equal(rows.length, 10);
+  assert.equal(valid.length, 1);
+  assert.equal(valid[0].sources.length, 4);
+  assert.equal(valid[0].output[0].evidence, "recorded Jev reply");
+  assert.equal(valid[0].output[0].evaluationStatus, "not recorded (legacy reply)");
+  assert.equal(rows.filter(row => row.category === "unknown").length, 8);
+  assert.equal(rows.filter(row => row.category === "not_evaluated").length, 1);
+  const phase = summarizeJev(rows).effectiveness.phases.find(phase => phase.mode === "citations");
+  assert.deepEqual(phase.validReplyRate, { numerator: 1, denominator: 1, rate: 1 });
+  assert.deepEqual(phase.latency, { samples: 0, records: 10, medianMs: null, p95Ms: null });
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL|"claim"|"quote"|"path"/);
+});
+
+test("workflow invalid, unevaluated and local-only results never become confirmed errors or Jev replies", async t => {
+  const { homes, saved } = workflowFixture(t);
+  const [guard, context, citation] = workflowSamples();
+  for (const value of [guard, context, citation,
+    { ...guard, input_sha256: "d".repeat(64), commands: [{ hazards: { destructive_effects: noul(2) } }] },
+    { mode: "guardrails", status: "NOT_EVALUATED", reason: "JEV_UNAVAILABLE_OR_INVALID" },
+    { mode: "context", status: "NOT_EVALUATED", reason: "TYPESAFE_API_KEY_MISSING" },
+    { mode: "citations", status: "NOT_EVALUATED", reason: "PRIVATE_SENTINEL", citations: [{ claim: "PRIVATE_SENTINEL" }] },
+    { ...citation, status: "NOT_EVALUATED", input_sha256: "e".repeat(64) },
+    { mode: "citations", status: "REVIEW_REQUIRED", citations: [{ judgment: "fabricated", evaluation_status: "EVALUATED", quote: "PRIVATE_SENTINEL" }] },
+    { mode: "citations", status: "REVIEW_REQUIRED", citations: [{ judgment: "NOT_EVALUATED", evaluation_status: "NOT_EVALUATED" }] },
+    { mode: "guardrails", status: "PRIVATE_SENTINEL" },
+  ]) saved(homes[0], value);
+  const rows = (await createJevReader({ homes })()).rows, stats = summarizeJev(rows);
+  assert.equal(stats.recorded, 11); assert.equal(stats.valid, 3); assert.equal(stats.errors, 1);
+  assert.equal(stats.notEvaluated, 5); assert.equal(stats.unknown, 2);
+  assert.equal(stats.unknownWorkspace, 11); assert.equal(stats.unknownTime, 11);
+  const guardPhase = stats.effectiveness.phases.find(phase => phase.mode === "guardrails");
+  assert.deepEqual(guardPhase.validReplyRate, { numerator: 1, denominator: 2, rate: 0.5 });
+  const citationPhase = stats.effectiveness.phases.find(phase => phase.mode === "citations");
+  assert.equal(citationPhase.evaluated, 1);
+  assert.equal(stats.effectiveness.distributions.find(item => item.signal === "fabricated").count, 1);
+  assert.equal(stats.effectiveness.outcomeEvidence, "NOT_MEASURED");
+  assert.doesNotMatch(JSON.stringify(stats), /PRIVATE_SENTINEL/);
+});
+
+test("ready workflow records remain available when the task root is unreadable", async t => {
+  const { homes, saved } = workflowFixture(t);
+  saved(homes[0], workflowSamples()[1]);
+  fs.writeFileSync(path.join(homes[0], "dely-compliance", "tasks"), "unsafe task root");
+  const result = await createJevReader({ homes: [homes[0]] })();
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.coverage[0].taskState, "unreadable");
+  assert.equal(result.coverage[0].workflow.state, "ready");
+  assert.equal(result.coverage[0].state, "partial");
+  assert.equal(result.coverage.some(source => ["ready", "partial"].includes(source.state)), true);
+});
+
+test("workflow refresh handles pointer changes, deletion, bounded malformed data and unsafe files", async t => {
+  const { homes, saved, pointer, workflowRoot, directory, root } = workflowFixture(t);
+  const [guard, context] = workflowSamples(), pointerPath = pointer(homes[0]);
+  const file = saved(homes[0], guard);
+  const malformed = saved(homes[0], "{", "cache", "1".repeat(64));
+  saved(homes[0], "x".repeat(32769), "cache", "2".repeat(64));
+  const unsafe = path.join(workflowRoot(homes[0]), directory, "feedback-" + "3".repeat(64) + ".json");
+  fs.mkdirSync(unsafe); // Non-file entry.
+  const target = path.join(root, "outside.json"); fs.writeFileSync(target, JSON.stringify(context));
+  let linked = false;
+  try { fs.symlinkSync(target, path.join(path.dirname(file), "cache-" + "4".repeat(64) + ".json")); linked = true; } catch (error) { assert.ok(["EPERM", "EACCES"].includes(error.code)); }
+  const read = createJevReader({ homes });
+  let result = await read();
+  assert.equal(result.rows.length, 1); assert.equal(result.rows[0].repo, "D:/example");
+  assert.equal(result.coverage[0].workflow.malformed, 1); assert.equal(result.coverage[0].workflow.oversized, 1);
+  assert.equal(result.coverage[0].workflow.excluded, linked ? 2 : 1);
+  assert.equal(result.coverage[0].workflow.state, "partial");
+  result = await read(); assert.equal(result.coverage[0].workflow.malformed, 1);
+  pointer(homes[0], { turn: "different-turn" });
+  result = await read(); assert.equal(result.rows[0].repo, null);
+  assert.equal(result.coverage[0].workflow.malformed, 2);
+  pointer(homes[0], { cwd: "D:/changed" });
+  fs.writeFileSync(file, JSON.stringify(context));
+  result = await read(); assert.equal(result.rows[0].mode, "workflow_context"); assert.equal(result.rows[0].repo, "D:/changed");
+  fs.unlinkSync(pointerPath);
+  result = await read(); assert.equal(result.rows[0].repo, null); assert.equal(result.rows[0].ts, null);
+  fs.unlinkSync(file); fs.unlinkSync(malformed);
+  result = await read(); assert.equal(result.rows.length, 0);
+  assert.equal(result.coverage[0].workflow.loaded, 0);
+  if (linked) {
+    fs.rmSync(workflowRoot(homes[1]), { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(workflowRoot(homes[1])), { recursive: true });
+    fs.symlinkSync(workflowRoot(homes[0]), workflowRoot(homes[1]), process.platform === "win32" ? "junction" : "dir");
+    result = await read(); assert.equal(result.coverage[1].workflow.state, "unreadable"); assert.equal(result.rows.length, 0);
+  }
+});
+
+test("Control agreement uses paired evaluations and final ordered reviews once, with telemetry denominators", async t => {
+  const { homes, put } = fixture(t);
+  const telemetry = duration_ms => ({ stage: "complete", code: "OK", duration_ms, http_status: 200,
+    requested_model: "jev-1.13.0", provider_model: "jev-1.13.0" });
+  for (let i = 0; i < 4; i++) {
+    const value = assessment({ assessed_at: new Date(Date.parse(ts) + i).toISOString(), request_diagnostics: telemetry([10, 20, 30, 100][i]) });
+    put(homes[0], "task-" + i, "assessment.json", value);
+    if (i < 2) {
+      const reviewed = { ...value, status: "APPROVED", difficulty: i ? "easy" : "medium_plus",
+        review: { by: "codex-control", reviewed_at: ts } };
+      put(homes[0], "task-" + i, "reviewed.json", reviewed);
+      put(homes[1], "copy-" + i, "reviewed.json", reviewed);
+    }
+    if (i === 3) for (let j = 0; j < 2; j++) put(homes[j], "ambiguous-" + j, "reviewed.json", {
+      ...value, status: "APPROVED", difficulty: j ? "easy" : "medium_plus", review: { by: "codex-control" } });
+  }
+  const rows = (await createJevReader({ homes })()).rows;
+  assert.equal(rows.length, 4);
+  let stats = summarizeJev(rows, { asOf: Date.parse(ts) + 100 });
+  assert.deepEqual(stats.effectiveness.agreement, { proposed: 4, paired: 2, agreed: 1, disagreed: 1, missingReview: 1, ambiguousReview: 1 });
+  assert.deepEqual(stats.effectiveness.phases[0].latency, { samples: 4, records: 4, medianMs: 25, p95Ms: 100 });
+  const ambiguous = rows.find(row => row.control.some(review => review.reviewedAt === null));
+  ambiguous.control = [{ status: "APPROVED", difficulty: "easy", reviewedAt: ts },
+    { status: "APPROVED", difficulty: "medium_plus", reviewedAt: new Date(Date.parse(ts) + 20).toISOString() }];
+  stats = summarizeJev(rows, { asOf: Date.parse(ts) + 100 });
+  assert.equal(stats.effectiveness.agreement.paired, 3); assert.equal(stats.effectiveness.agreement.agreed, 2);
+  const zero = summarizeJev(rows, { mode: "workflow_context" }).effectiveness;
+  assert.equal(zero.agreement.proposed, 0); assert.equal(zero.phases[0].validReplyRate.rate, null);
+});
+
+test("a shared session pointer is matched separately for each turn, including cached reads and conflicting homes", async t => {
+  const { homes, saved, pointer, workflowRoot, directory } = workflowFixture(t);
+  const crypto = require("node:crypto"), staleTurn = "prior-turn";
+  const staleDir = directory.slice(0, 65) + crypto.createHash("sha256").update(staleTurn).digest("hex").slice(0, 16);
+  for (const home of homes) {
+    pointer(home);
+    const currentFile = saved(home, workflowSamples()[0]);
+    fs.mkdirSync(path.join(workflowRoot(home), staleDir));
+    fs.copyFileSync(currentFile, path.join(workflowRoot(home), staleDir, path.basename(currentFile)));
+  }
+  const read = createJevReader({ homes });
+  for (let i = 0; i < 2; i++) {
+    const result = await read();
+    assert.equal(result.rows.length, 2);
+    assert.equal(result.rows.find(row => row.sources[0].task === directory).repo, "D:/example");
+    assert.equal(result.rows.find(row => row.sources[0].task === staleDir).repo, null);
+  }
+  pointer(homes[1], { cwd: "D:/conflict" });
+  const row = (await read()).rows.find(row => row.sources[0].task === directory);
+  assert.equal(row.repo, null); assert.equal(row.workspaceSource, "conflicting saved session pointers");
+});

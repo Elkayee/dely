@@ -164,10 +164,15 @@
     <section id="jev" class="panel activity-panel" aria-labelledby="jev-title">
       <div class="panel-heading"><div><p class="eyebrow">SAVED ADVISOR EVIDENCE</p><h2 id="jev-title">Jev statistics</h2></div><span id="jev-count" class="pill">Loading</span></div>
       <p id="jev-summary" class="footnote" aria-live="polite">Reading saved evaluations in the background…</p>
-      <div class="filter jev-filter"><label for="jev-mode">Advisor mode</label><select id="jev-mode"><option value="">All modes</option><option value="task">Task assessment</option><option value="skill">Skill suggestions</option><option value="context">Context ranking</option></select></div>
+      <div class="filter jev-filter"><label for="jev-mode">Advisor mode</label><select id="jev-mode"><option value="">All modes</option><option value="task">Task assessment</option><option value="skill">Skill suggestions</option><option value="context">Advisor context ranking</option><option value="guardrails">Workflow guardrails</option><option value="workflow_context">Workflow context</option><option value="citations">Workflow citations</option></select></div>
+      <h3>Operational effectiveness · saved evidence</h3>
+      <div class="table-scroll"><table><thead><tr><th>Phase / origin</th><th>Recorded states</th><th>Valid-reply rate</th><th>Recorded latency</th></tr></thead><tbody id="jev-effectiveness"></tbody></table></div>
+      <p id="jev-agreement" class="footnote"></p>
+      <p class="footnote">Valid replies establish working transport and structured output, not decision quality. REVIEW_REQUIRED is advisory, not a confirmed error or effective intervention. Agreement with Control is not accuracy; confidence and hazard probabilities are not calibrated accuracy, and warnings are not prevented incidents. Verified usefulness, false positives, false negatives, production accuracy, and time/cost savings: not measured without independent outcome evidence.</p>
+      <details class="jev-coverage"><summary>Allowlisted output counts · no risk thresholds</summary><div id="jev-distributions"></div></details>
       <details class="jev-coverage"><summary>Reasons by mode</summary><div id="jev-reasons"></div></details>
       <details class="jev-coverage"><summary>Source and mode coverage</summary><div id="jev-coverage"></div></details>
-      <p class="footnote">Recorded evaluations include valid outputs and recorded request errors; they are not API-call counts. Reviews and identical copies count once. Unknown time remains visible under date/reset filters. Latency and unsaved output are unavailable.</p>
+      <p class="footnote">Recorded evaluated attempts include valid replies and recognized request errors; they are not API-call counts. Reviews and identical copies count once. Unknown time remains visible under date filters and is excluded by observation reset. Latency uses validated saved request telemetry only; unsaved output is unavailable.</p>
       <div class="table-scroll"><table class="jev-table"><thead><tr><th>Time / workspace</th><th>Mode / source status</th><th>Jev model</th><th>Proposal / suggested skills</th><th>Recorded result / output</th></tr></thead><tbody id="jev-rows"></tbody></table></div>
       <button id="jev-more" class="text-button" hidden>Show more Jev records</button>
     </section>

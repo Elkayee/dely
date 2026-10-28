@@ -23,7 +23,7 @@ function packagedBytes(root, file, authoring = false) {
     Buffer.from(bytes.toString("utf8").replace(/\r\n/g, "\n")) : bytes;
 }
 const PROFILE = ["config.toml", "hooks.json", "dely-compliance/settings.json",
-  "dely-compliance/codex-compliance.js", "dely-compliance/jev-advisor.js",
+  "dely-compliance/codex-compliance.js", "dely-compliance/jev-advisor.js", "dely-compliance/jev-workflow.js",
   "dely-compliance/guide.md", "dely-compliance/task-risk-policy.md", "dely-compliance/jev-skill-advice.md",
   "dely-compliance/current-source.json"];
 
@@ -142,11 +142,15 @@ function plan({ source, catalog, homes }) {
     const legacy_enabled = oldPlugins(configText).enabled;
     if (!pluginEnabled(configText, PLUGIN)) drift.push("catalog_registration");
     const software = { "scripts/codex-compliance.js": "dely-compliance/codex-compliance.js",
+      "scripts/jev-workflow.js": "dely-compliance/jev-workflow.js",
       "docs/codex-compliance.md": "dely-compliance/guide.md", "docs/task-risk-policy.md": "dely-compliance/task-risk-policy.md",
       "docs/jev-skill-advice.md": "dely-compliance/jev-skill-advice.md" };
     for (const [from, to] of Object.entries(software)) {
       if (!fs.existsSync(path.join(home, to)) || digest(home, to) !== expected.hashes[from]) drift.push(to);
     }
+    const workflow = path.join(home, "dely-compliance/jev-workflow.js");
+    if (!settings.workflow || !fs.existsSync(workflow) || !equalPath(settings.workflow, workflow) ||
+        settings.dependencies?.[workflow] !== expected.hashes["scripts/jev-workflow.js"]) drift.push("workflow_pin");
     const frozenAdvisor = path.join(home, "dely-compliance/jev-advisor.js");
     const advisorText = fs.readFileSync(path.join(source, "scripts/jev_agent.js"), "utf8")
       .replace('const ROOT = path.resolve(__dirname, "..");', "const ROOT = " + JSON.stringify(settings.credential_root) + ";\n");

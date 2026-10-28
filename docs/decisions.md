@@ -1,5 +1,29 @@
 # Decisions
 
+## 2026-10-28 — Gate output writers and retain the original continuation Run (0.27.35)
+
+Keep the accepted automatic-reuse policy: Control treats a new prompt as the
+same approved task while unchanged checkpoint evidence validates, and prepares
+a fresh task when scope changes. This deliberately relies on Control to notice
+a changed request; prompt-content classification is not an admission check.
+This supersedes the new-prompt reset described in the 2026-10-19 continuation
+decision without rewriting that historical record.
+
+Automatic continuation passes the previous review's Run ID to the existing
+immutable owner and dispatch checks. Missing or mismatched dispatch remains a
+denial, including when dispatch evidence disappears after automatic reuse.
+
+Read-only command conveniences do not exempt output-writing arguments. Require
+review for all `sort` and `uniq` forms rather than add an argument parser; include
+`find -fprint0` and mutating `git reflog` subcommands in the existing gate. Test
+these command strings without executing them, alongside valid delegated reuse
+and dispatch removal or mismatch. Keep optioned `file` calls and Git grep pager
+launches gated too, and limit the generic help exemption to a standalone flag.
+Preserve native hook definitions on sync. Bound the disclosure grep to names so
+the standard Orca workspace environment variable, regex ranges and citation
+anchors do not fail the closure gate; retain positive identifier fixtures when
+verifying that gate.
+
 ## 2026-10-23 — Keep missing-evidence diagnostics separate from admission (0.27.17)
 
 Add operator-invoked `evidence` advice to the existing native advisory envelope.

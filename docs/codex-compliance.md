@@ -39,8 +39,10 @@ the frozen software and guides without granting or changing native hook trust.
 
 ## Agent procedure
 
-SessionStart and each UserPromptSubmit supply the current session/turn IDs,
-the installed script and this guide. Read-only inspection can gather context
+SessionStart supplies the current session/turn IDs, the installed script, this
+guide and the full routing and fallback detail. Each UserPromptSubmit repeats
+the actionable core: the current prepare/advise command, evidence reminder,
+routing boundary and sync rule. Read-only inspection can gather context
 before preparation. Keep mandatory instructions outside relevance ranking.
 Use one read command per tool call and the resolved Orca CLI directly. Independent
 reads can use separate parallel tool calls. Shell conditionals, compound commands,
@@ -48,9 +50,21 @@ pipelines, redirects and wrappers remain subject to review. A denied tool stays
 blocked and permits an honest limitation report at Stop. A preflight healthcheck performs only
 read-only instruction loading and Orca lifecycle calls, then stops without
 implementation or a separate Jev review.
-Simple `git remote`, `git remote -v`, `git remote --verbose` and
-`git remote get-url <name>` are read-only conveniences. Mutating remote
-subcommands and `remote show` (which may contact the remote) still require review.
+Read-only inspection conveniences include `cat`, `head`, `tail`, `wc`, `ls`,
+`stat`, `file`, `du`, `df`, `grep`, plain `find` without delete, exec or
+print-to-file, `node --check <file>`, and listing git forms (`status`, `diff`,
+`log`, `show`, `blame`, `grep`, `ls-tree`, `cat-file`, `branch` list flags,
+`tag --list`, `config --get`, `worktree list`, `reflog`). Simple `git remote`,
+`git remote -v`, `git remote --verbose` and `git remote get-url <name>` are
+also read-only. Mutating flags, redirects, pipelines, output flags and
+`remote show` (which may contact the remote) still require review.
+`sort` and `uniq` require review because their arguments can name output files.
+`find -fprint0` and `git reflog delete`, `expire`, `drop` and `write` also require
+review; listing reflogs and plain `find` printing remain read-only.
+Plain `file <path>` remains read-only; optioned forms require review because
+`--compile` writes a magic database. Git grep pager options also require review
+because they launch a command. Help/version shortcuts exempt only a standalone
+flag, so `sort -h -o <output>` cannot inherit a help exemption.
 After Context Engine returns multiple optional candidates, use the existing
 Jev context command and preserve every candidate and its provenance.
 
@@ -239,8 +253,19 @@ unchanged, even when every diagnostic check says `present`.
 ## Continue the same confirmed task
 
 An implementation review saves an immutable `continuation.json` checkpoint.
-After a new prompt, native state is `PENDING` until Control explicitly resumes
-the same confirmed task. Run the installed script's `resume` command with
+On a new prompt in the same session, the adapter automatically reuses that
+checkpoint when its owner session, native model, thread/terminal, instructions,
+selected skill policies, software, target, task fingerprints and any required
+dispatch still validate. The turn stays `REVIEWED`, mutations remain admitted,
+and the prompt guidance states that the approved task was reused. Workers
+cannot inherit this path through a staged receipt claim. Changed ownership or
+invalid evidence falls back to `PENDING` and normal preparation. Control must
+prepare a fresh task when the request changes scope.
+Automatic reuse supplies the previous review's Run ID and validates it against
+the immutable checkpoint and matching dispatch. A missing or mismatched dispatch
+keeps the next turn `PENDING`; removing dispatch evidence also blocks later tools.
+
+Control can also run the installed script's `resume` command with
 the current `--session`, `--turn`, `--repo` and `--home`, plus the original
 `--run` for delegated work. Direct Hard work omits `--run`.
 
@@ -257,8 +282,9 @@ that form still stages an input and requires explicit current-turn review.
 
 For a changed task, instructions, model, roster, target, dependency or software,
 use normal preparation and the required new dispatch. Older states without a
-checkpoint also use normal preparation. Normal preparation remains the default;
-the adapter never guesses that a new user request continues an old approval.
+checkpoint also use normal preparation. The adapter only reuses a checkpoint
+whose complete evidence still validates; it never guesses that a scope change
+continues an old approval.
 
 A retained unavailable Jev result stays `NOT_EVALUATED`; continuation is not a
 provider retry. Record a Control disposition for missing mandatory evidence:
@@ -414,12 +440,15 @@ The dispatch's native session/turn evidence must match the current hook;
 matching only a model slug, terminal or copied receipt cannot inherit admission.
 This preserves the worker instruction to read only its supplied task spec.
 Session and prompt guidance expose the native hook's model, session and turn.
-A verified inherited PreToolUse call also reports those facts to the worker.
+The first verified inherited PreToolUse call in each turn also reports those
+facts to the worker; repeats in the same turn stay silent.
 Missing model evidence stays `NOT_EVALUATED`; native hooks do not supply effort.
 These messages grant no admission and do not replace the existing checks.
 The native prompt guidance identifies this inherited path separately from
 Control preparation: workers read their supplied spec, send the receipt and
-report an admission denial to Control instead of reviewing themselves.
+report an admission denial to Control instead of reviewing themselves. Worker
+prompts omit the Control preparation procedure and retain the
+verification-evidence reminder, supplied-spec, guide and read-only guidance.
 If preparation nevertheless occurs, it retains only the current prompt's
 worker claim; the same dispatch/model/terminal/inventory checks still apply.
 An unrelated prompt resets that claim and cannot inherit the preceding task.
